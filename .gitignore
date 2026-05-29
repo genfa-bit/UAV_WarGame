@@ -1,0 +1,20 @@
+# Python缓存
+__pycache__/
+*.pyc
+
+# 虚拟环境
+venv/
+uav_wargame/
+.env/
+
+# conda
+*.conda
+
+# 测试缓存
+.pytest_cache/
+
+# IDE
+.vscode/
+
+# 系统文件
+.DS_Store

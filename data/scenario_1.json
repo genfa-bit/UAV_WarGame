@@ -1,0 +1,117 @@
+{
+  "map": {
+    "width": 800,
+    "height": 600
+  },
+  "terrain": "mixed_training_area",
+  "red_base": [80, 300],
+  "blue_base": [720, 300],
+  "obstacles": [
+    {
+      "name": "中央山地",
+      "type": "mountain",
+      "x": 330,
+      "y": 120,
+      "width": 70,
+      "height": 150
+    },
+    {
+      "name": "东侧建筑群",
+      "type": "building",
+      "x": 430,
+      "y": 335,
+      "width": 85,
+      "height": 120
+    },
+    {
+      "name": "南部禁行区",
+      "type": "restricted",
+      "x": 185,
+      "y": 390,
+      "width": 95,
+      "height": 55
+    }
+  ],
+  "units": [
+    {
+      "id": "R-SD-1",
+      "name": "红-侦察无人机",
+      "team": "red",
+      "unit_type": "scout_drone",
+      "x": 85,
+      "y": 110
+    },
+    {
+      "id": "R-AD-1",
+      "name": "红-打击无人机",
+      "team": "red",
+      "unit_type": "strike_drone",
+      "x": 105,
+      "y": 225
+    },
+    {
+      "id": "R-GV-1",
+      "name": "红-无人战车",
+      "team": "red",
+      "unit_type": "ground_vehicle",
+      "x": 145,
+      "y": 335
+    },
+    {
+      "id": "R-MV-1",
+      "name": "红-导弹发射车",
+      "team": "red",
+      "unit_type": "missile_vehicle",
+      "x": 135,
+      "y": 460
+    },
+    {
+      "id": "R-CMD-1",
+      "name": "红-指挥节点",
+      "team": "red",
+      "unit_type": "command_node",
+      "x": 55,
+      "y": 520
+    },
+    {
+      "id": "B-SD-1",
+      "name": "蓝-侦察无人机",
+      "team": "blue",
+      "unit_type": "scout_drone",
+      "x": 710,
+      "y": 115
+    },
+    {
+      "id": "B-AD-1",
+      "name": "蓝-打击无人机",
+      "team": "blue",
+      "unit_type": "strike_drone",
+      "x": 695,
+      "y": 245
+    },
+    {
+      "id": "B-GV-1",
+      "name": "蓝-无人战车",
+      "team": "blue",
+      "unit_type": "ground_vehicle",
+      "x": 650,
+      "y": 355
+    },
+    {
+      "id": "B-MV-1",
+      "name": "蓝-导弹发射车",
+      "team": "blue",
+      "unit_type": "missile_vehicle",
+      "x": 655,
+      "y": 480
+    },
+    {
+      "id": "B-CMD-1",
+      "name": "蓝-指挥节点",
+      "team": "blue",
+      "unit_type": "command_node",
+      "x": 745,
+      "y": 525
+    }
+  ]
+}
