@@ -39,6 +39,7 @@ def test_air_unit_can_be_placed_above_obstacle():
     manager = _manager()
     manager.select_unit_type("scout_drone")
 
+    # 空中单位可以在障碍物上方部署
     assert manager.place_unit(60, 60)
     assert len(manager.manual_units) == 1
 

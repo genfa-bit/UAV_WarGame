@@ -34,6 +34,7 @@ class Simulator:
         self.attack_events: list[AttackEvent] = []
         self.combat_logs: list[str] = []
 
+        self.show_wrecks = True
         self._destroyed_record: set[str] = set()
         self._kill_credit_record: set[str] = set()
         self._evading_units: set[str] = set()

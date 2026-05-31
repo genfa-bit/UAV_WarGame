@@ -3,8 +3,6 @@ from types import SimpleNamespace
 from config import DEPLOY_MANUAL, DEPLOY_PRESET, TEAM_BLUE, TEAM_RED
 from core.battlefield import Battlefield, Obstacle
 from core.deployment import (
-    EVENT_KEYDOWN,
-    EVENT_MOUSEBUTTONDOWN,
     KEY_3,
     KEY_5,
     KEY_M,
@@ -18,10 +16,6 @@ from core.deployment import (
 def _manager() -> DeploymentManager:
     battlefield = Battlefield(200, 200, [Obstacle(x=50, y=50, width=40, height=40)])
     return DeploymentManager(battlefield, [])
-
-
-def _key(key: int):
-    return SimpleNamespace(type=EVENT_KEYDOWN, key=key)
 
 
 def test_m_toggles_deployment_mode():
@@ -108,5 +102,5 @@ def test_preset_map_click_gives_feedback_without_placing():
     manager.handle_mouse_button(1, (20, 20))
 
     assert manager.manual_units == []
-    assert "Preset" in manager.last_message
+    assert "预设部署" in manager.last_message
     assert "20" in manager.last_message

@@ -28,9 +28,25 @@ UNIT_REGISTRY = {
     "CommandNode": CommandNode,
 }
 
+UNIT_DOMAIN_MAP = {
+    "scout_drone": "air",
+    "strike_drone": "air",
+    "ground_vehicle": "ground",
+    "missile_vehicle": "ground",
+    "command_node": "command",
+    "UAV": "air",
+    "UGV": "ground",
+    "CommandNode": "command",
+}
+
 
 class UnitFactory:
     """根据 unit_type 创建单位对象。"""
+
+    @staticmethod
+    def get_domain(unit_type: str) -> str:
+        """根据 unit_type 返回对应的平台类型。"""
+        return UNIT_DOMAIN_MAP.get(unit_type, "ground")
 
     @staticmethod
     def create(unit_data: dict) -> Unit:

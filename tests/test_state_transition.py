@@ -40,7 +40,7 @@ def test_deployment_event_m_switches_manual_mode():
 
     assert running
     assert state == GAME_DEPLOYMENT
-    assert deployment.mode_label == "Manual"
+    assert deployment.mode_label == "手动部署"
 
 
 def test_running_space_pauses():
