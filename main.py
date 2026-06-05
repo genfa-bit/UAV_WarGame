@@ -159,8 +159,6 @@ def handle_deployment_event(event, deployment, battlefield, simulator,
     action = None
     if event.type == pygame.KEYDOWN:
         action = deployment.handle_key(event.key, getattr(event, "unicode", ""))
-    elif event.type == pygame.MOUSEBUTTONDOWN:
-        action = deployment.handle_mouse_button(event.button, event.pos, battlefield)
 
     if action == "quit":
         running = False

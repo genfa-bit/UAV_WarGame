@@ -55,10 +55,6 @@ STATE_LABELS = {
     "paused": "已暂停", "finished": "已结束",
 }
 
-MODE_LABELS = {
-    "preset": "预设部署", "manual": "手动部署",
-}
-
 # ── 对象放置参数 ──────────────────────────────────────────────
 MIN_UNIT_DISTANCE = 14
 MIN_OBSTACLE_SIZE = 12
@@ -87,9 +83,6 @@ GAME_DEPLOYMENT = SimState.DEPLOYMENT
 GAME_RUNNING = SimState.RUNNING
 GAME_PAUSED = SimState.PAUSED
 GAME_FINISHED = SimState.FINISHED
-
-DEPLOY_PRESET = "preset"
-DEPLOY_MANUAL = "manual"
 
 UNIT_RADIUS = 10
 COMMAND_SIZE = 18

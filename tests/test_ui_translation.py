@@ -1,7 +1,6 @@
 """中文界面翻译测试。"""
 
 from config import (
-    MODE_LABELS,
     OBSTACLE_TYPE_LABELS,
     STATE_LABELS,
     STATUS_LABELS,
@@ -36,11 +35,6 @@ def test_obstacle_type_labels_chinese():
     assert OBSTACLE_TYPE_LABELS["mountain"] == "山地"
     assert OBSTACLE_TYPE_LABELS["building"] == "建筑"
     assert OBSTACLE_TYPE_LABELS["restricted"] == "禁行区"
-
-
-def test_mode_labels_chinese():
-    assert MODE_LABELS["preset"] == "预设部署"
-    assert MODE_LABELS["manual"] == "手动部署"
 
 
 def test_status_labels_covers_all():

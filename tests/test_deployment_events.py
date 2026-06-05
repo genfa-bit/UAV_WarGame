@@ -1,6 +1,4 @@
-from types import SimpleNamespace
-
-from config import DEPLOY_MANUAL, DEPLOY_PRESET, TEAM_BLUE, TEAM_RED
+from config import TEAM_BLUE, TEAM_RED
 from core.battlefield import Battlefield, Obstacle
 from core.deployment import (
     KEY_3,
@@ -18,12 +16,11 @@ def _manager() -> DeploymentManager:
     return DeploymentManager(battlefield, [])
 
 
-def test_m_toggles_deployment_mode():
+def test_m_key_is_noop():
     manager = _manager()
-
     manager.handle_key(KEY_M, "m")
-
-    assert manager.mode == DEPLOY_MANUAL
+    # M key no longer toggles mode; just ignored
+    assert manager.last_message and "未识别" in manager.last_message
 
 
 def test_number_keys_select_unit_type():
@@ -44,63 +41,41 @@ def test_t_toggles_team():
     assert manager.selected_team == TEAM_BLUE
 
 
-def test_mouse_click_places_manual_unit():
-    manager = _manager()
-    manager.mode = DEPLOY_MANUAL
-
-    manager.handle_mouse_button(1, (20, 20))
-
-    assert len(manager.manual_units) == 1
-
-
 def test_manual_illegal_position_sets_error_message():
     manager = _manager()
-    manager.mode = DEPLOY_MANUAL
     manager.selected_unit_type = "ground_vehicle"
 
-    manager.handle_mouse_button(1, (60, 60))
+    manager._place_unit_at(60, 60)
 
-    assert manager.manual_units == []
     assert "失败" in manager.last_message
 
 
-def test_panel_click_does_not_place_unit():
+def test_can_start_when_red_and_blue_exist():
     manager = _manager()
-    manager.mode = DEPLOY_MANUAL
-
-    manager.handle_mouse_button(1, (210, 20))
-
-    assert manager.manual_units == []
-
-
-def test_can_start_when_manual_red_and_blue_exist():
-    manager = _manager()
-    manager.mode = DEPLOY_MANUAL
     manager.selected_team = TEAM_RED
-    manager.place_unit(20, 20)
+    manager._place_unit_at(20, 20)
     manager.selected_team = TEAM_BLUE
-    manager.place_unit(150, 150)
+    manager._place_unit_at(150, 150)
 
     action = manager.handle_key(KEY_RETURN)
 
     assert action == "start"
 
 
-def test_r_restores_preset_mode():
+def test_r_restores_preset():
     manager = _manager()
-    manager.mode = DEPLOY_MANUAL
 
     action = manager.handle_key(KEY_R, "r")
 
     assert action == "reset"
-    assert manager.mode == DEPLOY_PRESET
 
 
-def test_preset_map_click_gives_feedback_without_placing():
+def test_clear_map_removes_all():
     manager = _manager()
+    manager.selected_team = TEAM_RED
+    manager._place_unit_at(20, 20)
 
-    manager.handle_mouse_button(1, (20, 20))
+    manager.clear_map()
 
-    assert manager.manual_units == []
-    assert "预设部署" in manager.last_message
-    assert "20" in manager.last_message
+    assert manager.deploy_units == []
+    assert manager.battlefield.obstacles == []

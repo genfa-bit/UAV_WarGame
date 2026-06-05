@@ -27,22 +27,6 @@ def test_preset_enter_starts_running():
     assert simulator.time_step == 0
 
 
-def test_deployment_event_m_switches_manual_mode():
-    deployment, battlefield = create_deployment()
-
-    simulator, state, deployment, battlefield, running = handle_deployment_event(
-        pygame.event.Event(pygame.KEYDOWN, key=pygame.K_m, unicode="m"),
-        deployment,
-        battlefield,
-        None,
-        GAME_DEPLOYMENT,
-    )
-
-    assert running
-    assert state == GAME_DEPLOYMENT
-    assert deployment.mode_label == "手动部署"
-
-
 def test_running_space_pauses():
     deployment, battlefield = create_deployment()
 

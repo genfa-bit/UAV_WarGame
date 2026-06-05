@@ -1,7 +1,7 @@
 """部署阶段管理器。
 
-DeploymentManager 负责预设/手动部署，在手动模式下统一管理
-单位放置、障碍物创建/移动/缩放、基地拖动和删除。
+统一部署阶段：加载预设地图后可直接编辑（增删单位、创建/移动障碍物、
+拖动基地），C 清空地图，R 恢复预设，Ctrl+S 保存，L 加载。
 """
 
 from __future__ import annotations
@@ -10,8 +10,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from config import (
-    DEPLOY_MANUAL,
-    DEPLOY_PRESET,
     DRAG_THRESHOLD,
     OBSTACLE_TYPE_LABELS,
     STATUS_MOVE,
@@ -28,49 +26,29 @@ from core.units import Unit, UnitDomain
 UNIT_LABELS = UNIT_TYPE_LABELS
 
 UNIT_KEYS = {
-    "1": "scout_drone",
-    "2": "strike_drone",
-    "3": "ground_vehicle",
-    "4": "missile_vehicle",
-    "5": "command_node",
+    "1": "scout_drone", "2": "strike_drone", "3": "ground_vehicle",
+    "4": "missile_vehicle", "5": "command_node",
 }
 
 OBSTACLE_KEYS = {
-    "6": "mountain",
-    "7": "building",
-    "8": "restricted",
+    "6": "mountain", "7": "building", "8": "restricted",
 }
 
-# 键盘码常量
 KEY_ESCAPE = 27
 KEY_RETURN = 13
 KEY_BACKSPACE = 8
 KEY_DELETE = 127
-KEY_1 = 49
-KEY_2 = 50
-KEY_3 = 51
-KEY_4 = 52
-KEY_5 = 53
-KEY_6 = 54
-KEY_7 = 55
-KEY_8 = 56
-KEY_C = 99
-KEY_M = 109
-KEY_R = 114
-KEY_T = 116
+KEY_1 = 49; KEY_2 = 50; KEY_3 = 51; KEY_4 = 52; KEY_5 = 53
+KEY_6 = 54; KEY_7 = 55; KEY_8 = 56
+KEY_C = 99; KEY_M = 109; KEY_R = 114; KEY_T = 116
 
 UNIT_KEY_CODES = {
-    KEY_1: "scout_drone",
-    KEY_2: "strike_drone",
-    KEY_3: "ground_vehicle",
-    KEY_4: "missile_vehicle",
-    KEY_5: "command_node",
+    KEY_1: "scout_drone", KEY_2: "strike_drone", KEY_3: "ground_vehicle",
+    KEY_4: "missile_vehicle", KEY_5: "command_node",
 }
 
 OBSTACLE_KEY_CODES = {
-    KEY_6: "mountain",
-    KEY_7: "building",
-    KEY_8: "restricted",
+    KEY_6: "mountain", KEY_7: "building", KEY_8: "restricted",
 }
 
 
@@ -82,51 +60,34 @@ class DeploymentResult:
 
 
 class DeploymentManager:
-    """管理部署模式、当前选择、手动部署单位和地图编辑。"""
+    """统一的部署阶段管理（预设即初始状态，可直接编辑）。"""
 
     def __init__(self, battlefield: Battlefield, preset_units: list[Unit]):
         self.battlefield = battlefield
-        self.preset_units = preset_units
-        self._preset_obstacles = list(battlefield.obstacles)
-        self._preset_red_base = battlefield.red_base
-        self._preset_blue_base = battlefield.blue_base
-        self.mode = DEPLOY_PRESET
+        self._original_units = [self._clone_unit(u) for u in preset_units]
+        self._original_obstacles = [
+            Obstacle(o.x, o.y, o.width, o.height, o.name, o.type)
+            for o in battlefield.obstacles
+        ]
+        self._original_red_base = battlefield.red_base
+        self._original_blue_base = battlefield.blue_base
+        self.deploy_units: list[Unit] = [self._clone_unit(u) for u in preset_units]
         self.selected_team = TEAM_RED
         self.selected_unit_type: str | None = "scout_drone"
         self.selected_obstacle_type: str | None = None
-        self.manual_units: list[Unit] = []
-        self.last_message = "部署阶段：按 Enter 使用预设开局开始仿真"
-        self._sequence = 1
+        self.last_message = "部署阶段：按 Enter 开始仿真，可直接编辑单位和障碍物"
+        self._sequence = len(preset_units) + 1
         self._editor = MapEditor(battlefield)
 
-        # 鼠标交互状态
         self._mouse_down = False
         self._drag_start_x: float = 0.0
         self._drag_start_y: float = 0.0
-        self._hit_type: str = ""          # "empty" / "unit" / "obstacle" / "base" / "resize"
+        self._hit_type: str = ""
         self._hit_index: int | None = None
 
     # ═══════════════════════════════════════════════════════════
-    #  键盘处理
+    #  键盘
     # ═══════════════════════════════════════════════════════════
-
-    def toggle_mode(self) -> None:
-        self.mode = DEPLOY_MANUAL if self.mode == DEPLOY_PRESET else DEPLOY_PRESET
-        self.selected_unit_type = "scout_drone"
-        self.selected_obstacle_type = None
-        self._editor.clear_selection()
-        if self.mode == DEPLOY_MANUAL:
-            self.battlefield.obstacles.clear()
-            self.manual_units.clear()
-            self._sequence = 1
-        else:
-            self.battlefield.obstacles[:] = [Obstacle(
-                x=o.x, y=o.y, width=o.width, height=o.height,
-                name=o.name, type=o.type,
-            ) for o in self._preset_obstacles]
-            self.battlefield.red_base = self._preset_red_base
-            self.battlefield.blue_base = self._preset_blue_base
-        self.last_message = f"已切换到{'手动部署' if self.mode == DEPLOY_MANUAL else '预设部署'} 模式"
 
     def toggle_team(self) -> None:
         self.selected_team = TEAM_BLUE if self.selected_team == TEAM_RED else TEAM_RED
@@ -156,21 +117,15 @@ class DeploymentManager:
         if key == KEY_RETURN:
             result = self.finalize()
             return "start" if result.ok else None
-        if key == KEY_M or normalized_text == "m":
-            self.toggle_mode()
-        elif key == KEY_T or normalized_text == "t":
+        if key == KEY_T or normalized_text == "t":
             self.toggle_team()
         elif key == KEY_BACKSPACE:
-            if self._editor.state.selected_obs_idx is not None:
-                self._editor.delete_selected()
-            else:
-                self.undo()
+            self.undo_last_unit()
         elif key == KEY_DELETE:
             if self._editor.state.selected_obs_idx is not None:
                 self._editor.delete_selected()
         elif key == KEY_C or normalized_text == "c":
-            self.clear_manual()
-            self._editor.clear_selection()
+            self.clear_map()
         elif key == KEY_R or normalized_text == "r":
             self.reset_to_preset()
             return "reset"
@@ -187,22 +142,63 @@ class DeploymentManager:
         return None
 
     # ═══════════════════════════════════════════════════════════
-    #  鼠标处理（在渲染器中完成坐标转换后传入战场逻辑坐标）
+    #  地图操作
+    # ═══════════════════════════════════════════════════════════
+
+    def clear_map(self) -> None:
+        """清空所有单位和障碍物（保留基地）。"""
+        self.deploy_units.clear()
+        self.battlefield.obstacles.clear()
+        self._sequence = 1
+        self._editor.clear_selection()
+        self.last_message = "地图已清空，可以开始手动部署"
+
+    def reset_to_preset(self, new_units: list[Unit] | None = None) -> None:
+        """恢复为原始预设状态。"""
+        if new_units is not None:
+            self._original_units = [self._clone_unit(u) for u in new_units]
+            self._original_obstacles = [
+                Obstacle(o.x, o.y, o.width, o.height, o.name, o.type)
+                for o in self.battlefield.obstacles
+            ]
+            self._original_red_base = self.battlefield.red_base
+            self._original_blue_base = self.battlefield.blue_base
+        self.deploy_units = [self._clone_unit(u) for u in self._original_units]
+        self.battlefield.obstacles[:] = [
+            Obstacle(o.x, o.y, o.width, o.height, o.name, o.type)
+            for o in self._original_obstacles
+        ]
+        self.battlefield.red_base = self._original_red_base
+        self.battlefield.blue_base = self._original_blue_base
+        self.selected_unit_type = "scout_drone"
+        self.selected_obstacle_type = None
+        self._sequence = len(self._original_units) + 1
+        self._editor.clear_selection()
+        self._mouse_down = False
+        self._hit_type = ""
+        self._hit_index = None
+        self.last_message = "已恢复预设开局"
+
+    def undo_last_unit(self) -> None:
+        """撤销最近部署的单位。"""
+        if not self.deploy_units:
+            self.last_message = "没有可撤销的单位"
+            return
+        removed = self.deploy_units.pop()
+        if self._sequence > 1:
+            self._sequence -= 1
+        self.last_message = f"已撤销 {removed.name}"
+
+    # ═══════════════════════════════════════════════════════════
+    #  鼠标
     # ═══════════════════════════════════════════════════════════
 
     def handle_mouse_down(self, button: int, bf_x: float, bf_y: float) -> None:
-        """处理鼠标按下事件（战场逻辑坐标）。"""
-        if button == 3:  # 右键：删除
+        if button == 3:
             self._handle_right_click(bf_x, bf_y)
             return
-
         if button != 1:
             return
-
-        if self.mode != DEPLOY_MANUAL:
-            self.last_message = "当前为预设部署模式，按 M 切换到手动部署后编辑"
-            return
-
         if not self.battlefield.in_bounds(bf_x, bf_y):
             return
 
@@ -210,70 +206,59 @@ class DeploymentManager:
         self._drag_start_x = bf_x
         self._drag_start_y = bf_y
 
-        # 优先级: resize 把手 > 障碍物 > 单位 > 基地 > 空位
-        # 1. resize 把手（已选中的障碍物右下角）
         obs_idx = self._editor.hit_obstacle(bf_x, bf_y)
+        # resize 把手
         if obs_idx is not None and self._editor.state.selected_obs_idx == obs_idx:
             if self._editor.hit_resize_handle(bf_x, bf_y):
                 self._hit_type = "resize"
                 self._hit_index = obs_idx
                 self._editor.start_resize()
                 return
-
-        # 2. 障碍物主体
+        # 障碍物
         if obs_idx is not None:
             self._hit_type = "obstacle"
             self._hit_index = obs_idx
             self._editor.start_drag_obstacle(obs_idx, bf_x, bf_y)
             return
-
-        # 3. 单位
-        units = self.display_units()
-        unit_idx = self._editor.hit_unit(bf_x, bf_y, units)
+        # 单位
+        unit_idx = self._editor.hit_unit(bf_x, bf_y, self.deploy_units)
         if unit_idx is not None:
             self._hit_type = "unit"
             self._hit_index = unit_idx
-            self._editor.start_drag_unit(unit_idx, units)
+            self._editor.start_drag_unit(unit_idx, self.deploy_units)
             return
-
-        # 4. 基地
+        # 基地
         base = self._editor.hit_base(bf_x, bf_y)
         if base is not None:
             self._hit_type = "base"
             self._editor.start_drag_base(base)
             return
-
-        # 5. 空位
+        # 空位
         self._hit_type = "empty"
         self._editor.clear_selection()
         if self.selected_obstacle_type:
             self._editor.start_create_obstacle(bf_x, bf_y)
 
     def handle_mouse_motion(self, bf_x: float, bf_y: float) -> None:
-        """处理鼠标移动事件（战场逻辑坐标）。"""
         if not self._mouse_down:
             return
-
         if self._hit_type == "resize":
             self._editor.update_resize(bf_x, bf_y)
         elif self._hit_type == "obstacle":
             self._editor.update_drag_obstacle(bf_x, bf_y)
             self.last_message = "正在移动障碍物..."
         elif self._hit_type == "unit":
-            units = self.display_units()
-            self._editor.update_drag_unit(bf_x, bf_y, units)
+            self._editor.update_drag_unit(bf_x, bf_y, self.deploy_units)
         elif self._hit_type == "base":
             self._editor.update_drag_base(bf_x, bf_y)
         elif self._hit_type == "empty" and self.selected_obstacle_type:
             self._editor.update_create_obstacle(bf_x, bf_y)
 
     def handle_mouse_up(self, button: int, bf_x: float, bf_y: float) -> None:
-        """处理鼠标释放事件（战场逻辑坐标）。"""
         if button != 1 or not self._mouse_down:
             return
-
         self._mouse_down = False
-        self._editor._deploy_units = self.display_units()
+        self._editor._deploy_units = self.deploy_units
         dist = ((bf_x - self._drag_start_x) ** 2 + (bf_y - self._drag_start_y) ** 2) ** 0.5
 
         if self._hit_type == "resize":
@@ -282,9 +267,9 @@ class DeploymentManager:
             self._editor.finish_drag_obstacle()
         elif self._hit_type == "unit":
             unit_idx = self._hit_index
-            unit = self.display_units()[unit_idx] if unit_idx is not None and unit_idx < len(self.display_units()) else None
+            unit = self.deploy_units[unit_idx] if unit_idx is not None and unit_idx < len(self.deploy_units) else None
             domain = unit.domain if unit else "ground"
-            self._editor.finish_drag_unit(domain, self.display_units(), unit_idx)
+            self._editor.finish_drag_unit(domain, self.deploy_units, unit_idx)
         elif self._hit_type == "base":
             self._editor.finish_drag_base()
         elif self._hit_type == "empty":
@@ -297,103 +282,61 @@ class DeploymentManager:
         self._hit_index = None
 
     def _handle_right_click(self, bf_x: float, bf_y: float) -> None:
-        """右键点击：删除命中的单位/障碍物。"""
-        if self.mode != DEPLOY_MANUAL:
-            return
         if not self.battlefield.in_bounds(bf_x, bf_y):
             return
-
         obs_idx = self._editor.hit_obstacle(bf_x, bf_y)
         if obs_idx is not None:
             self._editor.delete_obstacle(obs_idx)
             return
-
-        units = self.display_units()
-        unit_idx = self._editor.hit_unit(bf_x, bf_y, units)
+        unit_idx = self._editor.hit_unit(bf_x, bf_y, self.deploy_units)
         if unit_idx is not None:
-            unit = units[unit_idx]
-            if unit in self.manual_units:
-                self.manual_units.remove(unit)
+            unit = self.deploy_units[unit_idx]
+            self.deploy_units.remove(unit)
+            if self._sequence > 1:
+                self._sequence -= 1
             self.last_message = f"已删除 {unit.name}"
-            return
 
     # ═══════════════════════════════════════════════════════════
     #  单位放置
     # ═══════════════════════════════════════════════════════════
 
     def _place_unit_at(self, x: float, y: float) -> bool:
-        """在指定位置放置单位（含重叠+障碍物+基地检测）。"""
         if not self.selected_unit_type:
             return False
         domain = UnitFactory.get_domain(self.selected_unit_type)
-        units = self.display_units()
-
         if not self.battlefield.in_bounds(x, y):
             self.last_message = "放置失败：不能部署在地图外"
             return False
-        if self._editor.check_unit_in_obstacle(x, y, domain):
-            self.last_message = "放置失败：该兵种不能放入障碍物"
+        if self._editor.check_in_any_obstacle(x, y):
+            self.last_message = "放置失败：不能放在障碍物上"
             return False
-        if self._editor.check_unit_overlap(x, y, units):
+        if self._editor.check_unit_overlap(x, y, self.deploy_units):
             self.last_message = "放置失败：与已有单位重叠"
             return False
         if self._editor.check_unit_near_base(x, y):
             self.last_message = "放置失败：与基地过近"
             return False
-
         unit = self._build_unit(x, y)
-        self.manual_units.append(unit)
+        self.deploy_units.append(unit)
         self._sequence += 1
         self.last_message = f"已部署 {unit.name}"
         return True
 
     # ═══════════════════════════════════════════════════════════
-    #  原有部署管理方法
-    # ═══════════════════════════════════════════════════════════
-
-    def undo(self) -> bool:
-        if not self.manual_units:
-            self.last_message = "没有可撤销的部署"
-            return False
-        removed = self.manual_units.pop()
-        self.last_message = f"已撤销 {removed.name}"
-        return True
-
-    def clear_manual(self) -> None:
-        self.manual_units.clear()
-        self.last_message = "已清空手动部署"
-
-    def reset_to_preset(self, preset_units: list[Unit] | None = None) -> None:
-        if preset_units is not None:
-            self.preset_units = preset_units
-        self.mode = DEPLOY_PRESET
-        self.selected_unit_type = "scout_drone"
-        self.selected_obstacle_type = None
-        self.manual_units.clear()
-        self._sequence = 1
-        self._editor.clear_selection()
-        self._mouse_down = False
-        self._hit_type = ""
-        self._hit_index = None
-        self.last_message = "已恢复预设开局"
 
     def display_units(self) -> list[Unit]:
-        return self.preset_units if self.mode == DEPLOY_PRESET else self.manual_units
+        return self.deploy_units
 
     def finalize(self) -> DeploymentResult:
-        units = self.display_units()
-        if not units:
+        if not self.deploy_units:
             self.last_message = "无法开始：请至少部署红蓝双方单位"
             return DeploymentResult(False, [], self.last_message)
-        teams = {unit.team for unit in units if unit.is_alive()}
+        teams = {u.team for u in self.deploy_units if u.is_alive()}
         if TEAM_RED not in teams or TEAM_BLUE not in teams:
             self.last_message = "无法开始：红蓝双方都需要至少一个单位"
             return DeploymentResult(False, [], self.last_message)
         self.last_message = "部署完成，开始仿真"
-        return DeploymentResult(True, [self._clone_unit(unit) for unit in units], self.last_message)
-
-    def is_valid_position(self, unit: Unit, x: float, y: float) -> bool:
-        return self.battlefield.is_position_valid(x, y, unit.domain)
+        return DeploymentResult(True, [self._clone_unit(u) for u in self.deploy_units], self.last_message)
 
     @property
     def selected_label(self) -> str:
@@ -402,40 +345,6 @@ class DeploymentManager:
         if self.selected_obstacle_type:
             return OBSTACLE_TYPE_LABELS[self.selected_obstacle_type]
         return "无"
-
-    @property
-    def mode_label(self) -> str:
-        return "手动部署" if self.mode == DEPLOY_MANUAL else "预设部署"
-
-    # ── 向后兼容（测试用）───────────────────────────────────
-
-    def select_unit_type(self, unit_type: str) -> None:
-        self._select_unit_type(unit_type)
-
-    def place_unit(self, x: float, y: float) -> bool:
-        """测试用：手动部署时直接放置单位。"""
-        if self.mode != DEPLOY_MANUAL:
-            self.last_message = "当前为预设部署模式，按 M 切换到手动部署后部署"
-            return False
-        return self._place_unit_at(x, y)
-
-    def handle_mouse_button(self, button: int, pos: tuple[float, float],
-                            battlefield: Battlefield | None = None) -> str | None:
-        """兼容旧调用：左键放置单位。"""
-        if button != 1:
-            return None
-        bf = battlefield or self.battlefield
-        x, y = pos
-        if x >= bf.width:
-            self.last_message = "点击被忽略：右侧信息面板不是部署区域"
-            return None
-        if self.mode != DEPLOY_MANUAL:
-            self.last_message = f"地图点击 ({int(x)}, {int(y)})：当前为预设部署模式，按 M 切换到手动部署后部署"
-            return None
-        placed = self._place_unit_at(x, y)
-        if not placed and not self.last_message.startswith("地图点击"):
-            self.last_message = f"地图点击 ({int(x)}, {int(y)})：{self.last_message}"
-        return None
 
     @property
     def editor(self) -> MapEditor:
@@ -450,7 +359,8 @@ class DeploymentManager:
             "unit_type": self.selected_unit_type, "x": x, "y": y,
         })
 
-    def _clone_unit(self, unit: Unit) -> Unit:
+    @staticmethod
+    def _clone_unit(unit: Unit) -> Unit:
         return UnitFactory.create({
             "id": unit.id, "name": unit.name, "team": unit.team,
             "unit_type": unit.unit_type, "x": unit.x, "y": unit.y,
@@ -458,5 +368,6 @@ class DeploymentManager:
             "detect_range": unit.detect_range, "attack_range": unit.attack_range,
             "attack_power": unit.attack_power, "ammo": unit.ammo,
             "status": STATUS_MOVE, "target_id": None,
-            "can_attack_air": unit.can_attack_air, "can_attack_ground": unit.can_attack_ground,
+            "can_attack_air": unit.can_attack_air,
+            "can_attack_ground": unit.can_attack_ground,
         })

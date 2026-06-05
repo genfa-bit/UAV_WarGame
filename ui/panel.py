@@ -6,7 +6,6 @@ import pygame
 
 from config import (
     MAP_WIDTH,
-    MODE_LABELS,
     PANEL_BG,
     PANEL_WIDTH,
     SCREEN_HEIGHT,
@@ -59,14 +58,12 @@ class InfoPanel:
     def draw_deployment(self, surface: pygame.Surface, deployment,
                         battlefield) -> None:
         self._draw_background(surface)
-        mode_label = MODE_LABELS.get(deployment.mode, deployment.mode_label)
         selected = deployment.selected_label
 
         lines = [
             ("部署阶段", self.title_font),
             ("", self.font),
             (f"系统状态: {self._state_text('deployment')}", self.font),
-            (f"当前模式: {mode_label}", self.font),
             (f"当前阵营: {'红方' if deployment.selected_team == 'red' else '蓝方'}", self.font),
             (f"当前选择: {selected}", self.small_font),
             (f"单位数量: {len(deployment.display_units())}", self.font),
@@ -90,10 +87,9 @@ class InfoPanel:
             ("左键拖拽把手  调整障碍物大小", self.small_font),
             ("右键点击  删除对象", self.small_font),
             ("T   切换红/蓝方", self.small_font),
-            ("M   切换预设/手动", self.small_font),
             ("Delete  删除选中障碍物", self.small_font),
             ("Backspace  撤销部署", self.small_font),
-            ("C   清空手动部署", self.small_font),
+            ("C   清空地图", self.small_font),
             ("R   恢复预设开局", self.small_font),
             ("Enter  开始仿真", self.small_font),
             ("Ctrl+S  保存地图", self.small_font),
