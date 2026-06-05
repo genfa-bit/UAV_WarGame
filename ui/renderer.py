@@ -87,16 +87,24 @@ class Renderer:
             self.screen.blit(label, (rect.x + 4, rect.y + 2))
 
     def _draw_bases(self, battlefield) -> None:
-        for label, pos, color in (
-            ("红基地", battlefield.red_base, RED_COLOR),
-            ("蓝基地", battlefield.blue_base, BLUE_COLOR),
+        for label, base_obj, color in (
+            ("红基地", battlefield.red_base_obj, RED_COLOR),
+            ("蓝基地", battlefield.blue_base_obj, BLUE_COLOR),
         ):
-            x, y = int(pos[0]), int(pos[1])
+            x, y = int(base_obj.x), int(base_obj.y)
             pygame.draw.circle(self.screen, color, (x, y), 18, 2)
             pygame.draw.line(self.screen, color, (x - 12, y), (x + 12, y), 2)
             pygame.draw.line(self.screen, color, (x, y - 12), (x, y + 12), 2)
             text = self.small_font.render(label, True, TEXT_COLOR)
             self.screen.blit(text, (x - text.get_width() // 2, y + 20))
+            # 基地血条
+            bw, bh = 40, 5
+            bar_x = x - bw // 2
+            bar_y = y - 30
+            pygame.draw.rect(self.screen, HP_RED, (bar_x, bar_y, bw, bh))
+            hp_w = int(bw * max(0, base_obj.hp_ratio))
+            pygame.draw.rect(self.screen, HP_GREEN, (bar_x, bar_y, hp_w, bh))
+            pygame.draw.rect(self.screen, (18, 18, 18), (bar_x, bar_y, bw, bh), 1)
 
     @staticmethod
     def _obstacle_color(obstacle_type: str) -> tuple[int, int, int]:

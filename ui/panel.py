@@ -34,6 +34,14 @@ class InfoPanel:
             (f"系统状态: {self._state_text(game_state)}", self.font),
             (f"残骸显示: {wreck_status}", self.small_font),
             ("", self.font),
+            ("── 战场态势 ──", self.small_font),
+            (f"红方战力: {snapshot['red_strength']}  基地: {snapshot['red_base_hp']}/{snapshot['red_base_max']}", self.font),
+            (f"蓝方战力: {snapshot['blue_strength']}  基地: {snapshot['blue_base_hp']}/{snapshot['blue_base_max']}", self.font),
+            (f"红方态势: {snapshot['red_situation']} ({snapshot['red_tactics']})", self.small_font),
+            (f"蓝方态势: {snapshot['blue_situation']} ({snapshot['blue_tactics']})", self.small_font),
+            (f"红方行为: {snapshot['red_behavior']}", self.small_font),
+            (f"蓝方行为: {snapshot['blue_behavior']}", self.small_font),
+            ("", self.font),
             (f"剩余 红/蓝: {snapshot['red_remaining']} / {snapshot['blue_remaining']}", self.font),
             (f"摧毁 红/蓝: {snapshot['red_kills']} / {snapshot['blue_kills']}", self.font),
             (f"攻击 红/蓝: {snapshot['red_attacks']} / {snapshot['blue_attacks']}", self.font),
@@ -51,7 +59,7 @@ class InfoPanel:
             ("R      返回部署", self.small_font),
             ("ESC    退出", self.small_font),
         ]
-        self._draw_lines(surface, lines, start_y=16, line_height=22)
+        self._draw_lines(surface, lines, start_y=8, line_height=19)
 
     # ── 部署阶段 ──────────────────────────────────────────────
 

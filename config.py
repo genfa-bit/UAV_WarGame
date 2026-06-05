@@ -71,6 +71,24 @@ THREAT_VALUE_BY_TYPE = {
     "missile_vehicle": 6, "command_node": 8,
 }
 
+# ── 第八阶段：威胁 / 态势 / 行为 / 卡死检测 ──────────────────
+BASE_THREAT_SCORE = {
+    "scout_drone": 30, "strike_drone": 80, "ground_vehicle": 60,
+    "missile_vehicle": 100, "command_node": 20,
+}
+STRENGTH_ATTACK_WEIGHT = 0.4
+STRENGTH_HP_WEIGHT = 0.4
+STRENGTH_AMMO_WEIGHT = 0.2
+SITUATION_ADVANTAGE_RATIO = 1.5
+SITUATION_DISADVANTAGE_RATIO = 0.8
+STUCK_THRESHOLD = 6          # 连续N帧位移<3px视为卡死
+STUCK_MOVE_DELTA = 3.0       # 卡死判定最小位移
+TARGET_LOCK_TIME = 5          # 目标锁定帧数
+BASE_MAX_HP = 300             # 基地最大血量
+BASE_REPAIR_RADIUS = 80       # 基地补给半径
+BASE_REPAIR_PER_STEP = 8      # 每帧补给量（血量+弹药）
+COMM_DELAY_FACTOR = 0.15      # 通信延迟系数（步/像素距离）
+
 
 class SimState:
     DEPLOYMENT = "deployment"

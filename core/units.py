@@ -246,7 +246,7 @@ class MissileVehicle(Unit):
 
 
 class CommandNode(Unit):
-    """指挥节点：固定不动，生命值较高，可作为核心节点。"""
+    """指挥节点：固定不动，生命值较高，通信枢纽。"""
 
     def __init__(self, **kwargs):
         defaults = dict(
@@ -263,6 +263,7 @@ class CommandNode(Unit):
         )
         defaults.update(kwargs)
         super().__init__(**defaults)
+        self.comm_range = 250  # 非 dataclass 字段，通信范围
 
 
 # 兼容第一、二阶段命名，避免旧测试或旧场景短期内失效。
