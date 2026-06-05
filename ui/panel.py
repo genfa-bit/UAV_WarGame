@@ -5,21 +5,20 @@ from __future__ import annotations
 import pygame
 
 from config import (
+    MAP_WIDTH,
     MODE_LABELS,
-    OBSTACLE_TYPE_LABELS,
     PANEL_BG,
+    PANEL_WIDTH,
+    SCREEN_HEIGHT,
     STATE_LABELS,
     TEXT_COLOR,
-    UNIT_TYPE_LABELS,
 )
 
 
 class InfoPanel:
     """显示部署提示或运行期统计信息。"""
 
-    def __init__(self, panel_width: int, map_width: int):
-        self.panel_w = panel_width
-        self.map_w = map_width
+    def __init__(self):
         self.font = pygame.font.SysFont("Microsoft YaHei", 15)
         self.small_font = pygame.font.SysFont("Microsoft YaHei", 13)
         self.title_font = pygame.font.SysFont("Microsoft YaHei", 20, bold=True)
@@ -50,7 +49,6 @@ class InfoPanel:
             ("Space  暂停/继续", self.small_font),
             ("S      单步推进", self.small_font),
             ("K      切换残骸显示", self.small_font),
-            ("F11    全屏切换", self.small_font),
             ("R      返回部署", self.small_font),
             ("ESC    退出", self.small_font),
         ]
@@ -110,7 +108,7 @@ class InfoPanel:
     # ── 内部方法 ──────────────────────────────────────────────
 
     def _draw_background(self, surface: pygame.Surface) -> None:
-        panel_rect = pygame.Rect(self.map_w, 0, self.panel_w, surface.get_height())
+        panel_rect = pygame.Rect(MAP_WIDTH, 0, PANEL_WIDTH, SCREEN_HEIGHT)
         pygame.draw.rect(surface, PANEL_BG, panel_rect)
 
     def _draw_lines(self, surface: pygame.Surface, lines, start_y: int = 22,
@@ -119,7 +117,7 @@ class InfoPanel:
         for text, font in lines:
             if text:
                 rendered = font.render(text, True, TEXT_COLOR)
-                surface.blit(rendered, (self.map_w + 10, y))
+                surface.blit(rendered, (MAP_WIDTH + 10, y))
             y += line_height
 
     def _state_text(self, game_state: str) -> str:

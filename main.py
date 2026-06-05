@@ -1,11 +1,8 @@
 """无人装备战争游戏仿真系统入口。"""
 
-import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-
-os.environ['SDL_VIDEO_WINDOW_POS'] = 'center'
 
 try:
     import pygame
@@ -25,15 +22,12 @@ except ModuleNotFoundError:
         K_RETURN = 13
         K_BACKSPACE = 8
         K_SPACE = 32
-        K_F11 = 292
         K_DELETE = 127
         K_1 = 49; K_2 = 50; K_3 = 51; K_4 = 52; K_5 = 53
         K_6 = 54; K_7 = 55; K_8 = 56
         K_c = 99; K_m = 109; K_r = 114; K_s = 115; K_t = 116
         K_e = 101; K_k = 107; K_l = 108
         KMOD_CTRL = 64
-        FULLSCREEN = 0x80000000
-        SCALED = 512
         SRCALPHA = 0x00010000
 
         @staticmethod
@@ -49,16 +43,13 @@ except ModuleNotFoundError:
     pygame = _PygameFallback()
 
 from config import (
-    BATTLEFIELD_H,
-    BATTLEFIELD_W,
-    DEFAULT_SCREEN_HEIGHT,
-    DEFAULT_SCREEN_WIDTH,
     FPS,
-    FULLSCREEN,
     GAME_DEPLOYMENT,
     GAME_FINISHED,
     GAME_PAUSED,
     GAME_RUNNING,
+    SCREEN_HEIGHT,
+    SCREEN_WIDTH,
     SIMULATION_INTERVAL_MS,
 )
 from core.deployment import DeploymentManager
@@ -71,23 +62,6 @@ BASE_DIR = Path(__file__).resolve().parent
 SCENARIO_PATH = BASE_DIR / "data" / "scenario_1.json"
 
 
-def _window_on_top() -> None:
-    """将窗口置于最前端（临时置顶后取消，使窗口保持在最上）。"""
-    try:
-        import ctypes
-        hwnd = pygame.display.get_wm_info()['window']
-        SWP_NOMOVE = 0x0002
-        SWP_NOSIZE = 0x0001
-        # 临时置顶，强制窗口跳到 Z 序最前
-        ctypes.windll.user32.SetWindowPos(
-            hwnd, -1, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
-        # 取消置顶，窗口保持当前位置（仍在其他窗口之上）
-        ctypes.windll.user32.SetWindowPos(
-            hwnd, -2, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
-    except Exception:
-        pass
-
-
 def create_deployment() -> tuple[DeploymentManager, object]:
     battlefield, preset_units = load_scenario(SCENARIO_PATH)
     return DeploymentManager(battlefield, preset_units), battlefield
@@ -98,17 +72,12 @@ def main() -> None:
 
     pygame.init()
     pygame.display.set_caption("无人装备战争游戏仿真系统")
-    flags = 0
-    screen = pygame.display.set_mode((DEFAULT_SCREEN_WIDTH, DEFAULT_SCREEN_HEIGHT), flags)
-    pygame.display.flip()
-    pygame.event.pump()
-    _window_on_top()
-    fullscreen = FULLSCREEN
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     clock = pygame.time.Clock()
 
     deployment, battlefield = create_deployment()
     simulator: Simulator | None = None
-    renderer = Renderer(screen, BATTLEFIELD_W, BATTLEFIELD_H)
+    renderer = Renderer(screen)
 
     game_state = GAME_DEPLOYMENT
     running = True
@@ -124,21 +93,8 @@ def main() -> None:
             elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 running = False
 
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
-                fullscreen = not fullscreen
-                if fullscreen:
-                    screen = pygame.display.set_mode(
-                        (DEFAULT_SCREEN_WIDTH, DEFAULT_SCREEN_HEIGHT),
-                        pygame.FULLSCREEN | pygame.SCALED)
-                else:
-                    screen = pygame.display.set_mode(
-                        (DEFAULT_SCREEN_WIDTH, DEFAULT_SCREEN_HEIGHT))
-                renderer = Renderer(screen, BATTLEFIELD_W, BATTLEFIELD_H)
-                _window_on_top()
-
             elif game_state == GAME_DEPLOYMENT:
                 if event.type == pygame.KEYDOWN:
-                    # Ctrl+S 保存
                     if event.key == pygame.K_s and ctrl_held:
                         filepath = BASE_DIR / "data" / "saved_map.json"
                         try:
@@ -146,7 +102,6 @@ def main() -> None:
                             deployment.last_message = f"地图保存成功: {filepath.name}"
                         except Exception as e:
                             deployment.last_message = f"保存失败: {e}"
-                    # L 加载
                     elif event.key == pygame.K_l and not ctrl_held:
                         data_dir = BASE_DIR / "data"
                         files = list_scenarios(data_dir)
@@ -166,14 +121,11 @@ def main() -> None:
                                 event, deployment, battlefield, simulator, game_state, running)
 
                 elif event.type == pygame.MOUSEBUTTONDOWN:
-                    bf_x, bf_y = renderer.to_battlefield(*event.pos)
-                    deployment.handle_mouse_down(event.button, bf_x, bf_y)
+                    deployment.handle_mouse_down(event.button, event.pos[0], event.pos[1])
                 elif event.type == pygame.MOUSEBUTTONUP:
-                    bf_x, bf_y = renderer.to_battlefield(*event.pos)
-                    deployment.handle_mouse_up(event.button, bf_x, bf_y)
+                    deployment.handle_mouse_up(event.button, event.pos[0], event.pos[1])
                 elif event.type == pygame.MOUSEMOTION:
-                    bf_x, bf_y = renderer.to_battlefield(*event.pos)
-                    deployment.handle_mouse_motion(bf_x, bf_y)
+                    deployment.handle_mouse_motion(event.pos[0], event.pos[1])
 
                 last_step_time = pygame.time.get_ticks()
 
