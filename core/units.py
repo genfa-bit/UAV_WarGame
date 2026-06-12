@@ -253,6 +253,15 @@ class CommandNode(Unit):
         self.comm_range = 250
 
 
+class BaseUnit(Unit):
+    """基地：固定不动，高生命值，为周围友军提供补给。"""
+
+    def __init__(self, **kwargs):
+        defaults = _unit_defaults("base")
+        defaults.update(kwargs)
+        super().__init__(**defaults)
+
+
 # 兼容第一、二阶段命名，避免旧测试或旧场景短期内失效。
 class UAV(ScoutDrone):
     """兼容旧名称：UAV 默认等价于 ScoutDrone。"""

@@ -6,7 +6,7 @@
   "scout_drone": {
     "name": "侦察无人机",
     "domain": "air",
-    "max_hp": 55,
+    "max_hp": 80,
     "speed": 4.6,
     "detect_range": 180,
     "attack_range": 80,
@@ -24,7 +24,7 @@
   "strike_drone": {
     "name": "打击无人机",
     "domain": "air",
-    "max_hp": 75,
+    "max_hp": 100,
     "speed": 3.5,
     "detect_range": 135,
     "attack_range": 135,
@@ -42,7 +42,7 @@
   "ground_vehicle": {
     "name": "无人战车",
     "domain": "ground",
-    "max_hp": 125,
+    "max_hp": 180,
     "speed": 2.1,
     "detect_range": 105,
     "attack_range": 115,
@@ -60,7 +60,7 @@
   "missile_vehicle": {
     "name": "导弹发射车",
     "domain": "ground",
-    "max_hp": 90,
+    "max_hp": 120,
     "speed": 1.7,
     "detect_range": 95,
     "attack_range": 185,
@@ -78,7 +78,7 @@
   "command_node": {
     "name": "指挥节点",
     "domain": "command",
-    "max_hp": 170,
+    "max_hp": 220,
     "speed": 0.0,
     "detect_range": 130,
     "attack_range": 0,
@@ -90,6 +90,24 @@
     "reaction_delay_max": 30,
     "attack_cooldown_min": 25,
     "attack_cooldown_max": 40,
+    "base_hit_prob": 0.0
+  },
+
+  "base": {
+    "name": "基地",
+    "domain": "command",
+    "max_hp": 300,
+    "speed": 0.0,
+    "detect_range": 100,
+    "attack_range": 0,
+    "attack_power": 0,
+    "ammo": 0,
+    "can_attack_air": false,
+    "can_attack_ground": false,
+    "reaction_delay_min": 0,
+    "reaction_delay_max": 0,
+    "attack_cooldown_min": 0,
+    "attack_cooldown_max": 0,
     "base_hit_prob": 0.0
   }
 }

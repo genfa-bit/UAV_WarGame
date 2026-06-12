@@ -78,7 +78,22 @@ class StrategyEngine:
 
     # ═══════════════════════════════════════════════════════════
     #  规避判断（退出不再要求弹药>0，由 evade_exceeded 兜底）
+    #  第十阶段：按兵种差异化 HP 阈值和规避概率
     # ═══════════════════════════════════════════════════════════
+
+    # 仅作战兵种可规避；指挥节点 / 基地 speed=0 在 should_evade 入口直接返回 False
+    _EVADE_HP_THRESHOLD = {
+        "ground_vehicle": 0.20,   # 重型坦克，只在极低血量时规避
+        "missile_vehicle": 0.40,  # 远程单位，保持距离优先
+        "scout_drone": 0.35,      # 脆弱侦察，适度规避
+        "strike_drone": 0.30,     # 攻击无人机
+    }
+    _EVADE_CHANCE = {
+        "ground_vehicle": 0.50,   # 坦克不轻易撤退
+        "missile_vehicle": 0.85,  # 远程保持距离
+        "scout_drone": 0.70,
+        "strike_drone": 0.80,
+    }
 
     def should_evade(self, unit: Unit, nearest_enemy: Unit | None) -> bool:
         if unit.is_destroyed or unit.speed <= 0:
@@ -87,14 +102,17 @@ class StrategyEngine:
         if self.behavior_mgr.on_evade_cooldown(unit.id):
             return False
 
+        hp_threshold = self._EVADE_HP_THRESHOLD.get(unit.unit_type, 0.30)
+        evade_chance = self._EVADE_CHANCE.get(unit.unit_type, 1.0)
+
         danger_dist = max(50.0, nearest_enemy.attack_range * 0.5) if nearest_enemy else 50.0
         enemy_dist = unit.distance_to(nearest_enemy) if nearest_enemy else None
 
         if unit.status == STATUS_EVADE:
             enemy_clear = enemy_dist is None or enemy_dist > danger_dist * 1.2
-            return not (unit.hp_ratio >= 0.35 and enemy_clear)
+            return not (unit.hp_ratio >= hp_threshold + 0.05 and enemy_clear)
 
-        hp_low = unit.hp_ratio < 0.3
+        hp_low = unit.hp_ratio < hp_threshold
         ammo_empty = unit.ammo == 0 and enemy_dist is not None and enemy_dist < danger_dist * 1.5
         enemy_close = enemy_dist is not None and enemy_dist < danger_dist
         high_threat = (
@@ -102,7 +120,15 @@ class StrategyEngine:
             and nearest_enemy.threat_value >= unit.threat_value + 3
             and enemy_dist <= max(nearest_enemy.attack_range, danger_dist)
         )
-        return hp_low or ammo_empty or enemy_close or high_threat
+        should = hp_low or ammo_empty or enemy_close or high_threat
+
+        # 弹药耗尽/低血量/高威胁必规避；仅 enemy_close 按兵种概率判定
+        if should and enemy_close and not hp_low and not ammo_empty and not high_threat:
+            if unit.unit_type in self._EVADE_CHANCE:
+                if random.random() > evade_chance:
+                    return False
+
+        return should
 
     # ═══════════════════════════════════════════════════════════
     #  主移动决策
@@ -276,25 +302,19 @@ class StrategyEngine:
     # ═══════════════════════════════════════════════════════════
 
     def _move_away_smart(self, unit: Unit, enemy: Unit, battlefield: Battlefield) -> None:
-        """远离敌人；地面单位优先横向移动，全堵死则不移动（避免贴墙振荡）。"""
+        """远离敌人；地面单位使用 Bug2 绕障，空中单位直飞。"""
         if unit.unit_type in ("missile_vehicle", "ground_vehicle"):
+            from core.pathfinding import move_to
             dx, dy = unit.x - enemy.x, unit.y - enemy.y
             dist = hypot(dx, dy) or 1.0
             bx, by = dx / dist, dy / dist
-            lx, ly = -by, bx  # 横向
-            candidates = [
-                (unit.x + bx * unit.speed, unit.y + by * unit.speed),
-                (unit.x + bx * unit.speed + lx * unit.speed * 0.7,
-                 unit.y + by * unit.speed + ly * unit.speed * 0.7),
-                (unit.x + bx * unit.speed - lx * unit.speed * 0.7,
-                 unit.y + by * unit.speed - ly * unit.speed * 0.7),
-            ]
-            for cx, cy in candidates:
-                cx, cy = battlefield.clamp_position(cx, cy)
-                if battlefield.can_move_to(cx, cy, unit.domain):
-                    unit.move_towards(cx, cy, battlefield)
-                    return
-            # 全部堵死，不移动（避免 move_away_from 导致贴墙振荡）
+            # 计算远离敌人的撤退目标点，确保有足够距离绕障
+            retreat_dist = 100.0
+            retreat_x = unit.x + bx * retreat_dist
+            retreat_y = unit.y + by * retreat_dist
+            retreat_x, retreat_y = battlefield.clamp_position(retreat_x, retreat_y)
+            # 使用 Bug2 绕障算法，避免贴墙振荡
+            move_to(unit, retreat_x, retreat_y, battlefield)
             return
         unit.move_away_from(enemy, battlefield)
 

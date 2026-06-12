@@ -9,11 +9,15 @@
 
 from __future__ import annotations
 
+import itertools
 import random
 from dataclasses import dataclass, field
 
 from config import STATUS_ATTACK
 from core.units import Unit
+
+
+_attack_event_ids = itertools.count(1)
 
 
 @dataclass
@@ -30,6 +34,7 @@ class AttackEvent:
     is_critical: bool = False
     is_miss: bool = False
     life: int = 8
+    event_id: int = field(default_factory=lambda: next(_attack_event_ids))
 
 
 @dataclass
@@ -177,33 +182,6 @@ class CombatSystem:
         self._intents.append(intent)
         return intent
 
-    def queue_attack_base(
-        self,
-        attacker: Unit,
-        base,
-    ) -> AttackIntent | None:
-        """将基地攻击加入意图队列（必中）。"""
-        if attacker.ammo <= 0 or attacker.attack_power <= 0:
-            return None
-        if not attacker.can_attack_ground:
-            return None
-        attacker.ammo -= 1
-        intent = AttackIntent(
-            attacker_id=attacker.id,
-            target_id=f"{base.team}_base",
-            attacker_team=attacker.team,
-            start=(attacker.x, attacker.y),
-            end=(base.x, base.y),
-            damage=float(attacker.attack_power),
-            hit_probability=1.0,
-            is_critical=False,
-            attacker=attacker,
-            target=None,
-        )
-        intent._base_target = base
-        self._intents.append(intent)
-        return intent
-
     def resolve_all_attacks(self) -> list[AttackEvent]:
         """批量结算所有攻击意图，消除执行顺序导致的不公平。
 
@@ -213,8 +191,6 @@ class CombatSystem:
         events: list[AttackEvent] = []
         for intent in self._intents:
             target = intent.target
-            if target is None and hasattr(intent, '_base_target'):
-                target = intent._base_target
 
             if target is None:
                 continue

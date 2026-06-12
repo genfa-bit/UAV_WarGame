@@ -92,14 +92,14 @@ def test_two_units_with_different_delays_can_both_attack():
 
 
 def test_base_attack_before_engagement():
-    """验证基地攻击不受反应延迟影响的极端情况（基地攻击直接命中）。"""
-    from core.battlefield import Base
+    """验证基地可通过标准攻击队列被攻击（BaseUnit 为 Unit 子类）。"""
     from core.combat import CombatSystem
-    from core.units import StrikeDrone
+    from core.units import BaseUnit, StrikeDrone
 
     red = StrikeDrone(id="r1", name="红打击", team="red", x=10, y=50)
-    base = Base(team="blue", x=50, y=50)
+    base = BaseUnit(id="blue_base", name="蓝基地", team="blue", x=50, y=50)
     cs = CombatSystem()
-    intent = cs.queue_attack_base(red, base)
+    intent = cs.queue_attack(red, base)
     assert intent is not None
-    assert intent.hit_probability == 1.0
+    # 基地为静止大型目标，近距离命中率应很高（但不强制 100%）
+    assert intent.hit_probability > 0.8

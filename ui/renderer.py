@@ -25,6 +25,7 @@ from config import (
     TEXT_COLOR,
     UNIT_RADIUS,
 )
+from core.battlefield import obstacle_display_name
 from core.units import CommandNode, Unit
 from ui.panel import InfoPanel
 
@@ -85,7 +86,7 @@ class Renderer:
             color = self._obstacle_color(obstacle.type)
             pygame.draw.rect(self.screen, color, rect)
             pygame.draw.rect(self.screen, (125, 130, 140), rect, 2)
-            label = self.small_font.render(obstacle.name, True, TEXT_COLOR)
+            label = self.small_font.render(obstacle_display_name(obstacle), True, TEXT_COLOR)
             self.screen.blit(label, (rect.x + 4, rect.y + 2))
 
     def _draw_bases(self, battlefield) -> None:

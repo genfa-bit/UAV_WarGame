@@ -8,6 +8,21 @@ from typing import Iterable, Tuple
 from config import BASE_MAX_HP, BASE_REPAIR_PER_STEP
 
 
+OBSTACLE_DISPLAY_NAMES = {
+    "mountain": "山地",
+    "building": "建筑群",
+    "restricted": "禁行区",
+}
+
+
+def obstacle_display_name(obstacle: "Obstacle") -> str:
+    """返回界面显示名，隐藏自动生成的英文内部名称。"""
+    generated_prefix = f"{obstacle.type}_"
+    if obstacle.name == obstacle.type or obstacle.name.startswith(generated_prefix):
+        return OBSTACLE_DISPLAY_NAMES.get(obstacle.type, "障碍物")
+    return obstacle.name
+
+
 @dataclass(frozen=True)
 class Obstacle:
     """矩形障碍物。"""
@@ -26,31 +41,7 @@ class Obstacle:
         return self.x, self.y, self.width, self.height
 
 
-class Base:
-    """己方基地：可受伤、可为周围友军补给。"""
-
-    def __init__(self, team: str, x: float, y: float):
-        self.team = team
-        self.x = x
-        self.y = y
-        self.hp = BASE_MAX_HP
-        self.max_hp = BASE_MAX_HP
-
-    @property
-    def is_destroyed(self) -> bool:
-        return self.hp <= 0
-
-    @property
-    def hp_ratio(self) -> float:
-        return max(0, self.hp / self.max_hp)
-
-    def take_damage(self, amount: int) -> int:
-        before = self.hp
-        self.hp = max(0, self.hp - amount)
-        return before - self.hp
-
-    def pos(self) -> tuple[float, float]:
-        return (self.x, self.y)
+# Base 类已移除，替换为 core.units.BaseUnit（Unit 子类）
 
 
 class Battlefield:
@@ -69,12 +60,15 @@ class Battlefield:
         self.height = height
         self.obstacles = list(obstacles or [])
         self.terrain = terrain
-        self.red_base_obj = Base("red", *red_base)
-        self.blue_base_obj = Base("blue", *blue_base)
+        from core.units import BaseUnit  # 延迟导入避免循环依赖
+        self.red_base_obj = BaseUnit(id="red_base", name="红基地", team="red",
+                                      x=red_base[0], y=red_base[1])
+        self.blue_base_obj = BaseUnit(id="blue_base", name="蓝基地", team="blue",
+                                       x=blue_base[0], y=blue_base[1])
 
     @property
     def red_base(self) -> tuple[float, float]:
-        return self.red_base_obj.pos()
+        return (self.red_base_obj.x, self.red_base_obj.y)
 
     @red_base.setter
     def red_base(self, value: tuple[float, float]) -> None:
@@ -82,7 +76,7 @@ class Battlefield:
 
     @property
     def blue_base(self) -> tuple[float, float]:
-        return self.blue_base_obj.pos()
+        return (self.blue_base_obj.x, self.blue_base_obj.y)
 
     @blue_base.setter
     def blue_base(self, value: tuple[float, float]) -> None:
@@ -110,5 +104,5 @@ class Battlefield:
     def base_for_team(self, team: str) -> tuple[float, float]:
         return self.red_base if team == "red" else self.blue_base
 
-    def base_obj(self, team: str) -> Base:
+    def base_obj(self, team: str) -> "BaseUnit":
         return self.red_base_obj if team == "red" else self.blue_base_obj

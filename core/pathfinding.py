@@ -12,6 +12,7 @@ from core.battlefield import Battlefield
 from core.units import Unit, UnitDomain
 
 _EDGE_FOLLOW: dict[str, tuple[float, float]] = {}  # unit_id -> (dir_x, dir_y)
+_EDGE_FOLLOW_DURATION: dict[str, int] = {}         # unit_id -> consecutive steps
 _STUCK_COUNTERS: dict[str, int] = {}
 
 
@@ -47,6 +48,7 @@ def move_to(unit: Unit, target_x: float, target_y: float,
     if battlefield.can_move_to(nx, ny, unit.domain):
         unit.x, unit.y = nx, ny
         _EDGE_FOLLOW.pop(unit.id, None)
+        _EDGE_FOLLOW_DURATION.pop(unit.id, None)
         return True
 
     # 进入绕障模式
@@ -76,19 +78,27 @@ def _follow_edge(unit: Unit, tx: float, ty: float,
                     ndx = tx - cx
                     ndy = ty - cy
                     nd = hypot(ndx, ndy) or 0.001
-                    snx = cx + ndx / nd * min(unit.speed, nd)
-                    sny = cy + ndy / nd * min(unit.speed, nd)
+                    probe = min(unit.speed * 0.5, nd)
+                    snx = cx + ndx / nd * probe
+                    sny = cy + ndy / nd * probe
                     snx, sny = battlefield.clamp_position(snx, sny)
                     if battlefield.can_move_to(snx, sny, unit.domain):
                         unit.x, unit.y = snx, sny
                         return True
                     # 进入绕障模式，记录固定方向
                     _EDGE_FOLLOW[unit.id] = label_dir
+                    _EDGE_FOLLOW_DURATION[unit.id] = 1
                     unit.x, unit.y = cx, cy
                     return True
         return False
 
     # 已有绕障方向 → 沿固定方向继续（不重新计算，避免跨越目标轴时翻转）
+    # 绕行过久 → 强制重置方向，尝试另一侧
+    if _EDGE_FOLLOW_DURATION.get(unit.id, 0) > 30:
+        _EDGE_FOLLOW.pop(unit.id, None)
+        _EDGE_FOLLOW_DURATION.pop(unit.id, None)
+        return _follow_edge(unit, tx, ty, battlefield)
+
     sx, sy = side_dir
     for mult in (1.2, 1.0, 0.8, 0.5):
         cx = unit.x + sx * unit.speed * mult
@@ -99,18 +109,22 @@ def _follow_edge(unit: Unit, tx: float, ty: float,
             ndx = tx - cx
             ndy = ty - cy
             nd = hypot(ndx, ndy) or 0.001
-            snx = cx + ndx / nd * min(unit.speed, nd)
-            sny = cy + ndy / nd * min(unit.speed, nd)
+            probe = min(unit.speed * 0.5, nd)
+            snx = cx + ndx / nd * probe
+            sny = cy + ndy / nd * probe
             snx, sny = battlefield.clamp_position(snx, sny)
             if battlefield.can_move_to(snx, sny, unit.domain):
                 unit.x, unit.y = snx, sny
                 _EDGE_FOLLOW.pop(unit.id, None)
+                _EDGE_FOLLOW_DURATION.pop(unit.id, None)
                 return True
             unit.x, unit.y = cx, cy
+            _EDGE_FOLLOW_DURATION[unit.id] = _EDGE_FOLLOW_DURATION.get(unit.id, 0) + 1
             return True
 
     # 沿边缘走不动 → 角落卡死，反弹逃离
     _EDGE_FOLLOW.pop(unit.id, None)
+    _EDGE_FOLLOW_DURATION.pop(unit.id, None)
     return _corner_escape(unit, tx, ty, battlefield)
 
 
@@ -152,9 +166,9 @@ def _corner_escape(unit: Unit, tx: float, ty: float,
         if battlefield.can_move_to(nx, ny, unit.domain):
             unit.x, unit.y = nx, ny
             return True
-    # 完全卡死 → 硬跳
-    jump_x = unit.x + (1 if unit.team == "red" else -1) * 40
-    jump_y = unit.y + 30 * (_STUCK_COUNTERS.get(unit.id, 0) % 3 - 1)
+    # 完全卡死 → 小幅度跳跃摆脱
+    jump_x = unit.x + (1 if unit.team == "red" else -1) * 12
+    jump_y = unit.y + 10 * (_STUCK_COUNTERS.get(unit.id, 0) % 3 - 1)
     jump_x, jump_y = battlefield.clamp_position(jump_x, jump_y)
     if battlefield.can_move_to(jump_x, jump_y, unit.domain):
         unit.x, unit.y = jump_x, jump_y
@@ -164,4 +178,18 @@ def _corner_escape(unit: Unit, tx: float, ty: float,
 def reset_path(unit_id: str) -> None:
     """切换目标时重置绕障状态。"""
     _EDGE_FOLLOW.pop(unit_id, None)
+    _EDGE_FOLLOW_DURATION.pop(unit_id, None)
     _STUCK_COUNTERS.pop(unit_id, None)
+
+
+def cleanup_destroyed(active_unit_ids: set[str]) -> None:
+    """移除已摧毁单位的绕障状态，防止内存泄漏。"""
+    for uid in list(_EDGE_FOLLOW):
+        if uid not in active_unit_ids:
+            del _EDGE_FOLLOW[uid]
+    for uid in list(_EDGE_FOLLOW_DURATION):
+        if uid not in active_unit_ids:
+            del _EDGE_FOLLOW_DURATION[uid]
+    for uid in list(_STUCK_COUNTERS):
+        if uid not in active_unit_ids:
+            del _STUCK_COUNTERS[uid]

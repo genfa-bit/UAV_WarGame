@@ -14,7 +14,12 @@ from config import (
     MIN_UNIT_DISTANCE,
     RESIZE_HANDLE,
 )
-from core.battlefield import Battlefield, Obstacle
+from core.battlefield import (
+    Battlefield,
+    OBSTACLE_DISPLAY_NAMES,
+    Obstacle,
+    obstacle_display_name,
+)
 from core.units import Unit, UnitDomain
 
 
@@ -227,7 +232,7 @@ class MapEditor:
             self.state.last_message = "放置失败：障碍物区域内有单位"
             return None
         idx = len(self.battlefield.obstacles)
-        name = f"{obs_type}_{idx + 1}"
+        name = OBSTACLE_DISPLAY_NAMES.get(obs_type, "障碍物")
         obs = Obstacle(x=rx, y=ry, width=rw, height=rh, name=name, type=obs_type)
         self.battlefield.obstacles.append(obs)
         self.state.selected_obs_idx = idx
@@ -257,7 +262,7 @@ class MapEditor:
         self.state.dragging_obs = True
         self.state.drag_offset_x = x - obs.x
         self.state.drag_offset_y = y - obs.y
-        self.state.last_message = f"已选中 {obs.name}"
+        self.state.last_message = f"已选中 {obstacle_display_name(obs)}"
 
     def update_drag_obstacle(self, x: float, y: float) -> None:
         idx = self.state.selected_obs_idx
@@ -296,7 +301,7 @@ class MapEditor:
             return False
         self._obs_snapshot = None
         if was_dragging:
-            self.state.last_message = f"{obs.name} 已移动"
+            self.state.last_message = f"{obstacle_display_name(obs)} 已移动"
         return True
 
     # ═══════════════════════════════════════════════════════════
@@ -349,7 +354,7 @@ class MapEditor:
             self.state.last_message = fail_msg
             return False
         self._obs_snapshot = None
-        self.state.last_message = f"{obs.name} 大小已调整"
+        self.state.last_message = f"{obstacle_display_name(obs)} 大小已调整"
         return True
 
     # ═══════════════════════════════════════════════════════════
@@ -364,7 +369,7 @@ class MapEditor:
             self.state.selected_obs_idx = None
         elif self.state.selected_obs_idx is not None and self.state.selected_obs_idx > idx:
             self.state.selected_obs_idx -= 1
-        self.state.last_message = f"已删除 {obs.name}"
+        self.state.last_message = f"已删除 {obstacle_display_name(obs)}"
         return True
 
     def delete_selected(self) -> bool:

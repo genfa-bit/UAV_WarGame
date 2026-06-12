@@ -39,7 +39,7 @@ def test_total_damage_statistics():
 
 def test_destroyed_count_statistics():
     red = GroundVehicle(id="r1", name="红无人车", team="red", x=100, y=100,
-                         attack_power=60, reaction_delay=0, attack_cooldown=0)
+                         attack_power=85, reaction_delay=0, attack_cooldown=0)
     blue = ScoutDrone(id="b1", name="蓝无人机", team="blue", x=200, y=100)
     simulator = Simulator(Battlefield(800, 600), [red, blue])
 

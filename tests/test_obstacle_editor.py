@@ -31,6 +31,24 @@ def test_create_obstacle():
 
     assert result is not None
     assert len(bf.obstacles) == initial + 1
+    assert bf.obstacles[result].name == "建筑群"
+
+
+def test_created_obstacle_names_are_chinese_labels():
+    expected = {
+        "mountain": "山地",
+        "building": "建筑群",
+        "restricted": "禁行区",
+    }
+    for index, (obstacle_type, label) in enumerate(expected.items()):
+        bf = Battlefield(800, 600)
+        editor = MapEditor(bf)
+        start = 100 + index * 150
+        editor.start_create_obstacle(start, 100)
+        result = editor.finish_create_obstacle(start + 80, 180, obstacle_type)
+
+        assert result is not None
+        assert bf.obstacles[result].name == label
 
 
 def test_create_obstacle_too_small():

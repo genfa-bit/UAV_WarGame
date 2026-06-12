@@ -49,7 +49,7 @@ STATUS_LABELS = {
 UNIT_TYPE_LABELS = {
     "scout_drone": "侦察无人机", "strike_drone": "打击无人机",
     "ground_vehicle": "无人战车", "missile_vehicle": "导弹发射车",
-    "command_node": "指挥节点",
+    "command_node": "指挥节点", "base": "基地",
 }
 
 OBSTACLE_TYPE_LABELS = {
@@ -74,13 +74,13 @@ DETECTION_TIMEOUT_STEPS = 8
 
 THREAT_VALUE_BY_TYPE = {
     "scout_drone": 2, "strike_drone": 4, "ground_vehicle": 5,
-    "missile_vehicle": 6, "command_node": 8,
+    "missile_vehicle": 6, "command_node": 8, "base": 10,
 }
 
 # ── 第八阶段：威胁 / 态势 / 行为 / 卡死检测 ──────────────────
 BASE_THREAT_SCORE = {
     "scout_drone": 30, "strike_drone": 80, "ground_vehicle": 60,
-    "missile_vehicle": 100, "command_node": 20,
+    "missile_vehicle": 100, "command_node": 20, "base": 200,
 }
 STRENGTH_ATTACK_WEIGHT = 0.4
 STRENGTH_HP_WEIGHT = 0.4
@@ -92,7 +92,7 @@ STUCK_MOVE_DELTA = 3.0       # 卡死判定最小位移
 TARGET_LOCK_TIME = 5          # 目标锁定帧数
 BASE_MAX_HP = 300             # 基地最大血量
 BASE_REPAIR_RADIUS = 80       # 基地补给半径
-BASE_REPAIR_PER_STEP = 8      # 每帧补给量（血量+弹药）
+BASE_REPAIR_PER_STEP = 4      # 每帧补给量（血量+弹药）
 COMM_DELAY_FACTOR = 0.15      # 通信延迟系数（步/像素距离）
 
 

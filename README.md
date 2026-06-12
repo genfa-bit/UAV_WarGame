@@ -2,6 +2,14 @@
 
 本项目是软件工程课程大作业，使用 Python + Pygame 实现二维无人装备对抗仿真。系统通过抽象规则展示自主侦察、协同集火、战术规避、战斗统计和胜负判断，不涉及真实军事参数。
 
+## 前端说明
+
+- 默认前端已迁移为 `PySide6 + QML` 现代战术指挥台。
+- `core/controller.py` 提供前端无关的生命周期命令和可序列化快照。
+- `ui/qt_models.py` 负责 QML ViewModel、单位列表模型和自动推进定时器。
+- `ui/qml/Main.qml` 提供战场、部署编辑、运行控制、统计和日志界面。
+- 原 Pygame 前端保留在 `pygame_main.py`，用于兼容和回归验证。
+
 ## 功能列表
 
 - 二维战场地图，地图区域和信息面板分离。
@@ -129,6 +137,12 @@ python main.py
 
 ```powershell
 & "D:\Anaconda\envs\uav_wargame\python.exe" main.py
+```
+
+运行旧 Pygame 前端：
+
+```powershell
+python pygame_main.py
 ```
 
 ## 测试方法
