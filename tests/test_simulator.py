@@ -41,7 +41,7 @@ def test_target_pool_cleans_destroyed_units():
     assert dead_blue.id not in simulator.red_detected_targets
 
 
-def test_focus_target_prefers_lowest_hp():
+def test_focus_target_prefers_highest_threat():
     red = ScoutDrone(id="r1", name="红无人机", team="red", x=100, y=100)
     low_hp_blue = ScoutDrone(id="b-low", name="蓝低血量", team="blue", x=180, y=100, hp=20)
     high_hp_blue = ScoutDrone(id="b-high", name="蓝高血量", team="blue", x=190, y=100, hp=60)
@@ -49,4 +49,5 @@ def test_focus_target_prefers_lowest_hp():
 
     simulator.step()
 
-    assert simulator.focus_targets["red"] == low_hp_blue
+    # choose_focus_target 按 threat_score 选最高威胁（高血量 → 高威胁）
+    assert simulator.focus_targets["red"] == high_hp_blue

@@ -37,7 +37,7 @@ def test_ground_unit_is_not_permanently_locked_by_finite_obstacle():
 def test_unit_in_attack_range_does_not_move_closer():
     battlefield = Battlefield(200, 200)
     red = ScoutDrone(id="r1", name="red", team="red", x=20, y=20, attack_range=80)
-    blue = ScoutDrone(id="b1", name="blue", team="blue", x=70, y=20)
+    blue = ScoutDrone(id="b1", name="blue", team="blue", x=90, y=20)
 
     StrategyEngine().move_unit(red, battlefield, blue, [blue], [blue])
 

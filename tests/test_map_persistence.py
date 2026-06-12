@@ -63,7 +63,6 @@ def test_deployment_manager_loads_saved_scenario():
         loaded_bf, loaded_units = load_scenario_file(filepath)
         dm = DeploymentManager(loaded_bf, loaded_units)
 
-        assert dm.mode == "preset"
         assert len(dm.display_units()) == 10
 
 

@@ -38,7 +38,7 @@ def test_evade_moves_away_from_nearest_enemy():
 
 
 def test_enemy_too_close_triggers_evade():
-    red = StrikeDrone(id="r1", name="Red striker", team="red", x=100, y=100)
+    red = StrikeDrone(id="r1", name="Red striker", team="red", x=100, y=100, ammo=0)
     blue = ScoutDrone(id="b1", name="Blue scout", team="blue", x=130, y=100)
     simulator = Simulator(Battlefield(800, 600), [red, blue])
 

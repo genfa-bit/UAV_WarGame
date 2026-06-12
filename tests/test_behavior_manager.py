@@ -32,15 +32,13 @@ def test_current_behavior_defaults_patrol():
 
 def test_stuck_detection_triggers():
     mgr = BehaviorManager()
-    for _ in range(7):
-        assert mgr.update_stuck("u1", 100.0, 100.0, 6, 3.0) == (False)
-    # 7th frame at same position should trigger
-    assert mgr.update_stuck("u1", 100.0, 100.0, 6, 3.0) is False
-    # wait, the counter starts at 0 and increments. After 6 increments it's 6 >= 6
-    # Let me re-check: frame 0 → counter 0, frame 1 → 1, ..., frame 6 → 6
-    # So after 7 calls with same pos, counter = 6, stuck = True on the 7th call
-    # Actually: counter starts at 0. Call 1: counter 1. Call 6: counter 6. ≥ 6 → True on call 6
-    pass  # tested below
+    # 首次调用初始化位置，counter=0
+    mgr.update_stuck("u1", 100.0, 100.0, 6, 3.0)
+    # 接下来 5 次：counter 从 1 递增到 5，不触发
+    for _ in range(5):
+        assert mgr.update_stuck("u1", 100.0, 100.0, 6, 3.0) is False
+    # 第 7 次（counter 达到 6 >= threshold=6），触发卡死
+    assert mgr.update_stuck("u1", 100.0, 100.0, 6, 3.0) is True
 
 
 def test_stuck_clears_on_movement():

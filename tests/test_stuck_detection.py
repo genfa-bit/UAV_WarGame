@@ -5,11 +5,12 @@ from core.behavior import BehaviorManager
 
 def test_stuck_detection_triggers_after_threshold():
     mgr = BehaviorManager()
-    # Same position for 6 frames should trigger stuck
+    # 首次初始化 + 6 次相同位置递增 → counter 达到 6
+    mgr.update_stuck("u1", 100.0, 100.0, 6, 3.0)
     for i in range(6):
         result = mgr.update_stuck("u1", 100.0, 100.0, 6, 3.0)
-    # After 6 frames with no movement, counter = 6, which >= 6
-    assert mgr._stuck_counters.get("u1", 0) >= 6
+    # 7 次调用后 counter == 6，>= threshold(6)
+    assert mgr._stuck_counters.get("u1", 0) == 6
 
 
 def test_stuck_resets_on_large_movement():

@@ -11,8 +11,8 @@ from math import hypot
 from core.battlefield import Battlefield
 from core.units import Unit, UnitDomain
 
-_EDGE_FOLLOW: dict[str, str | None] = {}  # unit_id -> "left"/"right"/None
-_STUCK_COUNTERS: dict[str, int] = {}       # 角落卡死计数
+_EDGE_FOLLOW: dict[str, tuple[float, float]] = {}  # unit_id -> (dir_x, dir_y)
+_STUCK_COUNTERS: dict[str, int] = {}
 
 
 def _sign(x: float) -> int:
@@ -55,26 +55,24 @@ def move_to(unit: Unit, target_x: float, target_y: float,
 
 def _follow_edge(unit: Unit, tx: float, ty: float,
                  battlefield: Battlefield) -> bool:
-    """沿障碍物边缘移动一步。"""
-    side = _EDGE_FOLLOW.get(unit.id)
+    """沿障碍物边缘移动一步，使用固定绕行方向避免振荡。"""
+    side_dir = _EDGE_FOLLOW.get(unit.id)
 
-    if side is None:
-        # 选择绕行方向：左/右垂直于目标方向
+    if side_dir is None:
+        # 选择绕行方向：尝试左右两个垂直方向
         dx = tx - unit.x
         dy = ty - unit.y
         dist = hypot(dx, dy) or 1.0
-        # 垂直于目标方向的两个候选
-        lx, ly = -dy / dist, dx / dist  # 左侧
-        rx, ry = dy / dist, -dx / dist   # 右侧
+        lx, ly = -dy / dist, dx / dist   # 左侧垂直
+        rx, ry = dy / dist, -dx / dist    # 右侧垂直
 
-        # 分别试探左右两步
-        for label, sx, sy in (("left", lx, ly), ("right", rx, ry)):
+        for label_dir in ((lx, ly), (rx, ry)):
             for mult in (1.5, 1.0, 0.7):
-                cx = unit.x + sx * unit.speed * mult
-                cy = unit.y + sy * unit.speed * mult
+                cx = unit.x + label_dir[0] * unit.speed * mult
+                cy = unit.y + label_dir[1] * unit.speed * mult
                 cx, cy = battlefield.clamp_position(cx, cy)
                 if battlefield.can_move_to(cx, cy, unit.domain):
-                    # 选好后检查是否已能直线到达目标
+                    # 检查是否已能直达目标
                     ndx = tx - cx
                     ndy = ty - cy
                     nd = hypot(ndx, ndy) or 0.001
@@ -82,28 +80,16 @@ def _follow_edge(unit: Unit, tx: float, ty: float,
                     sny = cy + ndy / nd * min(unit.speed, nd)
                     snx, sny = battlefield.clamp_position(snx, sny)
                     if battlefield.can_move_to(snx, sny, unit.domain):
-                        # 已经可以直走了
                         unit.x, unit.y = snx, sny
                         return True
-                    # 否则进入绕障模式
-                    _EDGE_FOLLOW[unit.id] = label
+                    # 进入绕障模式，记录固定方向
+                    _EDGE_FOLLOW[unit.id] = label_dir
                     unit.x, unit.y = cx, cy
                     return True
-        # 两侧都堵 → 原地不动
         return False
 
-    # 已有绕障方向 → 沿边缘继续
-    dx = tx - unit.x
-    dy = ty - unit.y
-    dist = hypot(dx, dy) or 1.0
-    lx, ly = -dy / dist, dx / dist  # 左
-    rx, ry = dy / dist, -dx / dist   # 右
-    if side == "left":
-        sx, sy = lx, ly
-    else:
-        sx, sy = rx, ry
-
-    # 尝试沿绕障方向移动
+    # 已有绕障方向 → 沿固定方向继续（不重新计算，避免跨越目标轴时翻转）
+    sx, sy = side_dir
     for mult in (1.2, 1.0, 0.8, 0.5):
         cx = unit.x + sx * unit.speed * mult
         cy = unit.y + sy * unit.speed * mult
@@ -117,10 +103,9 @@ def _follow_edge(unit: Unit, tx: float, ty: float,
             sny = cy + ndy / nd * min(unit.speed, nd)
             snx, sny = battlefield.clamp_position(snx, sny)
             if battlefield.can_move_to(snx, sny, unit.domain):
-                unit.x, unit.y = snx, sny  # 直走
+                unit.x, unit.y = snx, sny
                 _EDGE_FOLLOW.pop(unit.id, None)
                 return True
-            # 继续绕
             unit.x, unit.y = cx, cy
             return True
 
