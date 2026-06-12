@@ -1,4 +1,10 @@
-"""仿真主控模块。"""
+"""仿真主控模块。
+
+第十阶段集成：
+- 每帧更新交战状态机
+- 攻击改为队列模式，统一结算
+- 反应延迟消除先手优势
+"""
 
 from __future__ import annotations
 
@@ -8,6 +14,7 @@ from config import (BASE_REPAIR_PER_STEP, BASE_REPAIR_RADIUS, COMM_DELAY_FACTOR,
 from core.battlefield import Battlefield
 from core.behavior import BEHAVIOR_LABELS, STATUS_TO_BEHAVIOR
 from core.combat import AttackEvent, CombatSystem
+from core.engagement import EngagementPhase
 from core.strategy import StrategyEngine
 from core.target_pool import TargetPool
 from core.threat import priority_targets, situation_label, tactics_label, team_strength
@@ -25,7 +32,6 @@ class Simulator:
         self.combat = CombatSystem()
 
         self.shared_targets: dict[str, TargetPool] = {TEAM_RED: TargetPool(), TEAM_BLUE: TargetPool()}
-        # 按需求提供明确命名的阵营目标池，二者与 shared_targets 指向同一个字典。
         self.red_detected_targets = self.shared_targets[TEAM_RED]
         self.blue_detected_targets = self.shared_targets[TEAM_BLUE]
 
@@ -43,7 +49,7 @@ class Simulator:
         self.combat_logs: list[str] = []
 
         self.show_wrecks = True
-        self._own_sightings: dict[str, set[str]] = {}  # unit_id -> immediate sightings
+        self._own_sightings: dict[str, set[str]] = {}
         self._destroyed_record: set[str] = set()
         self._kill_credit_record: set[str] = set()
         self._evading_units: set[str] = set()
@@ -52,15 +58,17 @@ class Simulator:
     def step(self) -> None:
         """推进一个仿真时间步。
 
-        标准流程：
+        流程：
         1. 清理已摧毁单位和无效目标；
-        2. 执行侦察，更新共享目标池；
-        3. 每个阵营选择集火目标；
-        4. 每个单位进行状态决策；
-        5. 单位移动或规避；
-        6. 执行攻击结算；
-        7. 更新统计数据；
-        8. 判断胜负。
+        2. 更新战力/优先级；
+        3. 更新交战状态机；
+        4. 侦察（更新共享目标池 + 交战状态）；
+        5. 选择集火目标；
+        6. 移动/规避；
+        7. 攻击（加入意图队列）；
+        8. 攻击基地（加入意图队列）；
+        9. 统一结算所有攻击意图；
+        10. 补给、统计、胜负。
         """
         if self.winner:
             self._tick_attack_events()
@@ -72,17 +80,80 @@ class Simulator:
         self.strategy.behavior_mgr.tick_target_locks()
         self.strategy.behavior_mgr.tick_cooldowns()
         self._cleanup_target_pools()
+        self._update_engagement_states()
         self._reconnaissance_phase()
         self._select_focus_targets()
         self._movement_phase()
         self._attack_phase()
         self._attack_base_phase()
+        self._resolve_attacks()
         self._replenish_phase()
         self._update_destroyed_stats()
         self._cleanup_target_pools()
         self._select_focus_targets()
         self._judge_winner()
         self._tick_attack_events()
+
+    # ═══════════════════════════════════════════════════════════
+    #  交战状态更新
+    # ═══════════════════════════════════════════════════════════
+
+    def _update_engagement_states(self) -> None:
+        """更新所有单位的交战状态机。"""
+        for unit in self.active_units():
+            eng = unit.engagement_state
+            # 检查反应期目标是否仍然可见
+            if eng.phase == EngagementPhase.REACTING and eng.current_target_id:
+                own_ids = self._own_sightings.get(unit.id, set())
+                pool = {e.id for e in
+                        self.shared_targets[unit.team].values_available(self.time_step)}
+                visible_ids = own_ids | pool
+                if eng.current_target_id not in visible_ids:
+                    eng.on_target_lost()
+            eng.tick()
+
+    # ═══════════════════════════════════════════════════════════
+    #  攻击结算
+    # ═══════════════════════════════════════════════════════════
+
+    def _resolve_attacks(self) -> None:
+        """批量结算所有攻击意图，统计伤害和击杀。"""
+        events = self.combat.resolve_all_attacks()
+        unit_map = {u.id: u for u in self.units}
+        for event in events:
+            attacker = unit_map.get(event.attacker_id)
+            team = attacker.team if attacker else "unknown"
+            if event.is_miss:
+                self._add_log("Attack",
+                    f"{team.title()} {attacker.name if attacker else event.attacker_id} "
+                    f"missed")
+                continue
+            self.attack_count[team] += 1
+            self.total_damage[team] += event.damage
+            target = unit_map.get(event.target_id)
+            if attacker and target:
+                self._add_log("Attack",
+                    f"{team.title()} {attacker.name} attacked "
+                    f"{target.team.title()} {target.name}, "
+                    f"damage={event.damage}, hp={target.hp}"
+                    + (" (暴击)" if event.is_critical else ""))
+                if event.target_destroyed and target.id not in self._kill_credit_record:
+                    self.kill_count[team] += 1
+                    self._kill_credit_record.add(target.id)
+            elif attacker and event.target_id.endswith("_base"):
+                base_team = event.target_id.replace("_base", "")
+                self._add_log("Attack",
+                    f"{team.title()} {attacker.name} attacked {base_team.title()} base, "
+                    f"damage={event.damage}")
+                base = self.battlefield.base_obj(base_team)
+                if base.is_destroyed:
+                    self._add_log("Destroyed",
+                        f"{base_team.title()} base was destroyed")
+        self.attack_events.extend(events)
+
+    # ═══════════════════════════════════════════════════════════
+    #  辅助查询
+    # ═══════════════════════════════════════════════════════════
 
     def active_units(self, team: str | None = None) -> list[Unit]:
         """返回未被摧毁的单位。"""
@@ -100,26 +171,27 @@ class Simulator:
         return len(self.active_units(team))
 
     def _reconnaissance_phase(self) -> None:
-        """侦察阶段：发现目标→自己立即可见，广播有延迟。"""
+        """侦察阶段：发现目标→自己立即可见，广播有延迟，更新交战状态。"""
         for unit in self.active_units():
             enemies = self.enemy_units(unit.team)
-            # 初始化自己的即时视野
             if unit.id not in self._own_sightings:
                 self._own_sightings[unit.id] = set()
             for spotted in self.strategy.scan_enemies(unit, enemies):
-                # 自己立即看到
                 self._own_sightings[unit.id].add(spotted.id)
-                # 广播给共享池（含通信延迟）
                 delay = self._comm_delay(unit)
                 avail_step = self.time_step + int(delay)
                 targets = self.shared_targets[unit.team]
                 was_new = targets.sight(spotted, self.time_step, avail_step)
                 if was_new:
                     self._add_log("Scout",
-                        f"{unit.team.title()} {unit.name} detected {spotted.team.title()} {spotted.name}")
+                        f"{unit.team.title()} {unit.name} detected "
+                        f"{spotted.team.title()} {spotted.name}")
                     self._add_log("TargetPool",
-                        f"{unit.team.title()} target pool add {spotted.team.title()} {spotted.name} "
+                        f"{unit.team.title()} target pool add "
+                        f"{spotted.team.title()} {spotted.name} "
                         f"(delay={int(delay)} steps)")
+                # 通知交战状态机：发现目标
+                unit.engagement_state.on_target_spotted(spotted.id)
 
     def _comm_delay(self, unit: Unit) -> float:
         """计算通信延迟（步）：distance × COMM_DELAY_FACTOR。"""
@@ -127,7 +199,7 @@ class Simulator:
         cmd = next((u for u in self.units if isinstance(u, CommandNode)
                     and u.team == unit.team and not u.is_destroyed), None)
         if cmd is None:
-            return 99  # 指挥节点被毁 → 几乎无法通信
+            return 99
         dist = ((unit.x - cmd.x) ** 2 + (unit.y - cmd.y) ** 2) ** 0.5
         return dist * COMM_DELAY_FACTOR
 
@@ -136,7 +208,6 @@ class Simulator:
         for team in (TEAM_RED, TEAM_BLUE):
             old_target = self.focus_targets.get(team)
             locked_id = self.focus_lock.get(team)
-            # 合并：所有队员立即看到的 + 共享池延迟已到的
             all_enemies = self.enemy_units(team)
             immediate_ids = set()
             for u in self.active_units(team):
@@ -157,7 +228,8 @@ class Simulator:
             if old_id != new_id and new_target:
                 self.focus_lock[team] = new_target.id
                 self.strategy.behavior_mgr.lock_target(team, new_target.id, TARGET_LOCK_TIME)
-                self._add_log("Focus", f"{team.title()} focus target changed to {new_target.name}")
+                self._add_log("Focus",
+                    f"{team.title()} focus target changed to {new_target.name}")
             elif old_id != new_id:
                 self.focus_lock[team] = None
 
@@ -174,7 +246,6 @@ class Simulator:
         """移动阶段：集火推进、战术规避或巡逻。"""
         for unit in self.active_units():
             target = self.focus_targets.get(unit.team)
-            # 自己看到的 + 共享池已延迟到达的
             own_ids = self._own_sightings.get(unit.id, set())
             all_enemies = self.enemy_units(unit.team)
             shared = [e for e in self.shared_targets[unit.team].values_available(self.time_step)
@@ -194,46 +265,49 @@ class Simulator:
             )
 
             if is_evading and not was_evading:
-                self._add_log("Evade", f"{unit.team.title()} {unit.name} enters evade mode")
+                self._add_log("Evade",
+                    f"{unit.team.title()} {unit.name} enters evade mode")
                 self._evading_units.add(unit.id)
             elif not is_evading:
                 self._evading_units.discard(unit.id)
 
     def _attack_phase(self) -> None:
-        """攻击阶段：优先攻击阵营集火目标，规避状态下只允许近距离自卫。"""
-        events: list[AttackEvent] = []
+        """攻击阶段：优先攻击集火目标，需通过交战状态检查。"""
         for unit in self.active_units():
+            if not unit.engagement_state.can_attack:
+                continue
             target = self._attack_target_for(unit)
             if target is None or target.is_destroyed:
+                # 无可攻击目标：重置交战状态，避免卡在 ATTACK 无法退出
+                unit.engagement_state.reset_to_search()
                 continue
-            was_evading = unit.status == STATUS_EVADE
-            event = self.combat.attack(unit, target)
-            if was_evading and event:
-                unit.status = STATUS_EVADE
-            if event:
-                self.attack_count[unit.team] += 1
-                self.total_damage[unit.team] += event.damage
-                self._add_log(
-                    "Attack",
-                    (
-                        f"{unit.team.title()} {unit.name} attacked {target.team.title()} {target.name}, "
-                        f"damage={event.damage}, hp={target.hp}"
-                    ),
-                )
-                if event.target_destroyed and target.id not in self._kill_credit_record:
-                    self.kill_count[unit.team] += 1
-                    self._kill_credit_record.add(target.id)
-                events.append(event)
-        self.attack_events.extend(events)
+            intent = self.combat.queue_attack(
+                unit, target, self.battlefield,
+                is_evading=(unit.status == STATUS_EVADE))
+            if intent:
+                unit.engagement_state.on_attack_queued()
+            else:
+                # 防御：攻击加入队列失败，重置状态避免永久卡死
+                unit.engagement_state.reset_to_search()
 
     def _attack_target_for(self, unit: Unit) -> Unit | None:
-        """根据单位状态确定攻击目标。"""
+        """根据单位状态确定攻击目标，确保目标可被该单位攻击。"""
         if unit.status == STATUS_EVADE:
             nearest = self.strategy.nearest_enemy(unit, self.enemy_units(unit.team))
             if nearest and unit.attack_range > 0 and unit.distance_to(nearest) <= unit.attack_range * 0.55:
                 return nearest
             return None
-        return self.focus_targets.get(unit.team)
+        # 先检查集火目标是否可攻击，不可则从可见敌人中选择
+        focus = self.focus_targets.get(unit.team)
+        if focus and not focus.is_destroyed and unit.can_attack(focus):
+            return focus
+        all_enemies = self.enemy_units(unit.team)
+        own_ids = self._own_sightings.get(unit.id, set())
+        visible = [e for e in all_enemies if e.id in own_ids]
+        for e in sorted(visible, key=unit.distance_to):
+            if unit.can_attack(e):
+                return e
+        return None
 
     def _update_destroyed_stats(self) -> None:
         """统计新摧毁单位数量。"""
@@ -243,13 +317,16 @@ class Simulator:
                 unit.target_id = None
                 self._destroyed_record.add(unit.id)
                 self.destroyed_count[unit.team] += 1
-                self._add_log("Destroyed", f"{unit.team.title()} {unit.name} was destroyed")
+                self._add_log("Destroyed",
+                    f"{unit.team.title()} {unit.name} was destroyed")
 
     def _attack_base_phase(self) -> None:
-        """各单位优先攻击射程内的敌方基地。"""
+        """各单位攻击射程内的敌方基地（通过意图队列），需通过交战状态检查。"""
         red_base = self.battlefield.base_obj(TEAM_RED)
         blue_base = self.battlefield.base_obj(TEAM_BLUE)
         for unit in self.active_units():
+            if not unit.engagement_state.can_attack:
+                continue
             if unit.ammo <= 0 or unit.attack_power <= 0:
                 continue
             target_base = blue_base if unit.team == TEAM_RED else red_base
@@ -258,23 +335,11 @@ class Simulator:
             dist = ((unit.x - target_base.x) ** 2 + (unit.y - target_base.y) ** 2) ** 0.5
             if dist > unit.attack_range:
                 continue
-            # 检查攻击域
             if not unit.can_attack_ground:
                 continue
-            unit.ammo -= 1
-            dmg = target_base.take_damage(unit.attack_power)
-            self.attack_count[unit.team] += 1
-            self.total_damage[unit.team] += dmg
-            self.attack_events.append(AttackEvent(
-                attacker_id=unit.id, target_id=f"{target_base.team}_base",
-                start=(unit.x, unit.y), end=(target_base.x, target_base.y),
-                damage=dmg, target_hp=target_base.hp,
-                target_destroyed=target_base.is_destroyed,
-            ))
-            self._add_log("Attack",
-                f"{unit.team.title()} {unit.name} attacked {target_base.team.title()} base, damage={dmg}")
-            if target_base.is_destroyed:
-                self._add_log("Destroyed", f"{target_base.team.title()} base was destroyed")
+            intent = self.combat.queue_attack_base(unit, target_base)
+            if intent:
+                unit.engagement_state.on_attack_queued()
 
     def _replenish_phase(self) -> None:
         """基地给周围友军补给弹药和血量。"""
@@ -285,13 +350,8 @@ class Simulator:
             for unit in self.active_units(team):
                 dist = ((unit.x - base.x) ** 2 + (unit.y - base.y) ** 2) ** 0.5
                 if dist <= BASE_REPAIR_RADIUS:
-                    healed = unit.hp < unit.max_hp
-                    rearmed = unit.ammo < 10
                     unit.hp = min(unit.max_hp, unit.hp + BASE_REPAIR_PER_STEP)
                     unit.ammo = min(unit.ammo + 1, 10)
-                    if healed or rearmed:
-                        if unit.hp % 32 < BASE_REPAIR_PER_STEP:
-                            pass  # 补给中（静默）
 
     def _judge_winner(self) -> None:
         """判断胜负：某方全部单位被摧毁或基地被摧毁。"""
@@ -315,8 +375,6 @@ class Simulator:
             }[self.winner]
             self._add_log("Result", result_text)
             self._result_logged = True
-            self._add_log("Result", result_text)
-            self._result_logged = True
 
     def _cleanup_target_pools(self) -> None:
         """清理共享目标池中的无效目标。"""
@@ -324,7 +382,8 @@ class Simulator:
             for _, target, reason in targets.cleanup(self.time_step, DETECTION_TIMEOUT_STEPS):
                 self._add_log(
                     "TargetPool",
-                    f"{team.title()} target pool removed {target.team.title()} {target.name} ({reason})",
+                    f"{team.title()} target pool removed "
+                    f"{target.team.title()} {target.name} ({reason})",
                 )
         for unit in self.units:
             if unit.is_destroyed:
@@ -351,10 +410,9 @@ class Simulator:
         self.combat_logs = self.combat_logs[-12:]
 
     def status_snapshot(self) -> dict[str, int | str | None]:
-        """为 UI 面板提供统计快照（含第八阶段态势/行为字段）。"""
+        """为 UI 面板提供统计快照。"""
         red_sit = situation_label(self.red_strength, self.blue_strength, TEAM_RED)
         blue_sit = situation_label(self.red_strength, self.blue_strength, TEAM_BLUE)
-        # 获取一个代表性单位的行为
         red_active = self.active_units(TEAM_RED)
         blue_active = self.active_units(TEAM_BLUE)
         red_behavior = "待命"

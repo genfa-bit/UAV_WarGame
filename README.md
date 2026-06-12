@@ -22,6 +22,12 @@
 - 统一行为决策管理器，卡死检测与路径恢复。
 - 兵种战斗属性 JSON 配置化（data/unit_config.json）。
 - F 键仿真加速：1x / 2x / 4x / MAX 四档速度切换。
+- 简化交战状态机（SEARCH → REACTING → ATTACK → COOLDOWN），每单位独立维护攻击时序。
+- 反应延迟与攻击冷却采用随机范围取值，消除"先发现→先攻击→绝对优势"问题。
+- 攻击意图队列 + 同步伤害结算，帧内所有攻击统一结算，消除执行顺序先手优势。
+- 动态命中概率（距离/速度/状态/掩体遮挡四因子），含 Liang-Barsky 射线-矩形相交检测。
+- _attack_base_phase 受交战状态约束，防止反应/冷却期无意义消耗弹药。
+- 多目标探测时反应进度不回退，避免多敌互现导致永不攻击。
 
 ## 目录结构
 
@@ -47,6 +53,7 @@ UAV_WarGame/
 │   ├── behavior.py         # 统一行为决策管理器
 │   ├── threat.py           # 威胁评估与态势感知
 │   ├── pathfinding.py      # 地面绕障路径规划（Bug2算法）
+│   ├── engagement.py        # 简化交战状态机（反应延迟+冷却+反先手）
 │   └── unit_config_loader.py # 兵种配置加载器
 ├── ui/
 │   ├── renderer.py         # 地图、单位、基地、障碍物和攻击效果绘制
@@ -82,7 +89,12 @@ UAV_WarGame/
 │   ├── test_battlefield_situation.py # 战场态势测试
 │   ├── test_stuck_detection.py # 卡死检测测试
 │   ├── test_role_behavior.py # 兵种角色测试
-│   └── test_pathfinding.py # 路径规划测试
+│   ├── test_pathfinding.py # 路径规划测试
+│   ├── test_engagement_state.py # 交战状态机测试
+│   ├── test_hit_probability.py # 命中概率测试
+│   ├── test_simultaneous_attack.py # 同步结算测试
+│   ├── test_anti_first_strike.py # 反先手优势测试
+│   └── test_random_range.py # 随机范围测试
 └── docs/                   # 软件工程课程文档
 ```
 

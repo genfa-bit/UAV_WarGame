@@ -1,19 +1,24 @@
 {
-  "version": "1.0",
+  "version": "1.3",
 
-  "_comment_全局": "修改以下数值即可调整各兵种战斗属性，程序启动时自动加载",
+  "_comment_全局": "反先手机制：反应延迟/冷却减半，基础命中率提高，配合温和距离衰减",
 
   "scout_drone": {
-    "name": "侦察无人机",     // 兵种中文名
-    "domain": "air",          // 平台类型：air=空中 ground=地面 command=指挥
-    "max_hp": 55,             // 最大生命值
-    "speed": 4.6,             // 每帧移动速度（像素/帧）
-    "detect_range": 180,      // 探测范围（像素）
-    "attack_range": 80,       // 攻击范围（像素）
-    "attack_power": 8,        // 每次攻击伤害
-    "ammo": 6,                // 初始弹药量
-    "can_attack_air": true,   // 可否攻击空中目标
-    "can_attack_ground": true // 可否攻击地面目标
+    "name": "侦察无人机",
+    "domain": "air",
+    "max_hp": 55,
+    "speed": 4.6,
+    "detect_range": 180,
+    "attack_range": 80,
+    "attack_power": 8,
+    "ammo": 6,
+    "can_attack_air": true,
+    "can_attack_ground": true,
+    "reaction_delay_min": 4,
+    "reaction_delay_max": 7,
+    "attack_cooldown_min": 10,
+    "attack_cooldown_max": 18,
+    "base_hit_prob": 0.85
   },
 
   "strike_drone": {
@@ -26,7 +31,12 @@
     "attack_power": 18,
     "ammo": 7,
     "can_attack_air": true,
-    "can_attack_ground": true
+    "can_attack_ground": true,
+    "reaction_delay_min": 8,
+    "reaction_delay_max": 12,
+    "attack_cooldown_min": 15,
+    "attack_cooldown_max": 22,
+    "base_hit_prob": 0.90
   },
 
   "ground_vehicle": {
@@ -39,7 +49,12 @@
     "attack_power": 26,
     "ammo": 10,
     "can_attack_air": true,
-    "can_attack_ground": true
+    "can_attack_ground": true,
+    "reaction_delay_min": 10,
+    "reaction_delay_max": 18,
+    "attack_cooldown_min": 18,
+    "attack_cooldown_max": 25,
+    "base_hit_prob": 0.85
   },
 
   "missile_vehicle": {
@@ -52,7 +67,12 @@
     "attack_power": 34,
     "ammo": 4,
     "can_attack_air": true,
-    "can_attack_ground": true
+    "can_attack_ground": true,
+    "reaction_delay_min": 15,
+    "reaction_delay_max": 25,
+    "attack_cooldown_min": 22,
+    "attack_cooldown_max": 35,
+    "base_hit_prob": 0.95
   },
 
   "command_node": {
@@ -65,6 +85,11 @@
     "attack_power": 0,
     "ammo": 0,
     "can_attack_air": false,
-    "can_attack_ground": false
+    "can_attack_ground": false,
+    "reaction_delay_min": 20,
+    "reaction_delay_max": 30,
+    "attack_cooldown_min": 25,
+    "attack_cooldown_max": 40,
+    "base_hit_prob": 0.0
   }
 }

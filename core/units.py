@@ -2,16 +2,21 @@
 
 第三阶段将单位划分为空中、地面和指挥节点三类平台，并在统一 Unit
 接口下扩展具体兵种，方便后续继续新增单位。
+
+第十阶段：Unit 增加反应延迟、攻击冷却、基础命中率字段，通过随机范围
+取值生成实例值，并自动创建 EngagementState。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import random
+from dataclasses import dataclass, field
 from math import hypot
 from typing import Optional
 
 from config import STATUS_DESTROYED, STATUS_MOVE, THREAT_VALUE_BY_TYPE
 from core.battlefield import Battlefield
+from core.engagement import EngagementState
 from core.entity import Entity
 
 
@@ -41,6 +46,13 @@ class Unit(Entity):
     can_attack_air: bool = True
     can_attack_ground: bool = True
     threat_value: int = 1
+    reaction_delay: int = 0
+    attack_cooldown: int = 0
+    base_hit_prob: float = 0.8
+    engagement_state: EngagementState = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self.engagement_state = EngagementState(self.reaction_delay, self.attack_cooldown)
 
     @property
     def is_destroyed(self) -> bool:
@@ -166,9 +178,16 @@ class Unit(Entity):
 
 
 def _unit_defaults(unit_type: str) -> dict:
-    """从配置文件逐兵种读取默认属性，威胁值从 config.py 补充。"""
+    """从配置文件逐兵种读取默认属性，威胁值从 config.py 补充。
+
+    第十阶段：反应延迟和攻击冷却在配置范围内随机取值。
+    """
     from core.unit_config_loader import get_unit_stats
     cfg = get_unit_stats(unit_type)
+    rxn_min = cfg.get("reaction_delay_min", 2)
+    rxn_max = cfg.get("reaction_delay_max", 5)
+    cd_min = cfg.get("attack_cooldown_min", 10)
+    cd_max = cfg.get("attack_cooldown_max", 20)
     return dict(
         domain=cfg["domain"],
         unit_type=unit_type,
@@ -182,6 +201,9 @@ def _unit_defaults(unit_type: str) -> dict:
         can_attack_air=cfg.get("can_attack_air", True),
         can_attack_ground=cfg.get("can_attack_ground", True),
         threat_value=THREAT_VALUE_BY_TYPE.get(unit_type, 1),
+        reaction_delay=random.randint(rxn_min, rxn_max),
+        attack_cooldown=random.randint(cd_min, cd_max),
+        base_hit_prob=cfg.get("base_hit_prob", 0.8),
     )
 
 

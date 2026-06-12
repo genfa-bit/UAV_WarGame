@@ -36,9 +36,12 @@ def test_ground_unit_is_not_permanently_locked_by_finite_obstacle():
 
 def test_unit_in_attack_range_does_not_move_closer():
     battlefield = Battlefield(200, 200)
-    red = ScoutDrone(id="r1", name="red", team="red", x=20, y=20, attack_range=80)
+    red = ScoutDrone(id="r1", name="red", team="red", x=20, y=20, attack_range=80,
+                      reaction_delay=0, attack_cooldown=0)
     blue = ScoutDrone(id="b1", name="blue", team="blue", x=90, y=20)
 
+    # 第十阶段：交战状态机需要先发现目标才能进入攻击态
+    red.engagement_state.on_target_spotted(blue.id)
     StrategyEngine().move_unit(red, battlefield, blue, [blue], [blue])
 
     assert red.status == STATUS_ATTACK

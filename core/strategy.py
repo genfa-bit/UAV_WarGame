@@ -197,6 +197,7 @@ class StrategyEngine:
                                lambda: ev(unit, nearest_vis, battlefield)))
 
         # Attack（集火目标 或 面前最近的可攻击敌人）
+        # 第十阶段：只有交战状态机允许攻击时才能加入 ATTACK 候选
         attack_target = None
         if target and not target.is_destroyed and unit.can_attack(target):
             attack_target = target
@@ -207,9 +208,14 @@ class StrategyEngine:
                     break
         if attack_target:
             at = attack_target  # capture for lambda
-            candidates.append((Behavior.ATTACK,
-                               lambda: self._move_with_role(unit, at, battlefield,
-                                                            visible, enemies)))
+            if unit.engagement_state.can_attack:
+                candidates.append((Behavior.ATTACK,
+                                   lambda: self._move_with_role(unit, at, battlefield,
+                                                                visible, enemies)))
+            else:
+                # 反应中/冷却中 → 向目标移动但不攻击
+                candidates.append((Behavior.SCOUT,
+                                   lambda: self._do_move_to_point(unit, at.x, at.y, battlefield)))
 
         executed = self.behavior_mgr.resolve(unit.id, candidates, force_exit)
 
