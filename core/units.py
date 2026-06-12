@@ -165,22 +165,31 @@ class Unit(Entity):
                 return
 
 
+def _unit_defaults(unit_type: str) -> dict:
+    """从配置文件逐兵种读取默认属性，威胁值从 config.py 补充。"""
+    from core.unit_config_loader import get_unit_stats
+    cfg = get_unit_stats(unit_type)
+    return dict(
+        domain=cfg["domain"],
+        unit_type=unit_type,
+        max_hp=cfg["max_hp"],
+        hp=cfg["max_hp"],
+        speed=cfg["speed"],
+        detect_range=cfg["detect_range"],
+        attack_range=cfg["attack_range"],
+        attack_power=cfg["attack_power"],
+        ammo=cfg["ammo"],
+        can_attack_air=cfg.get("can_attack_air", True),
+        can_attack_ground=cfg.get("can_attack_ground", True),
+        threat_value=THREAT_VALUE_BY_TYPE.get(unit_type, 1),
+    )
+
+
 class ScoutDrone(Unit):
     """侦察无人机：高速、高侦察、低攻击、低生命。"""
 
     def __init__(self, **kwargs):
-        defaults = dict(
-            domain=UnitDomain.AIR,
-            unit_type="scout_drone",
-            max_hp=55,
-            hp=55,
-            speed=4.6,
-            detect_range=180,
-            attack_range=80,
-            attack_power=8,
-            ammo=6,
-            threat_value=THREAT_VALUE_BY_TYPE["scout_drone"],
-        )
+        defaults = _unit_defaults("scout_drone")
         defaults.update(kwargs)
         super().__init__(**defaults)
 
@@ -189,18 +198,7 @@ class StrikeDrone(Unit):
     """打击无人机：中速、中攻击，适合协同打击。"""
 
     def __init__(self, **kwargs):
-        defaults = dict(
-            domain=UnitDomain.AIR,
-            unit_type="strike_drone",
-            max_hp=75,
-            hp=75,
-            speed=3.5,
-            detect_range=135,
-            attack_range=135,
-            attack_power=18,
-            ammo=7,
-            threat_value=THREAT_VALUE_BY_TYPE["strike_drone"],
-        )
+        defaults = _unit_defaults("strike_drone")
         defaults.update(kwargs)
         super().__init__(**defaults)
 
@@ -209,18 +207,7 @@ class GroundVehicle(Unit):
     """无人战车：低速、高生命、高攻击，适合正面对抗。"""
 
     def __init__(self, **kwargs):
-        defaults = dict(
-            domain=UnitDomain.GROUND,
-            unit_type="ground_vehicle",
-            max_hp=125,
-            hp=125,
-            speed=2.1,
-            detect_range=105,
-            attack_range=115,
-            attack_power=26,
-            ammo=10,
-            threat_value=THREAT_VALUE_BY_TYPE["ground_vehicle"],
-        )
+        defaults = _unit_defaults("ground_vehicle")
         defaults.update(kwargs)
         super().__init__(**defaults)
 
@@ -229,18 +216,7 @@ class MissileVehicle(Unit):
     """导弹发射车：远程、高伤害、低弹药。"""
 
     def __init__(self, **kwargs):
-        defaults = dict(
-            domain=UnitDomain.GROUND,
-            unit_type="missile_vehicle",
-            max_hp=90,
-            hp=90,
-            speed=1.7,
-            detect_range=95,
-            attack_range=185,
-            attack_power=34,
-            ammo=4,
-            threat_value=THREAT_VALUE_BY_TYPE["missile_vehicle"],
-        )
+        defaults = _unit_defaults("missile_vehicle")
         defaults.update(kwargs)
         super().__init__(**defaults)
 
@@ -249,21 +225,10 @@ class CommandNode(Unit):
     """指挥节点：固定不动，生命值较高，通信枢纽。"""
 
     def __init__(self, **kwargs):
-        defaults = dict(
-            domain=UnitDomain.COMMAND,
-            unit_type="command_node",
-            max_hp=170,
-            hp=170,
-            speed=0.0,
-            detect_range=130,
-            attack_range=0,
-            attack_power=0,
-            ammo=0,
-            threat_value=THREAT_VALUE_BY_TYPE["command_node"],
-        )
+        defaults = _unit_defaults("command_node")
         defaults.update(kwargs)
         super().__init__(**defaults)
-        self.comm_range = 250  # 非 dataclass 字段，通信范围
+        self.comm_range = 250
 
 
 # 兼容第一、二阶段命名，避免旧测试或旧场景短期内失效。

@@ -1,0 +1,70 @@
+{
+  "version": "1.0",
+
+  "_comment_全局": "修改以下数值即可调整各兵种战斗属性，程序启动时自动加载",
+
+  "scout_drone": {
+    "name": "侦察无人机",     // 兵种中文名
+    "domain": "air",          // 平台类型：air=空中 ground=地面 command=指挥
+    "max_hp": 55,             // 最大生命值
+    "speed": 4.6,             // 每帧移动速度（像素/帧）
+    "detect_range": 180,      // 探测范围（像素）
+    "attack_range": 80,       // 攻击范围（像素）
+    "attack_power": 8,        // 每次攻击伤害
+    "ammo": 6,                // 初始弹药量
+    "can_attack_air": true,   // 可否攻击空中目标
+    "can_attack_ground": true // 可否攻击地面目标
+  },
+
+  "strike_drone": {
+    "name": "打击无人机",
+    "domain": "air",
+    "max_hp": 75,
+    "speed": 3.5,
+    "detect_range": 135,
+    "attack_range": 135,
+    "attack_power": 18,
+    "ammo": 7,
+    "can_attack_air": true,
+    "can_attack_ground": true
+  },
+
+  "ground_vehicle": {
+    "name": "无人战车",
+    "domain": "ground",
+    "max_hp": 125,
+    "speed": 2.1,
+    "detect_range": 105,
+    "attack_range": 115,
+    "attack_power": 26,
+    "ammo": 10,
+    "can_attack_air": true,
+    "can_attack_ground": true
+  },
+
+  "missile_vehicle": {
+    "name": "导弹发射车",
+    "domain": "ground",
+    "max_hp": 90,
+    "speed": 1.7,
+    "detect_range": 95,
+    "attack_range": 185,
+    "attack_power": 34,
+    "ammo": 4,
+    "can_attack_air": true,
+    "can_attack_ground": true
+  },
+
+  "command_node": {
+    "name": "指挥节点",
+    "domain": "command",
+    "max_hp": 170,
+    "speed": 0.0,
+    "detect_range": 130,
+    "attack_range": 0,
+    "attack_power": 0,
+    "ammo": 0,
+    "can_attack_air": false,
+    "can_attack_ground": false
+  }
+}
