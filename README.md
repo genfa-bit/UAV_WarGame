@@ -20,6 +20,8 @@
 - 威胁评估与优先级目标排序，目标锁定避免频繁切换。
 - 战场态势感知（战力/态势/战术），兵种角色智能化。
 - 统一行为决策管理器，卡死检测与路径恢复。
+- 兵种战斗属性 JSON 配置化（data/unit_config.json）。
+- F 键仿真加速：1x / 2x / 4x / MAX 四档速度切换。
 
 ## 目录结构
 
@@ -43,12 +45,15 @@ UAV_WarGame/
 │   ├── obstacle_editor.py  # 地图编辑器（障碍物+基地拖动）
 │   ├── map_persistence.py  # 地图保存与加载
 │   ├── behavior.py         # 统一行为决策管理器
-│   └── threat.py           # 威胁评估与态势感知
+│   ├── threat.py           # 威胁评估与态势感知
+│   ├── pathfinding.py      # 地面绕障路径规划（Bug2算法）
+│   └── unit_config_loader.py # 兵种配置加载器
 ├── ui/
 │   ├── renderer.py         # 地图、单位、基地、障碍物和攻击效果绘制
 │   └── panel.py            # 右侧信息面板
 ├── data/
-│   └── scenario_1.json     # 示例场景数据
+│   ├── scenario_1.json     # 示例场景数据
+│   └── unit_config.json    # 兵种战斗属性配置
 ├── tests/
 │   ├── test_combat.py      # 攻击结算测试
 │   ├── test_detection.py   # 侦察目标池测试
@@ -70,7 +75,14 @@ UAV_WarGame/
 │   ├── test_base_drag.py     # 基地拖动测试
 │   ├── test_destroyed_unit_visibility.py # 残骸显示测试
 │   ├── test_ui_translation.py # 中文界面测试
-│   └── test_map_persistence.py # 地图持久化测试
+│   ├── test_map_persistence.py # 地图持久化测试
+│   ├── test_behavior_manager.py # 行为管理器测试
+│   ├── test_threat_assessment.py # 威胁评估测试
+│   ├── test_priority_target.py # 优先级目标测试
+│   ├── test_battlefield_situation.py # 战场态势测试
+│   ├── test_stuck_detection.py # 卡死检测测试
+│   ├── test_role_behavior.py # 兵种角色测试
+│   └── test_pathfinding.py # 路径规划测试
 └── docs/                   # 软件工程课程文档
 ```
 
@@ -141,6 +153,7 @@ pytest
 | L | 加载地图 |
 | Space | 暂停/继续 |
 | S | 单步推进 |
+| F | 切换仿真速度（1x/2x/4x/MAX） |
 | K | 切换残骸显示 |
 | ESC | 退出 |
 

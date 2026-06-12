@@ -19,6 +19,7 @@ from config import (
     OBSTACLE_COLOR,
     RED_COLOR,
     RESIZE_HANDLE,
+    SIM_SPEED_LEVELS,
     STATUS_DESTROYED,
     STATUS_LABELS,
     TEXT_COLOR,
@@ -39,7 +40,7 @@ class Renderer:
 
     # ── 运行阶段 ──────────────────────────────────────────────
 
-    def render(self, simulator, game_state: str) -> None:
+    def render(self, simulator, game_state: str, sim_speed_index: int = 0) -> None:
         self.screen.fill(BACKGROUND_COLOR)
         self._draw_grid()
         self._draw_bases(simulator.battlefield)
@@ -49,7 +50,8 @@ class Renderer:
         visible = simulator.units if simulator.show_wrecks else [
             u for u in simulator.units if not u.is_destroyed]
         self._draw_units(visible, simulator.show_wrecks)
-        self.panel.draw_runtime(self.screen, simulator, game_state)
+        speed_label = SIM_SPEED_LEVELS[sim_speed_index][0]
+        self.panel.draw_runtime(self.screen, simulator, game_state, speed_label)
 
     # ── 部署阶段 ──────────────────────────────────────────────
 

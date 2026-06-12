@@ -30,12 +30,13 @@ def test_preset_enter_starts_running():
 def test_running_space_pauses():
     deployment, battlefield = create_deployment()
 
-    simulator, state, deployment, battlefield = handle_runtime_key(
+    simulator, state, deployment, battlefield, _ = handle_runtime_key(
         pygame.K_SPACE,
         None,
         GAME_RUNNING,
         deployment,
         battlefield,
+        0,
     )
 
     assert state == GAME_PAUSED
@@ -44,12 +45,13 @@ def test_running_space_pauses():
 def test_paused_space_resumes():
     deployment, battlefield = create_deployment()
 
-    simulator, state, deployment, battlefield = handle_runtime_key(
+    simulator, state, deployment, battlefield, _ = handle_runtime_key(
         pygame.K_SPACE,
         None,
         GAME_PAUSED,
         deployment,
         battlefield,
+        0,
     )
 
     assert state == GAME_RUNNING
@@ -58,12 +60,13 @@ def test_paused_space_resumes():
 def test_r_returns_to_deployment_from_running():
     deployment, battlefield = create_deployment()
 
-    simulator, state, deployment, battlefield = handle_runtime_key(
+    simulator, state, deployment, battlefield, _ = handle_runtime_key(
         pygame.K_r,
         None,
         GAME_RUNNING,
         deployment,
         battlefield,
+        0,
     )
 
     assert state == GAME_DEPLOYMENT
@@ -73,12 +76,13 @@ def test_r_returns_to_deployment_from_running():
 def test_finished_r_returns_to_deployment():
     deployment, battlefield = create_deployment()
 
-    simulator, state, deployment, battlefield = handle_runtime_key(
+    simulator, state, deployment, battlefield, _ = handle_runtime_key(
         pygame.K_r,
         None,
         GAME_FINISHED,
         deployment,
         battlefield,
+        0,
     )
 
     assert state == GAME_DEPLOYMENT

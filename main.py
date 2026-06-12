@@ -25,7 +25,7 @@ except ModuleNotFoundError:
         K_DELETE = 127
         K_1 = 49; K_2 = 50; K_3 = 51; K_4 = 52; K_5 = 53
         K_6 = 54; K_7 = 55; K_8 = 56
-        K_c = 99; K_m = 109; K_r = 114; K_s = 115; K_t = 116
+        K_c = 99; K_f = 102; K_m = 109; K_r = 114; K_s = 115; K_t = 116
         K_e = 101; K_k = 107; K_l = 108
         KMOD_CTRL = 64
         SRCALPHA = 0x00010000
@@ -50,6 +50,7 @@ from config import (
     GAME_RUNNING,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
+    SIM_SPEED_LEVELS,
     SIMULATION_INTERVAL_MS,
 )
 from core.deployment import DeploymentManager
@@ -82,6 +83,8 @@ def main() -> None:
     game_state = GAME_DEPLOYMENT
     running = True
     last_step_time = pygame.time.get_ticks()
+    sim_speed_index = 0
+    sim_interval_ms = SIM_SPEED_LEVELS[0][1]
 
     while running:
         ctrl_held = pygame.key.get_mods() & pygame.KMOD_CTRL
@@ -130,13 +133,14 @@ def main() -> None:
                 last_step_time = pygame.time.get_ticks()
 
             elif event.type == pygame.KEYDOWN and game_state != GAME_DEPLOYMENT:
-                simulator, game_state, deployment, battlefield = handle_runtime_key(
-                    event.key, simulator, game_state, deployment, battlefield)
+                simulator, game_state, deployment, battlefield, sim_speed_index = handle_runtime_key(
+                    event.key, simulator, game_state, deployment, battlefield, sim_speed_index)
+                sim_interval_ms = SIM_SPEED_LEVELS[sim_speed_index][1]
                 last_step_time = pygame.time.get_ticks()
 
         now = pygame.time.get_ticks()
         if game_state == GAME_RUNNING and simulator and \
-           now - last_step_time >= SIMULATION_INTERVAL_MS:
+           now - last_step_time >= sim_interval_ms:
             simulator.step()
             if simulator.winner:
                 game_state = GAME_FINISHED
@@ -145,7 +149,7 @@ def main() -> None:
         if game_state == GAME_DEPLOYMENT:
             renderer.render_deployment(battlefield, deployment.display_units(), deployment)
         elif simulator:
-            renderer.render(simulator, game_state)
+            renderer.render(simulator, game_state, sim_speed_index)
 
         pygame.display.flip()
         clock.tick(FPS)
@@ -174,7 +178,8 @@ def handle_deployment_event(event, deployment, battlefield, simulator,
     return simulator, game_state, deployment, battlefield, running
 
 
-def handle_runtime_key(key, simulator, game_state, deployment, battlefield):
+def handle_runtime_key(key, simulator, game_state, deployment, battlefield,
+                       sim_speed_index):
     if key == pygame.K_SPACE:
         if game_state == GAME_RUNNING:
             game_state = GAME_PAUSED
@@ -184,13 +189,15 @@ def handle_runtime_key(key, simulator, game_state, deployment, battlefield):
             game_state in (GAME_RUNNING, GAME_PAUSED, GAME_FINISHED):
         simulator.step()
         game_state = GAME_FINISHED if simulator.winner else GAME_PAUSED
+    elif key == pygame.K_f:
+        sim_speed_index = (sim_speed_index + 1) % len(SIM_SPEED_LEVELS)
     elif key == pygame.K_k and simulator:
         simulator.show_wrecks = not simulator.show_wrecks
     elif key == pygame.K_r:
         deployment, battlefield = create_deployment()
         simulator = None
         game_state = GAME_DEPLOYMENT
-    return simulator, game_state, deployment, battlefield
+    return simulator, game_state, deployment, battlefield, sim_speed_index
 
 
 if __name__ == "__main__":

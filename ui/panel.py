@@ -24,7 +24,8 @@ class InfoPanel:
 
     # ── 运行阶段 ──────────────────────────────────────────────
 
-    def draw_runtime(self, surface: pygame.Surface, simulator, game_state: str) -> None:
+    def draw_runtime(self, surface: pygame.Surface, simulator, game_state: str,
+                     speed_label: str = "1x") -> None:
         self._draw_background(surface)
         snapshot = simulator.status_snapshot()
         wreck_status = "开启" if simulator.show_wrecks else "关闭"
@@ -55,6 +56,7 @@ class InfoPanel:
             ("", self.font),
             ("Space  暂停/继续", self.small_font),
             ("S      单步推进", self.small_font),
+            (f"F      速度: {speed_label}", self.small_font),
             ("K      切换残骸显示", self.small_font),
             ("R      返回部署", self.small_font),
             ("ESC    退出", self.small_font),
