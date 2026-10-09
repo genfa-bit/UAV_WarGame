@@ -1,10 +1,10 @@
 # 无人装备战争游戏仿真系统
 
-本项目是软件工程课程大作业，使用 Python + Pygame 实现二维无人装备对抗仿真。系统通过抽象规则展示自主侦察、协同集火、战术规避、战斗统计和胜负判断，不涉及真实军事参数。
+基于 Python + PySide6/QML 的二维无人装备对抗仿真系统。系统通过抽象规则展示自主侦察、协同集火、战术规避、战斗统计和胜负判断，全部参数为仿真抽象值，不涉及真实军事数据。
 
 ## 前端说明
 
-- 默认前端已迁移为 `PySide6 + QML` 现代战术指挥台。
+- 默认前端为 `PySide6 + QML` 现代战术指挥台，入口 `main.py` → `ui/qt_app.py`。
 - `core/controller.py` 提供前端无关的生命周期命令和可序列化快照。
 - `ui/qt_models.py` 负责 QML ViewModel、单位列表模型和自动推进定时器。
 - `ui/qml/Main.qml` 提供战场、部署编辑、运行控制、统计和日志界面。
@@ -23,7 +23,7 @@
 - 低血量、弹药耗尽或敌人过近时进入 Evade。
 - Evade 状态下远离最近可见敌人；无可见敌人时撤回己方基地。
 - 攻击消耗弹药、造成伤害，并输出攻击日志。
-- Pygame 显示单位、指挥节点、基地、障碍物、探测范围、血条、状态和攻击连线。
+- 显示单位、指挥节点、基地、障碍物、探测范围、血条、状态和攻击连线。
 - 信息面板显示时间步、剩余单位、摧毁数量、发现目标数、集火目标、运行状态和胜负结果。
 - 威胁评估与优先级目标排序，目标锁定避免频繁切换。
 - 战场态势感知（战力/态势/战术），兵种角色智能化。
@@ -31,21 +31,24 @@
 - 兵种战斗属性 JSON 配置化（data/unit_config.json）。
 - F 键仿真加速：1x / 2x / 4x / MAX 四档速度切换。
 - 简化交战状态机（SEARCH → REACTING → ATTACK → COOLDOWN），每单位独立维护攻击时序。
-- 反应延迟与攻击冷却采用随机范围取值，消除"先发现→先攻击→绝对优势"问题。
+- 反应延迟与攻击冷却采用随机范围取值，消除“先发现→先攻击→绝对优势”问题。
 - 攻击意图队列 + 同步伤害结算，帧内所有攻击统一结算，消除执行顺序先手优势。
 - 动态命中概率（距离/速度/状态/掩体遮挡四因子），含 Liang-Barsky 射线-矩形相交检测。
-- _attack_base_phase 受交战状态约束，防止反应/冷却期无意义消耗弹药。
 - 多目标探测时反应进度不回退，避免多敌互现导致永不攻击。
 
 ## 目录结构
 
 ```text
 UAV_WarGame/
-├── main.py                 # 程序入口，负责初始化和主循环
+├── main.py                 # 默认入口：启动 PySide6/QML 前端
+├── pygame_main.py          # 旧 Pygame 前端入口
 ├── config.py               # 全局配置，如窗口尺寸、颜色、状态常量
 ├── requirements.txt        # 项目依赖
+├── pytest.ini              # pytest 配置（pythonpath = .）
+├── UAV_WarGame.spec        # PyInstaller 打包配置
 ├── README.md               # 项目说明
 ├── core/
+│   ├── controller.py       # 前端无关的仿真控制器与快照
 │   ├── battlefield.py      # 战场、障碍物、基地和地形信息
 │   ├── simulator.py        # 仿真流程主控
 │   ├── entity.py           # 实体基础类
@@ -60,123 +63,180 @@ UAV_WarGame/
 │   ├── map_persistence.py  # 地图保存与加载
 │   ├── behavior.py         # 统一行为决策管理器
 │   ├── threat.py           # 威胁评估与态势感知
-│   ├── pathfinding.py      # 地面绕障路径规划（Bug2算法）
-│   ├── engagement.py        # 简化交战状态机（反应延迟+冷却+反先手）
+│   ├── pathfinding.py      # 地面绕障路径规划（Bug2 算法）
+│   ├── engagement.py       # 简化交战状态机（反应延迟+冷却+反先手）
 │   └── unit_config_loader.py # 兵种配置加载器
 ├── ui/
-│   ├── renderer.py         # 地图、单位、基地、障碍物和攻击效果绘制
-│   └── panel.py            # 右侧信息面板
+│   ├── qt_app.py           # PySide6 应用引导，加载 QML
+│   ├── qt_models.py        # QML ViewModel 与单位模型
+│   ├── qml/Main.qml        # 主界面
+│   ├── assets/             # 单位与障碍物图标
+│   ├── renderer.py         # Pygame 前端绘制
+│   └── panel.py            # Pygame 前端右侧信息面板
 ├── data/
-│   ├── scenario_1.json     # 示例场景数据
+│   ├── scenario_1.json     # 预设场景数据
+│   ├── saved_map.json      # 保存的地图（运行时生成）
 │   └── unit_config.json    # 兵种战斗属性配置
-├── tests/
-│   ├── test_combat.py      # 攻击结算测试
-│   ├── test_detection.py   # 侦察目标池测试
-│   ├── test_evade.py       # 规避行为测试
-│   ├── test_simulator.py   # 初始化、胜负和目标池清理测试
-│   ├── test_unit_factory.py # 兵种工厂测试
-│   ├── test_unit_domains.py # 平台类型测试
-│   ├── test_deployment.py   # 部署阶段测试
-│   ├── test_deployment_events.py # 部署事件测试
-│   ├── test_state_transition.py # 状态切换测试
-│   ├── test_movement_stability.py # 移动稳定性测试
-│   ├── test_victory.py      # 胜负判断测试
-│   ├── test_statistics.py   # 战斗统计测试
-│   ├── test_detection_pool.py # 目标池测试
-│   ├── test_focus_target.py  # 集火目标测试
-│   ├── test_unit_state.py    # 单位状态机测试
-│   ├── test_obstacle_editor.py # 障碍物编辑器测试
-│   ├── test_obstacle_save_load.py # 地图保存加载测试
-│   ├── test_base_drag.py     # 基地拖动测试
-│   ├── test_destroyed_unit_visibility.py # 残骸显示测试
-│   ├── test_ui_translation.py # 中文界面测试
-│   ├── test_map_persistence.py # 地图持久化测试
-│   ├── test_behavior_manager.py # 行为管理器测试
-│   ├── test_threat_assessment.py # 威胁评估测试
-│   ├── test_priority_target.py # 优先级目标测试
-│   ├── test_battlefield_situation.py # 战场态势测试
-│   ├── test_stuck_detection.py # 卡死检测测试
-│   ├── test_role_behavior.py # 兵种角色测试
-│   ├── test_pathfinding.py # 路径规划测试
-│   ├── test_engagement_state.py # 交战状态机测试
-│   ├── test_hit_probability.py # 命中概率测试
-│   ├── test_simultaneous_attack.py # 同步结算测试
-│   ├── test_anti_first_strike.py # 反先手优势测试
-│   └── test_random_range.py # 随机范围测试
-└── docs/                   # 软件工程课程文档
+├── tests/                  # pytest 测试用例
+└── docs/                   # 需求、设计、测试与验收文档
 ```
 
 ## 环境要求
 
-- Python 3.10 或以上版本
+- Python 3.10 或以上版本（当前验证环境为 3.11.17）
 - 推荐使用 Anaconda 专用环境 `uav_wargame`
-- 当前推荐解释器：`D:\Anaconda\envs\uav_wargame\python.exe`
+- 当前推荐解释器：`D:\conda_envs\uav_wargame\python.exe`
+- 当前环境已验证版本：PySide6 6.12.0、pygame 2.6.1
 - 不建议使用 base；也不建议使用 Python 3.14 环境安装 Pygame
 
 ## 安装依赖
 
+在项目根目录执行：
+
 ```powershell
-cd d:\study_BJC\softwareproject\UAV_WarGame
+cd D:\应用综合实验\UAV_WarGame
 conda activate uav_wargame
 pip install -r requirements.txt
 ```
 
-如果终端没有初始化 conda，可以直接指定解释器：
+如果终端没有初始化 conda，可以直接指定解释器（无需 activate）：
 
 ```powershell
-& "D:\Anaconda\envs\uav_wargame\python.exe" -m pip install -r requirements.txt
+cd D:\应用综合实验\UAV_WarGame
+& "D:\conda_envs\uav_wargame\python.exe" -m pip install -r requirements.txt
+```
+
+依赖内容（`requirements.txt`）：
+
+```text
+pygame>=2.5.0
+PySide6>=6.8,<7
+pytest>=8.0.0
 ```
 
 ## 运行方法
+
+所有命令都需要先进入项目根目录：
+
+```powershell
+cd D:\应用综合实验\UAV_WarGame
+```
+
+### 1. 运行默认前端（PySide6 + QML，推荐）
 
 ```powershell
 python main.py
 ```
 
-或：
+未初始化 conda 时直接指定解释器：
 
 ```powershell
-& "D:\Anaconda\envs\uav_wargame\python.exe" main.py
+& "D:\conda_envs\uav_wargame\python.exe" main.py
 ```
 
-运行旧 Pygame 前端：
+也可以在任意目录用绝对路径启动：
+
+```powershell
+& "D:\conda_envs\uav_wargame\python.exe" "D:\应用综合实验\UAV_WarGame\main.py"
+```
+
+注意：`main.py` 依赖相对包结构（`core`、`ui`），用绝对路径启动时请确保工作目录或 `pythonpath` 能定位到项目根目录，否则建议先 `cd` 到项目根目录。
+
+### 2. 运行旧 Pygame 前端
 
 ```powershell
 python pygame_main.py
 ```
 
-## 测试方法
+或：
+
+```powershell
+& "D:\conda_envs\uav_wargame\python.exe" pygame_main.py
+```
+
+### 3. 运行测试
+
+运行全部测试：
 
 ```powershell
 pytest
 ```
 
-或：
+或指定解释器：
 
 ```powershell
-& "D:\Anaconda\envs\uav_wargame\python.exe" -m pytest
+& "D:\conda_envs\uav_wargame\python.exe" -m pytest
 ```
+
+常用变体：
+
+```powershell
+# 精简输出
+python -m pytest -q
+
+# 显示每个用例名称
+python -m pytest -v
+
+# 只跑某个模块
+python -m pytest tests/test_combat.py
+
+# 只跑名称匹配的用例
+python -m pytest -k "attack or evade"
+
+# 首个失败即停止
+python -m pytest -x
+
+# 显示打印输出（排查仿真日志时有用）
+python -m pytest -s
+```
+
+> 当前基线：`219 passed`，全部用例通过。
+
+### 4. 打包为可执行文件（可选）
+
+`UAV_WarGame.spec` 已配置好数据文件与隐藏导入，打包命令为：
+
+```powershell
+pip install pyinstaller
+pyinstaller UAV_WarGame.spec
+```
+
+产物位于 `dist/UAV_WarGame/`，双击其中的 `UAV_WarGame.exe` 即可运行（无需控制台）。
+
+## 命令速查
+
+| 目的 | 命令 |
+|---|---|
+| 进入项目目录 | `cd D:\应用综合实验\UAV_WarGame` |
+| 激活环境 | `conda activate uav_wargame` |
+| 安装依赖 | `pip install -r requirements.txt` |
+| 启动主程序（QML） | `python main.py` |
+| 启动旧前端（Pygame） | `python pygame_main.py` |
+| 运行全部测试 | `pytest` 或 `python -m pytest -q` |
+| 打包 | `pyinstaller UAV_WarGame.spec` |
 
 ## 键盘操作
 
+QML 前端与 Pygame 前端使用同一套按键。标注“部署”的按键仅在部署阶段生效。
+
 | 按键 | 功能 |
 |---|---|
-| Enter | 开始仿真 |
-| 1 | 选择侦察无人机 |
-| 2 | 选择打击无人机 |
-| 3 | 选择无人战车 |
-| 4 | 选择导弹发射车 |
-| 5 | 选择指挥节点 |
-| 6 | 选择障碍物-山地 |
-| 7 | 选择障碍物-建筑 |
-| 8 | 选择障碍物-禁行区 |
-| T | 切换红/蓝方阵营 |
-| Backspace | 撤销部署 / 删除选中障碍物 |
-| Delete | 删除选中障碍物 |
-| C | 清空地图（清除所有单位和障碍物） |
+| Enter | 开始仿真（部署阶段） |
+| 1 | 选择侦察无人机（部署阶段） |
+| 2 | 选择打击无人机（部署阶段） |
+| 3 | 选择无人战车（部署阶段） |
+| 4 | 选择导弹发射车（部署阶段） |
+| 5 | 选择指挥节点（部署阶段） |
+| 6 | 选择障碍物-山地（部署阶段） |
+| 7 | 选择障碍物-建筑（部署阶段） |
+| 8 | 选择障碍物-禁行区（部署阶段） |
+| T | 切换红/蓝方阵营（部署阶段） |
+| Backspace | 撤销部署 / 删除选中障碍物（部署阶段） |
+| Delete | 删除选中障碍物（部署阶段） |
+| C | 清空地图（清除所有单位和障碍物，部署阶段） |
 | R | 恢复预设开局 |
-| Ctrl+S | 保存地图 |
-| L | 加载地图 |
+| L | 加载地图（部署阶段） |
+| Ctrl+S | 保存地图（部署阶段） |
 | Space | 暂停/继续 |
 | S | 单步推进 |
 | F | 切换仿真速度（1x/2x/4x/MAX） |
@@ -188,13 +248,19 @@ pytest
 | 操作 | 功能 |
 |------|------|
 | 左键点击空位 | 放置当前选中的单位 |
-| 左键拖拽空位 | 创建矩形障碍物（需先按键6/7/8选择障碍物类型） |
+| 左键拖拽空位 | 创建矩形障碍物（需先按键 6/7/8 选择障碍物类型） |
 | 左键点击已有对象 | 选中单位或障碍物 |
 | 左键拖拽已有对象 | 移动单位、障碍物或基地 |
 | 左键拖拽障碍物右下角把手 | 调整障碍物大小 |
 | 右键点击 | 删除单位或障碍物 |
 
-## 课程验收演示建议
+### 地图文件
+
+- 预设场景：`data/scenario_1.json`，启动时自动加载。
+- 保存地图：`Ctrl+S` 写入 `data/saved_map.json`。
+- 加载地图：`L` 读取 `data/saved_map.json` 并回到部署状态。
+
+## 演示流程建议
 
 1. 启动程序，界面全部中文，系统处于部署阶段，地图显示预设单位和障碍物。
 2. 可直接在预设地图上编辑：按键 `1`-`5` 选兵种，`T` 切换阵营，左键点击放置单位。
@@ -206,10 +272,11 @@ pytest
 
 ## 常见问题
 
-- Pygame 安装失败：请使用 Python 3.10-3.13 的 Anaconda 环境，不要用当前 Python 3.14 环境。
+- Pygame 安装失败：请使用 Python 3.10-3.13 的 Anaconda 环境，不要用 Python 3.14 环境。
+- 找不到 `uav_wargame` 环境：确认解释器路径为 `D:\conda_envs\uav_wargame\python.exe`；conda 未初始化时直接用该路径调用即可。
+- `ModuleNotFoundError: core` / `ui`：说明当前工作目录不是项目根目录，先 `cd D:\应用综合实验\UAV_WarGame` 再运行。
 - 中文字体显示异常：可在 `ui/panel.py` 和 `ui/renderer.py` 中更换为本机中文字体。
-- 单位遇到障碍物停止：第一版和第二阶段采用简单障碍处理，后续可加入 A* 路径规划。
-- 控制台日志较多：日志用于验收讲解侦察、攻击和规避流程，正式版本可增加日志开关。
+- 控制台日志较多：日志用于讲解侦察、攻击和规避流程，可按需增加日志开关。
 
 ## 兵种说明
 
