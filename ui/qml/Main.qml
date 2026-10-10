@@ -4,13 +4,14 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
+import QtQuick.Dialogs
 
 ApplicationWindow {
     id: root
-    width: 1440
-    height: 900
-    minimumWidth: 1180
-    minimumHeight: 720
+    width: Math.min(1440, Screen.desktopAvailableWidth)
+    height: Math.min(900, Screen.desktopAvailableHeight)
+    minimumWidth: 920
+    minimumHeight: 540
     visible: true
     color: "#08111f"
     title: "无人装备战争游戏仿真系统"
@@ -23,6 +24,67 @@ ApplicationWindow {
     readonly property color panelColor: "#101d2e"
     readonly property color cardColor: "#14243a"
     readonly property color mutedColor: "#8da2ba"
+    readonly property string selectedUnitId: viewModel.selectedUnitId
+    property bool resultPresented: false
+    property string logFilter: "all"
+    property bool showAllRanges: false
+    property bool showMapGrid: true
+    property bool showMapLandmarks: true
+    readonly property var mapVisual: root.snap.map.visual || ({})
+    readonly property string mapStyle: root.snap.map.style || "tactical"
+    property var pendingAction: null
+    property string pendingTitle: "确认操作"
+    property string pendingMessage: ""
+    readonly property bool dialogActive: confirmationDialog.visible || resultsDialog.visible
+        || helpDialog.visible || loadMapDialog.visible || saveMapDialog.visible || exportDialog.visible
+
+    function confirmAction(title, message, action) {
+        pendingTitle = title
+        pendingMessage = message
+        pendingAction = action
+        confirmationDialog.open()
+    }
+
+    function selectScenario(index) {
+        const scenarios = root.snap.scenarios || []
+        if (index < 0 || index >= scenarios.length) return
+        const scenario = scenarios[index]
+        if (scenario.id === root.snap.scene_id) return
+        confirmAction("切换场景", "切换到“" + scenario.name
+                      + "”会替换当前地图和部署。未保存的编辑将丢失。", function() {
+            viewModel.loadScenario(scenario.id)
+        })
+    }
+
+    function scenarioIndex() {
+        const scenarios = root.snap.scenarios || []
+        for (let i = 0; i < scenarios.length; ++i)
+            if (scenarios[i].id === root.snap.scene_id) return i
+        return -1
+    }
+
+    function requestLoadMap() {
+        confirmAction("载入地图", "载入文件会替换当前地图和部署。请先保存需要保留的编辑。",
+                      function() { loadMapDialog.open() })
+    }
+
+    function requestReset() {
+        confirmAction("返回部署", "结束本局并返回部署编辑？本局运行结果会被重置。",
+                      function() { viewModel.resetSimulation() })
+    }
+
+    function filteredLogs() {
+        const logs = root.snap.logs || []
+        if (logFilter === "all") return logs
+        return logs.filter(function(line) {
+            if (root.logFilter === "scout")
+                return line.indexOf("[Scout]") === 0 || line.indexOf("[TargetPool]") === 0
+            if (root.logFilter === "attack") return line.indexOf("[Attack]") === 0
+            if (root.logFilter === "destroyed") return line.indexOf("[Destroyed]") === 0
+            return line.indexOf("[Attack]") !== 0 && line.indexOf("[Destroyed]") !== 0
+                && line.indexOf("[Scout]") !== 0 && line.indexOf("[TargetPool]") !== 0
+        })
+    }
 
     function unitShortName(unitType) {
         if (unitType === "scout_drone") return "侦"
@@ -30,6 +92,15 @@ ApplicationWindow {
         if (unitType === "ground_vehicle") return "战"
         if (unitType === "missile_vehicle") return "导"
         return "指"
+    }
+
+    function unitStatusLabel(status) {
+        const labels = {
+            "Idle": "待命", "Move": "机动", "Patrol": "巡逻", "Attack": "攻击",
+            "Evade": "规避", "Destroyed": "已摧毁", "Scout": "侦察",
+            "Retreat": "撤退", "Resupply": "补给", "Support": "支援"
+        }
+        return labels[status] || status
     }
 
     function stateColor(state) {
@@ -69,6 +140,8 @@ ApplicationWindow {
         property color tone: root.accentColor
         property bool selected: false
         signal clicked()
+        Accessible.role: Accessible.Button
+        Accessible.name: text
 
         implicitHeight: 38
         implicitWidth: 110
@@ -171,7 +244,7 @@ ApplicationWindow {
     }
 
     header: Rectangle {
-        height: 72
+        height: root.height < 700 ? 62 : 72
         color: "#0c192a"
         border.color: "#1d334e"
 
@@ -198,7 +271,7 @@ ApplicationWindow {
                     text: "无人装备战争游戏仿真系统"
                     color: "#f1f7ff"
                     font.family: "Microsoft YaHei"
-                    font.pixelSize: 22
+                    font.pixelSize: root.width < 1100 ? 18 : 22
                     font.bold: true
                 }
             }
@@ -234,7 +307,7 @@ ApplicationWindow {
             }
 
             Rectangle {
-                implicitWidth: 118
+                implicitWidth: 148
                 implicitHeight: 44
                 radius: 8
                 color: "#13243a"
@@ -253,10 +326,10 @@ ApplicationWindow {
                     }
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: root.snap.statistics.time_step
+                        text: root.snap.statistics.time_step + " / " + (root.snap.statistics.max_steps || 2000)
                         color: "#ffffff"
                         font.family: "Consolas"
-                        font.pixelSize: 20
+                        font.pixelSize: 18
                         font.bold: true
                     }
                 }
@@ -266,14 +339,14 @@ ApplicationWindow {
 
     RowLayout {
         anchors.fill: parent
-        anchors.margins: 16
-        spacing: 14
+        anchors.margins: 12
+        spacing: 12
 
         Rectangle {
             id: battlefieldCard
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.minimumWidth: 720
+            Layout.minimumWidth: 500
             radius: 14
             color: "#0d1a2a"
             border.color: "#203955"
@@ -292,13 +365,14 @@ ApplicationWindow {
                     anchors.rightMargin: 14
 
                     Text {
-                        text: "战场态势  /  " + root.snap.map.terrain
+                        Layout.fillWidth: true
+                        text: "战场态势  /  " + (root.mapVisual.title || "战术地图")
                         color: "#cfe0f2"
                         font.family: "Microsoft YaHei"
                         font.pixelSize: 13
                         font.bold: true
+                        elide: Text.ElideRight
                     }
-                    Item { Layout.fillWidth: true }
                     Text {
                         text: root.deploymentMode
                               ? root.snap.deployment.selected_label + " · "
@@ -314,26 +388,150 @@ ApplicationWindow {
                 }
             }
 
-            Item {
-                id: battlefieldViewport
+            Rectangle {
+                id: mapToolbar
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                anchors.bottom: messageBar.top
                 anchors.topMargin: 42
-                anchors.margins: 14
+                height: 36
+                color: "#0f2033"
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 10
+                    anchors.rightMargin: 10
+                    spacing: 6
+                    AppButton {
+                        objectName: "mapZoomOut"
+                        Layout.preferredWidth: 28
+                        height: 26
+                        text: "−"
+                        enabled: battlefieldViewport.zoomLevel > 1.001
+                        onClicked: battlefieldViewport.zoomAt(battlefieldViewport.zoomLevel / 1.25,
+                                                              battlefieldViewport.width / 2, battlefieldViewport.height / 2)
+                    }
+                    Text {
+                        Layout.preferredWidth: 38
+                        text: Math.round(battlefieldViewport.zoomLevel * 100) + "%"
+                        color: "#cfe0f2"
+                        font.family: "Consolas"
+                        font.pixelSize: 11
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                    AppButton {
+                        objectName: "mapZoomIn"
+                        Layout.preferredWidth: 28
+                        height: 26
+                        text: "+"
+                        enabled: battlefieldViewport.zoomLevel < 3.999
+                        onClicked: battlefieldViewport.zoomAt(battlefieldViewport.zoomLevel * 1.25,
+                                                              battlefieldViewport.width / 2, battlefieldViewport.height / 2)
+                    }
+                    AppButton {
+                        objectName: "mapFit"
+                        Layout.preferredWidth: 74
+                        height: 26
+                        text: "适应地图"
+                        onClicked: battlefieldViewport.resetView()
+                    }
+                    Item { Layout.fillWidth: true }
+                    AppButton {
+                        Layout.preferredWidth: 64
+                        height: 26
+                        text: "全部范围"
+                        selected: root.showAllRanges
+                        onClicked: { root.showAllRanges = !root.showAllRanges; battleCanvas.requestPaint() }
+                    }
+                    AppButton {
+                        Layout.preferredWidth: 46
+                        height: 26
+                        text: "网格"
+                        selected: root.showMapGrid
+                        onClicked: root.showMapGrid = !root.showMapGrid
+                    }
+                    AppButton {
+                        Layout.preferredWidth: 46
+                        height: 26
+                        text: "地标"
+                        selected: root.showMapLandmarks
+                        onClicked: root.showMapLandmarks = !root.showMapLandmarks
+                    }
+                }
+            }
 
-                readonly property real scaleFactor: Math.min(
+            Item {
+                id: battlefieldViewport
+                objectName: "mapViewport"
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: mapToolbar.bottom
+                anchors.bottom: messageBar.top
+                anchors.margins: 14
+                clip: true
+                property real zoomLevel: 1
+                property real panX: 0
+                property real panY: 0
+                readonly property real fitScale: Math.min(
                     width / root.snap.map.width,
                     height / root.snap.map.height
                 )
+                readonly property real scaleFactor: fitScale * zoomLevel
+                readonly property real offsetX: (width - root.snap.map.width * scaleFactor) / 2 + panX
+                readonly property real offsetY: (height - root.snap.map.height * scaleFactor) / 2 + panY
+                readonly property string sceneKey: root.snap.scene_id + ":" + root.snap.map.width + ":" + root.snap.map.height
+                readonly property real visibleWorldX: root.clamp(-offsetX / scaleFactor, 0, root.snap.map.width)
+                readonly property real visibleWorldY: root.clamp(-offsetY / scaleFactor, 0, root.snap.map.height)
+                readonly property real visibleWorldWidth: root.clamp((width - offsetX) / scaleFactor, 0, root.snap.map.width) - visibleWorldX
+                readonly property real visibleWorldHeight: root.clamp((height - offsetY) / scaleFactor, 0, root.snap.map.height) - visibleWorldY
+
+                function constrainPan() {
+                    const xLimit = Math.max(0, (root.snap.map.width * scaleFactor - width) / 2)
+                    const yLimit = Math.max(0, (root.snap.map.height * scaleFactor - height) / 2)
+                    panX = root.clamp(panX, -xLimit, xLimit)
+                    panY = root.clamp(panY, -yLimit, yLimit)
+                }
+                function resetView() {
+                    zoomLevel = 1
+                    panX = 0
+                    panY = 0
+                }
+                function zoomAt(factor, anchorX, anchorY) {
+                    const worldX = (anchorX - offsetX) / scaleFactor
+                    const worldY = (anchorY - offsetY) / scaleFactor
+                    zoomLevel = root.clamp(factor, 1, 4)
+                    panX = anchorX - worldX * scaleFactor - (width - root.snap.map.width * scaleFactor) / 2
+                    panY = anchorY - worldY * scaleFactor - (height - root.snap.map.height * scaleFactor) / 2
+                    constrainPan()
+                }
+                function centerOn(worldX, worldY) {
+                    panX = (root.snap.map.width / 2 - worldX) * scaleFactor
+                    panY = (root.snap.map.height / 2 - worldY) * scaleFactor
+                    constrainPan()
+                }
+                onSceneKeyChanged: resetView()
+                onWidthChanged: constrainPan()
+                onHeightChanged: constrainPan()
 
                 Item {
                     id: battlefield
+                    objectName: "battlefieldLayer"
                     width: root.snap.map.width * battlefieldViewport.scaleFactor
                     height: root.snap.map.height * battlefieldViewport.scaleFactor
-                    anchors.centerIn: parent
+                    x: battlefieldViewport.offsetX
+                    y: battlefieldViewport.offsetY
                     clip: true
+
+                    TerrainLayer {
+                        objectName: "terrainLayer"
+                        anchors.fill: parent
+                        worldWidth: root.snap.map.width
+                        worldHeight: root.snap.map.height
+                        mapStyle: root.mapStyle
+                        visual: root.mapVisual
+                        showGrid: root.showMapGrid
+                        showLandmarks: root.showMapLandmarks
+                        z: 0
+                    }
 
                     Canvas {
                         id: battleCanvas
@@ -345,35 +543,29 @@ ApplicationWindow {
                             const sx = width / root.snap.map.width
                             const sy = height / root.snap.map.height
                             ctx.clearRect(0, 0, width, height)
-                            ctx.fillStyle = "#0a1828"
-                            ctx.fillRect(0, 0, width, height)
-
-                            ctx.lineWidth = 1
-                            ctx.strokeStyle = "#17314a"
-                            for (let x = 0; x <= root.snap.map.width; x += 40) {
-                                ctx.beginPath()
-                                ctx.moveTo(x * sx, 0)
-                                ctx.lineTo(x * sx, height)
-                                ctx.stroke()
-                            }
-                            for (let y = 0; y <= root.snap.map.height; y += 40) {
-                                ctx.beginPath()
-                                ctx.moveTo(0, y * sy)
-                                ctx.lineTo(width, y * sy)
-                                ctx.stroke()
-                            }
 
                             for (let i = 0; i < root.snap.units.length; ++i) {
                                 const unit = root.snap.units[i]
                                 if (unit.destroyed) continue
+                                if (!root.showAllRanges && unit.id !== root.selectedUnitId) continue
                                 ctx.beginPath()
                                 ctx.arc(unit.x * sx, unit.y * sy,
                                         unit.detect_range * sx, 0, Math.PI * 2)
                                 ctx.strokeStyle = unit.team === "red"
-                                                  ? "rgba(255,93,115,0.16)"
-                                                  : "rgba(76,166,255,0.16)"
+                                                  ? "rgba(255,93,115,0.42)"
+                                                  : "rgba(76,166,255,0.42)"
                                 ctx.lineWidth = 1
                                 ctx.stroke()
+                                if (unit.id === root.selectedUnitId) {
+                                    ctx.beginPath()
+                                    ctx.arc(unit.x * sx, unit.y * sy,
+                                            unit.attack_range * sx, 0, Math.PI * 2)
+                                    ctx.strokeStyle = "#ffd166"
+                                    ctx.lineWidth = 2
+                                    ctx.setLineDash([6, 5])
+                                    ctx.stroke()
+                                    ctx.setLineDash([])
+                                }
                             }
 
                             const preview = root.snap.map.preview
@@ -418,6 +610,7 @@ ApplicationWindow {
                             Image {
                                 anchors.fill: parent
                                 source: obstacleItem.panelSource
+                                visible: root.mapStyle === "tactical"
                                 fillMode: Image.Stretch
                                 opacity: 0.5
                                 smooth: true
@@ -425,7 +618,8 @@ ApplicationWindow {
 
                             Rectangle {
                                 anchors.fill: parent
-                                color: "transparent"
+                                color: root.mapStyle === "tactical" ? "transparent"
+                                    : root.alphaColor(obstacleItem.accentColor, 0.13)
                                 border.width: obstacleItem.modelData.selected ? 3 : 1
                                 border.color: obstacleItem.modelData.selected
                                               ? "#ffd166" : obstacleItem.accentColor
@@ -440,6 +634,7 @@ ApplicationWindow {
                                 height: obstacleItem.obstacleType === "restricted"
                                         ? parent.height * 0.88 : parent.height * 1.22
                                 source: obstacleItem.iconSource
+                                visible: root.mapStyle === "tactical"
                                 fillMode: Image.PreserveAspectFit
                                 smooth: true
                                 mipmap: true
@@ -478,9 +673,11 @@ ApplicationWindow {
                             required property var modelData
                             readonly property color teamColor:
                                 modelData.team === "red" ? root.redColor : root.blueColor
+                            readonly property real glyphSize: root.mapStyle === "tactical"
+                                ? 62 : root.clamp(72 * battlefieldViewport.scaleFactor, 30, 62)
 
                             x: modelData.x * battlefieldViewport.scaleFactor - width / 2
-                            y: modelData.y * battlefieldViewport.scaleFactor - 34
+                            y: modelData.y * battlefieldViewport.scaleFactor - glyphSize / 2
                             width: 76
                             height: 82
                             z: 3
@@ -490,9 +687,9 @@ ApplicationWindow {
                                 objectName: "baseBackdrop-" + baseItem.modelData.team
                                 property real outlineWidth: 0
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                width: 62
-                                height: 62
-                                radius: 31
+                                width: baseItem.glyphSize
+                                height: width
+                                radius: width / 2
                                 color: root.alphaColor(baseItem.teamColor, 0.18)
                                 border.width: outlineWidth
                             }
@@ -500,9 +697,9 @@ ApplicationWindow {
                             Image {
                                 objectName: "baseIcon-" + baseItem.modelData.team
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                y: 4
-                                width: 54
-                                height: 54
+                                y: (baseItem.glyphSize - height) / 2
+                                width: baseItem.glyphSize * 0.87
+                                height: width
                                 source: "../assets/unit_icons/base_station.png"
                                 fillMode: Image.PreserveAspectFit
                                 smooth: true
@@ -511,8 +708,8 @@ ApplicationWindow {
 
                             Rectangle {
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                y: 63
-                                width: 58
+                                y: baseItem.glyphSize + 1
+                                width: Math.max(30, baseItem.glyphSize * 0.94)
                                 height: 5
                                 radius: 2
                                 color: "#263348"
@@ -528,7 +725,7 @@ ApplicationWindow {
 
                             Text {
                                 anchors.top: parent.top
-                                anchors.topMargin: 70
+                                anchors.topMargin: baseItem.glyphSize + 8
                                 width: parent.width
                                 text: baseItem.modelData.team === "red" ? "红方基地" : "蓝方基地"
                                 color: baseItem.teamColor
@@ -907,41 +1104,49 @@ ApplicationWindow {
                             required property real attackRange
                             required property bool destroyed
                             required property string engagement
+                            readonly property real glyphSize: root.mapStyle === "tactical"
+                                ? 52 : root.clamp(52 * battlefieldViewport.scaleFactor, 24, 52)
+                            readonly property bool showDetails: root.mapStyle === "tactical"
+                                || battlefieldViewport.zoomLevel >= 1.7
+                                || root.selectedUnitId === unitId || unitHitTarget.containsMouse
+                            property real displayedWorldX: worldX
+                            property real displayedWorldY: worldY
 
                             width: 88
                             height: 88
-                            x: worldX * battlefieldViewport.scaleFactor - width / 2
-                            y: worldY * battlefieldViewport.scaleFactor - 27
+                            x: displayedWorldX * battlefieldViewport.scaleFactor - width / 2
+                            y: displayedWorldY * battlefieldViewport.scaleFactor - glyphSize / 2
                             visible: root.snap.show_wrecks || !destroyed
                             opacity: destroyed ? 0.42 : 1
-                            z: 5
+                            z: root.selectedUnitId === unitId || unitHitTarget.containsMouse ? 6 : 5
 
-                            Behavior on x {
+                            Behavior on displayedWorldX {
                                 enabled: !root.deploymentMode
                                 NumberAnimation { duration: 170; easing.type: Easing.OutCubic }
                             }
-                            Behavior on y {
+                            Behavior on displayedWorldY {
                                 enabled: !root.deploymentMode
                                 NumberAnimation { duration: 170; easing.type: Easing.OutCubic }
                             }
 
                             Rectangle {
                                 id: unitShape
-                                width: 52
+                                width: unitDelegate.glyphSize
                                 height: width
                                 radius: width / 2
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 color: root.alphaColor(
                                     unitDelegate.team === "red" ? root.redColor : root.blueColor,
                                     unitDelegate.destroyed ? 0.08 : 0.18)
-                                border.width: 0
+                                border.width: root.selectedUnitId === unitDelegate.unitId ? 2 : 0
+                                border.color: "#ffd166"
 
                                 Image {
                                     id: unitIcon
                                     objectName: "unitIcon-" + unitDelegate.unitId
                                     anchors.centerIn: parent
-                                    width: 44
-                                    height: 44
+                                    width: parent.width * 0.85
+                                    height: width
                                     source: "../assets/unit_icons/"
                                             + unitDelegate.unitType + ".png"
                                     fillMode: Image.PreserveAspectFit
@@ -954,7 +1159,7 @@ ApplicationWindow {
                                 anchors.top: unitShape.bottom
                                 anchors.topMargin: 4
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                width: 56
+                                width: unitDelegate.glyphSize + 4
                                 height: 4
                                 radius: 2
                                 color: "#3a1e29"
@@ -971,6 +1176,7 @@ ApplicationWindow {
                             Text {
                                 anchors.top: unitShape.bottom
                                 anchors.topMargin: 11
+                                visible: unitDelegate.showDetails
                                 width: parent.width
                                 text: unitDelegate.unitName
                                 color: "#dce8f6"
@@ -983,13 +1189,37 @@ ApplicationWindow {
                             Text {
                                 anchors.top: unitShape.bottom
                                 anchors.topMargin: 27
+                                visible: unitDelegate.showDetails
                                 width: parent.width
-                                text: unitDelegate.status + " · " + unitDelegate.engagement
+                                text: root.unitStatusLabel(unitDelegate.status) + " · " + unitDelegate.engagement
                                 color: root.mutedColor
                                 font.family: "Microsoft YaHei"
                                 font.pixelSize: 8
                                 horizontalAlignment: Text.AlignHCenter
                             }
+
+                            MouseArea {
+                                id: unitHitTarget
+                                objectName: "selectUnit-" + unitDelegate.unitId
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                y: -4
+                                width: Math.max(32, unitDelegate.glyphSize + 8)
+                                height: width
+                                hoverEnabled: true
+                                enabled: !root.deploymentMode
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: viewModel.selectUnit(unitDelegate.unitId)
+                            }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        z: 4.5
+                        enabled: !root.deploymentMode
+                        onClicked: function(mouse) {
+                            viewModel.pointerPress(1, mouse.x / battlefieldViewport.scaleFactor,
+                                                   mouse.y / battlefieldViewport.scaleFactor)
                         }
                     }
 
@@ -1027,6 +1257,77 @@ ApplicationWindow {
                         }
                     }
                 }
+
+                MouseArea {
+                    id: mapNavigation
+                    objectName: "mapNavigation"
+                    anchors.fill: parent
+                    z: 20
+                    acceptedButtons: Qt.MiddleButton
+                    preventStealing: true
+                    hoverEnabled: true
+                    property real lastX: 0
+                    property real lastY: 0
+                    cursorShape: pressed ? Qt.ClosedHandCursor
+                        : root.deploymentMode ? Qt.CrossCursor : Qt.ArrowCursor
+                    onPressed: function(mouse) {
+                        lastX = mouse.x
+                        lastY = mouse.y
+                    }
+                    onPositionChanged: function(mouse) {
+                        if (!pressed) return
+                        battlefieldViewport.panX += mouse.x - lastX
+                        battlefieldViewport.panY += mouse.y - lastY
+                        lastX = mouse.x
+                        lastY = mouse.y
+                        battlefieldViewport.constrainPan()
+                    }
+                    onWheel: function(wheel) {
+                        const delta = wheel.angleDelta.y || wheel.pixelDelta.y
+                        if (delta !== 0) battlefieldViewport.zoomAt(
+                            battlefieldViewport.zoomLevel * Math.pow(1.15, delta / 120), wheel.x, wheel.y)
+                        wheel.accepted = true
+                    }
+                }
+
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.margins: 7
+                    width: 34
+                    height: 42
+                    radius: 6
+                    color: "#b8091924"
+                    border.color: "#507185"
+                    z: 30
+                    Text {
+                        anchors.centerIn: parent
+                        text: "N\n↑"
+                        color: "#d7eee6"
+                        font.family: "Consolas"
+                        font.pixelSize: 13
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                }
+
+                MapOverview {
+                    objectName: "mapOverview"
+                    anchors.bottom: parent.bottom
+                    anchors.right: parent.right
+                    anchors.margins: 7
+                    width: root.width < 1100 ? 116 : 148
+                    height: root.width < 1100 ? 99 : 121
+                    z: 30
+                    worldWidth: root.snap.map.width
+                    worldHeight: root.snap.map.height
+                    visual: root.mapVisual
+                    units: root.snap.units || []
+                    visibleX: battlefieldViewport.visibleWorldX
+                    visibleY: battlefieldViewport.visibleWorldY
+                    visibleWidth: battlefieldViewport.visibleWorldWidth
+                    visibleHeight: battlefieldViewport.visibleWorldHeight
+                    onCenterRequested: function(worldX, worldY) { battlefieldViewport.centerOn(worldX, worldY) }
+                }
             }
 
             Rectangle {
@@ -1056,26 +1357,35 @@ ApplicationWindow {
 
         Rectangle {
             id: sidePanel
-            Layout.preferredWidth: 370
-            Layout.minimumWidth: 340
+            Layout.preferredWidth: root.width < 1300 ? 320 : 370
+            Layout.minimumWidth: 300
             Layout.fillHeight: true
             radius: 14
             color: root.panelColor
             border.color: "#203955"
 
             ScrollView {
+                id: sideScroll
                 anchors.fill: parent
                 anchors.margins: 12
                 clip: true
                 contentWidth: availableWidth
 
                 Column {
-                    width: sidePanel.width - 42
+                    width: sideScroll.availableWidth
                     spacing: 12
 
                     Loader {
                         width: parent.width
                         sourceComponent: root.deploymentMode ? deploymentControls : runtimeControls
+                    }
+
+                    UnitDetails {
+                        objectName: "unitDetails"
+                        width: parent.width
+                        visible: !root.deploymentMode
+                        unit: viewModel.selectedUnit
+                        onClearSelection: viewModel.selectUnit("")
                     }
 
                     Rectangle {
@@ -1123,6 +1433,12 @@ ApplicationWindow {
                             label: "发现目标"
                             redValue: String(root.snap.statistics.red_detected)
                             blueValue: String(root.snap.statistics.blue_detected)
+                        }
+                        StatPair {
+                            Layout.fillWidth: true
+                            label: "命中次数"
+                            redValue: String(root.snap.statistics.red_hits)
+                            blueValue: String(root.snap.statistics.blue_hits)
                         }
                         Rectangle {
                             Layout.columnSpan: 2
@@ -1262,46 +1578,68 @@ ApplicationWindow {
                         text: "实时日志"
                     }
 
+                    ComboBox {
+                        id: logCategory
+                        objectName: "logCategorySelector"
+                        width: parent.width
+                        textRole: "label"
+                        model: [
+                            { label: "全部事件", value: "all" },
+                            { label: "侦察与目标共享", value: "scout" },
+                            { label: "攻击与命中", value: "attack" },
+                            { label: "摧毁事件", value: "destroyed" },
+                            { label: "战术、状态与结果", value: "state" }
+                        ]
+                        onActivated: root.logFilter = model[currentIndex].value
+                        palette.button: "#182a42"
+                        palette.buttonText: "#dce8f6"
+                        palette.base: "#13243a"
+                        palette.text: "#dce8f6"
+                    }
+
                     Rectangle {
                         width: parent.width
-                        height: 176
+                        height: 200
                         radius: 10
                         color: "#0b1726"
                         border.color: "#263d5a"
                         clip: true
 
-                        Column {
+                        ListView {
+                            id: logView
                             anchors.fill: parent
                             anchors.margins: 9
-                            spacing: 3
+                            spacing: 6
+                            clip: true
+                            model: root.filteredLogs()
+                            ScrollBar.vertical: ScrollBar { }
+                            onCountChanged: positionViewAtEnd()
 
                             Text {
-                                visible: root.snap.logs.length === 0
-                                text: root.deploymentMode ? "等待开始仿真" : "暂无战斗日志"
+                                width: parent.width
+                                visible: logView.count === 0
+                                text: root.deploymentMode ? "等待开始仿真" : "暂无此类事件"
                                 color: root.mutedColor
                                 font.family: "Microsoft YaHei"
                                 font.pixelSize: 11
                             }
 
-                            Repeater {
-                                model: root.snap.logs.slice(-8)
-                                delegate: Text {
-                                    required property string modelData
-                                    width: parent.width
-                                    text: modelData
-                                    color: modelData.indexOf("[Attack]") === 0
-                                           ? "#ffd166" : "#9fb4c9"
-                                    font.family: "Consolas"
-                                    font.pixelSize: 10
-                                    elide: Text.ElideRight
-                                }
+                            delegate: Text {
+                                required property string modelData
+                                width: logView.width - 12
+                                text: modelData
+                                color: modelData.indexOf("[Attack]") === 0 ? "#ffd166"
+                                    : modelData.indexOf("[Destroyed]") === 0 ? root.redColor : "#9fb4c9"
+                                font.family: "Microsoft YaHei"
+                                font.pixelSize: 11
+                                wrapMode: Text.Wrap
                             }
                         }
                     }
 
                     Text {
                         width: parent.width
-                        text: "快捷键  Enter 开始 · Space 暂停 · S 单步 · F 变速 · R 重置"
+                        text: "Enter 开始 · Space 暂停 · S 单步 · F 变速 · F1 帮助"
                         color: "#71879e"
                         font.family: "Microsoft YaHei"
                         font.pixelSize: 10
@@ -1318,6 +1656,62 @@ ApplicationWindow {
         Column {
             width: parent ? parent.width : 320
             spacing: 10
+
+            SectionTitle { text: "场景与地图" }
+
+            ComboBox {
+                id: scenarioSelector
+                objectName: "scenarioSelector"
+                width: parent.width
+                model: root.snap.scenarios || []
+                textRole: "name"
+                displayText: root.snap.scene_name || root.snap.current_scenario || "选择场景"
+                currentIndex: root.scenarioIndex()
+                onActivated: {
+                    root.selectScenario(currentIndex)
+                    currentIndex = Qt.binding(function() { return root.scenarioIndex() })
+                }
+                palette.button: "#182a42"
+                palette.buttonText: "#dce8f6"
+                palette.base: "#13243a"
+                palette.text: "#dce8f6"
+            }
+
+            Text {
+                width: parent.width
+                text: "单位模式左键放置；障碍模式左键拖拽绘制。左键选中障碍后 Delete 删除；右键直接删除对象。\n滚轮缩放 · 中键拖动地图 · 总览点击定位"
+                color: root.mutedColor
+                font.family: "Microsoft YaHei"
+                font.pixelSize: 11
+                wrapMode: Text.Wrap
+            }
+
+            Row {
+                width: parent.width
+                spacing: 8
+                AppButton { width: (parent.width - 8) / 2; text: "载入地图…"; onClicked: root.requestLoadMap() }
+                AppButton { width: (parent.width - 8) / 2; text: "保存地图"; onClicked: viewModel.saveMap() }
+            }
+            AppButton { width: parent.width; text: "地图另存为…"; onClicked: saveMapDialog.open() }
+
+            Row {
+                width: parent.width
+                spacing: 6
+                Repeater {
+                    model: [
+                        { style: "tactical", label: "战术" },
+                        { style: "valley", label: "山谷" },
+                        { style: "river", label: "河谷" }
+                    ]
+                    delegate: AppButton {
+                        required property var modelData
+                        width: (parent.width - 12) / 3
+                        text: modelData.label
+                        selected: root.mapStyle === modelData.style
+                        onClicked: viewModel.setMapStyle(modelData.style)
+                    }
+                }
+            }
 
             SectionTitle { text: "部署控制" }
 
@@ -1400,21 +1794,21 @@ ApplicationWindow {
 
                 AppButton {
                     width: (parent.width - 14) / 3
-                    text: "1 山地"
+                    text: "6 山地"
                     tone: "#7db08b"
                     selected: root.snap.deployment.selected_obstacle_type === "mountain"
                     onClicked: viewModel.selectObstacleType("mountain")
                 }
                 AppButton {
                     width: (parent.width - 14) / 3
-                    text: "2 建筑"
+                    text: "7 建筑"
                     tone: "#8da8cc"
                     selected: root.snap.deployment.selected_obstacle_type === "building"
                     onClicked: viewModel.selectObstacleType("building")
                 }
                 AppButton {
                     width: (parent.width - 14) / 3
-                    text: "3 禁行区"
+                    text: "8 禁行区"
                     tone: root.redColor
                     selected: root.snap.deployment.selected_obstacle_type === "restricted"
                     onClicked: viewModel.selectObstacleType("restricted")
@@ -1434,24 +1828,8 @@ ApplicationWindow {
                 width: parent.width
                 text: "清空全部兵种与障碍"
                 tone: root.redColor
-                onClicked: viewModel.clearDeployment()
-            }
-
-            Row {
-                width: parent.width
-                spacing: 8
-
-                AppButton { width: (parent.width - 8) / 2; text: "保存地图"; onClicked: viewModel.saveMap() }
-                AppButton { width: (parent.width - 8) / 2; text: "加载地图"; onClicked: viewModel.loadMap() }
-            }
-
-            AppButton {
-                width: parent.width
-                height: 46
-                text: "开始仿真"
-                tone: root.accentColor
-                selected: true
-                onClicked: viewModel.startSimulation()
+                onClicked: root.confirmAction("清空部署", "清空全部兵种和障碍？基地与地图尺寸会保留。",
+                                             function() { viewModel.clearDeployment() })
             }
         }
     }
@@ -1463,49 +1841,29 @@ ApplicationWindow {
             width: parent ? parent.width : 320
             spacing: 10
 
-            SectionTitle { text: "仿真控制" }
+            SectionTitle { text: "运行观察" }
 
-            Row {
+            Text {
                 width: parent.width
-                spacing: 8
-
-                AppButton {
-                    width: (parent.width - 8) / 2
-                    text: root.snap.game_state === "running" ? "暂停" : "继续"
-                    tone: "#ffca64"
-                    selected: root.snap.game_state === "paused"
-                    enabled: root.snap.game_state !== "finished"
-                    onClicked: viewModel.togglePause()
-                }
-                AppButton {
-                    width: (parent.width - 8) / 2
-                    text: "单步推进"
-                    onClicked: viewModel.stepSimulation()
-                }
-            }
-
-            Row {
-                width: parent.width
-                spacing: 8
-
-                AppButton {
-                    width: (parent.width - 8) / 2
-                    text: "速度 " + root.snap.speed_label
-                    tone: root.accentColor
-                    onClicked: viewModel.cycleSpeed()
-                }
-                AppButton {
-                    width: (parent.width - 8) / 2
-                    text: root.snap.show_wrecks ? "隐藏残骸" : "显示残骸"
-                    onClicked: viewModel.toggleWrecks()
-                }
+                text: "点击单位查看详情与范围。滚轮缩放，中键拖动地图；右下总览可点击定位。"
+                color: root.mutedColor
+                font.family: "Microsoft YaHei"
+                font.pixelSize: 11
+                wrapMode: Text.Wrap
             }
 
             AppButton {
                 width: parent.width
-                text: "返回部署并重置"
-                tone: root.redColor
-                onClicked: viewModel.resetSimulation()
+                text: root.snap.show_wrecks ? "隐藏残骸" : "显示残骸"
+                onClicked: viewModel.toggleWrecks()
+            }
+
+            AppButton {
+                width: parent.width
+                visible: root.snap.game_state === "finished"
+                text: "查看本局结算"
+                tone: "#ffca64"
+                onClicked: resultsDialog.open()
             }
 
             Rectangle {
@@ -1530,67 +1888,216 @@ ApplicationWindow {
         }
     }
 
+    footer: Rectangle {
+        objectName: "workflowControls"
+        height: 64
+        color: "#0c192a"
+        border.color: "#203955"
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: 12
+            spacing: 8
+
+            AppButton {
+                Layout.preferredWidth: 100
+                text: root.snap.game_state === "finished" ? "再来一局" : "开始仿真"
+                tone: root.accentColor
+                selected: root.deploymentMode || root.snap.game_state === "finished"
+                enabled: root.deploymentMode || root.snap.game_state === "finished"
+                onClicked: root.deploymentMode ? viewModel.startSimulation() : viewModel.restartSimulation()
+            }
+            AppButton {
+                Layout.preferredWidth: 84
+                text: root.snap.game_state === "paused" ? "继续" : "暂停"
+                tone: "#ffca64"
+                selected: root.snap.game_state === "paused"
+                enabled: root.snap.game_state === "running" || root.snap.game_state === "paused"
+                onClicked: viewModel.togglePause()
+            }
+            AppButton {
+                Layout.preferredWidth: 82
+                text: "单步推进"
+                enabled: root.snap.game_state === "paused"
+                onClicked: viewModel.stepSimulation()
+            }
+            Text {
+                text: "速度"
+                color: root.mutedColor
+                font.family: "Microsoft YaHei"
+                font.pixelSize: 12
+            }
+            Repeater {
+                model: ["1×", "2×", "4×", "快速"]
+                delegate: AppButton {
+                    required property string modelData
+                    required property int index
+                    Layout.preferredWidth: 52
+                    text: modelData
+                    selected: root.snap.speed_index === index
+                    enabled: root.snap.game_state !== "finished"
+                    onClicked: viewModel.setSpeed(index)
+                }
+            }
+            Item { Layout.fillWidth: true }
+            AppButton {
+                Layout.preferredWidth: 104
+                text: "返回部署"
+                tone: root.redColor
+                enabled: !root.deploymentMode
+                onClicked: root.requestReset()
+            }
+            AppButton {
+                Layout.preferredWidth: 66
+                text: "帮助"
+                onClicked: helpDialog.open()
+            }
+        }
+    }
+
+    Dialog {
+        id: confirmationDialog
+        objectName: "clearConfirmation"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(440, root.width - 40)
+        modal: true
+        title: root.pendingTitle
+        palette.window: "#14243a"
+        palette.windowText: "#eaf4ff"
+        palette.button: "#203653"
+        palette.buttonText: "#eaf4ff"
+        background: Rectangle { color: "#14243a"; radius: 12; border.color: "#3a526d" }
+        header: Text {
+            text: root.pendingTitle
+            color: "#eaf4ff"
+            padding: 18
+            bottomPadding: 8
+            font.family: "Microsoft YaHei"
+            font.pixelSize: 16
+            font.bold: true
+        }
+        contentItem: Text {
+            text: root.pendingMessage
+            color: "#dce8f6"
+            font.family: "Microsoft YaHei"
+            font.pixelSize: 13
+            wrapMode: Text.Wrap
+        }
+        footer: Item {
+            implicitHeight: 56
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 18
+                anchors.rightMargin: 18
+                anchors.bottomMargin: 18
+                spacing: 8
+                ActionButton { Layout.fillWidth: true; text: "取消"; onClicked: confirmationDialog.reject() }
+                ActionButton { Layout.fillWidth: true; text: "确认"; highlighted: true; onClicked: confirmationDialog.accept() }
+            }
+        }
+        onAccepted: {
+            const action = root.pendingAction
+            root.pendingAction = null
+            if (action) action()
+        }
+        onRejected: root.pendingAction = null
+    }
+
+    FileDialog {
+        id: loadMapDialog
+        objectName: "loadMapDialog"
+        title: "载入战场地图"
+        currentFolder: viewModel.userScenarioUrl
+        nameFilters: ["战场地图 (*.json)"]
+        onAccepted: viewModel.loadMapFromUrl(selectedFile)
+    }
+    FileDialog {
+        id: saveMapDialog
+        objectName: "saveMapDialog"
+        title: "地图另存为"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "json"
+        currentFolder: viewModel.userScenarioUrl
+        nameFilters: ["战场地图 (*.json)"]
+        onAccepted: viewModel.saveMapToUrl(selectedFile)
+    }
+    FileDialog {
+        id: exportDialog
+        objectName: "exportDialog"
+        title: "导出本局战报"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "json"
+        currentFolder: viewModel.userScenarioUrl
+        nameFilters: ["战报数据 (*.json)"]
+        onAccepted: viewModel.exportResultToUrl(selectedFile)
+    }
+
+    ResultsDialog {
+        id: resultsDialog
+        objectName: "resultsDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(650, root.width - 40)
+        height: Math.min(500, root.height - 40)
+        stats: root.snap.statistics
+        sceneName: root.snap.scene_name || root.snap.current_scenario || "当前场景"
+        onReturnToMap: close()
+        onRestart: { close(); viewModel.restartSimulation() }
+        onEditDeployment: { close(); viewModel.resetSimulation() }
+        onExportResult: exportDialog.open()
+    }
+
+    HelpDialog {
+        id: helpDialog
+        objectName: "helpDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(680, root.width - 40)
+        height: Math.min(580, root.height - 40)
+        onClosed: viewModel.dismissHelp()
+    }
+
     Connections {
         target: viewModel
         function onSnapshotChanged() {
             battleCanvas.requestPaint()
             attackCanvas.syncEvents(root.snap.attack_events || [])
+            if (root.snap.game_state === "finished" && !root.resultPresented) {
+                root.resultPresented = true
+                resultsDialog.open()
+            } else if (root.snap.game_state !== "finished") {
+                root.resultPresented = false
+                if (resultsDialog.visible) resultsDialog.close()
+            }
         }
     }
 
-    Item {
-        anchors.fill: parent
-        focus: true
-        Component.onCompleted: forceActiveFocus()
-
-        Keys.onPressed: function(event) {
-            if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_S) {
-                if (root.deploymentMode) viewModel.saveMap()
-                event.accepted = true
-                return
-            }
-            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                if (root.deploymentMode) viewModel.startSimulation()
-            } else if (event.key === Qt.Key_Space) {
-                viewModel.togglePause()
-            } else if (event.key === Qt.Key_S) {
-                viewModel.stepSimulation()
-            } else if (event.key === Qt.Key_F) {
-                viewModel.cycleSpeed()
-            } else if (event.key === Qt.Key_K) {
-                viewModel.toggleWrecks()
-            } else if (event.key === Qt.Key_R) {
-                viewModel.resetSimulation()
-            } else if (event.key === Qt.Key_T && root.deploymentMode) {
-                viewModel.toggleTeam()
-            } else if (event.key === Qt.Key_C && root.deploymentMode) {
-                viewModel.clearDeployment()
-            } else if (event.key === Qt.Key_L && root.deploymentMode) {
-                viewModel.loadMap()
-            } else if (event.key === Qt.Key_Backspace && root.deploymentMode) {
-                viewModel.undoDeployment()
-            } else if (event.key === Qt.Key_Delete && root.deploymentMode) {
-                viewModel.deleteSelected()
-            } else if (event.key === Qt.Key_1 && root.deploymentMode) {
-                viewModel.selectUnitType("scout_drone")
-            } else if (event.key === Qt.Key_2 && root.deploymentMode) {
-                viewModel.selectUnitType("strike_drone")
-            } else if (event.key === Qt.Key_3 && root.deploymentMode) {
-                viewModel.selectUnitType("ground_vehicle")
-            } else if (event.key === Qt.Key_4 && root.deploymentMode) {
-                viewModel.selectUnitType("missile_vehicle")
-            } else if (event.key === Qt.Key_5 && root.deploymentMode) {
-                viewModel.selectUnitType("command_node")
-            } else if (event.key === Qt.Key_6 && root.deploymentMode) {
-                viewModel.selectObstacleType("mountain")
-            } else if (event.key === Qt.Key_7 && root.deploymentMode) {
-                viewModel.selectObstacleType("building")
-            } else if (event.key === Qt.Key_8 && root.deploymentMode) {
-                viewModel.selectObstacleType("restricted")
-            } else {
-                return
-            }
-            event.accepted = true
-        }
+    Component.onCompleted: {
+        if (viewModel.firstRun) Qt.callLater(function() { helpDialog.open() })
     }
+
+    Shortcut { sequence: "F1"; enabled: !root.dialogActive; onActivated: helpDialog.open() }
+    Shortcut { sequence: "Return"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.startSimulation() }
+    Shortcut { sequence: "Enter"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.startSimulation() }
+    Shortcut { sequence: "Space"; enabled: !root.deploymentMode && root.snap.game_state !== "finished" && !root.dialogActive; onActivated: viewModel.togglePause() }
+    Shortcut { sequence: "S"; enabled: root.snap.game_state === "paused" && !root.dialogActive; onActivated: viewModel.stepSimulation() }
+    Shortcut { sequence: "F"; enabled: root.snap.game_state !== "finished" && !root.dialogActive; onActivated: viewModel.cycleSpeed() }
+    Shortcut { sequence: "K"; enabled: !root.deploymentMode && !root.dialogActive; onActivated: viewModel.toggleWrecks() }
+    Shortcut { sequence: "R"; enabled: !root.deploymentMode && !root.dialogActive; onActivated: root.requestReset() }
+    Shortcut { sequence: "Ctrl+S"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.saveMap() }
+    Shortcut { sequence: "Ctrl+Shift+S"; enabled: root.deploymentMode && !root.dialogActive; onActivated: saveMapDialog.open() }
+    Shortcut { sequence: "L"; enabled: root.deploymentMode && !root.dialogActive; onActivated: root.requestLoadMap() }
+    Shortcut { sequence: "T"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.toggleTeam() }
+    Shortcut { sequence: "C"; enabled: root.deploymentMode && !root.dialogActive; onActivated: root.confirmAction("清空部署", "清空全部兵种和障碍？基地与地图尺寸会保留。", function() { viewModel.clearDeployment() }) }
+    Shortcut { sequence: "Backspace"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.undoDeployment() }
+    Shortcut { sequence: "Delete"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.deleteSelected() }
+    Shortcut { sequence: "1"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.selectUnitType("scout_drone") }
+    Shortcut { sequence: "2"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.selectUnitType("strike_drone") }
+    Shortcut { sequence: "3"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.selectUnitType("ground_vehicle") }
+    Shortcut { sequence: "4"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.selectUnitType("missile_vehicle") }
+    Shortcut { sequence: "5"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.selectUnitType("command_node") }
+    Shortcut { sequence: "6"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.selectObstacleType("mountain") }
+    Shortcut { sequence: "7"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.selectObstacleType("building") }
+    Shortcut { sequence: "8"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.selectObstacleType("restricted") }
 }

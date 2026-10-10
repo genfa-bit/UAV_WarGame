@@ -1,0 +1,26 @@
+{
+  "ok": true,
+  "verified_at": "2026-10-10T09:17:26.671736+08:00",
+  "input": "QtTest mouse events on offscreen QML window",
+  "checks": [
+    {
+      "label": "网格",
+      "property": "showMapGrid",
+      "value_after_click": false,
+      "simulation_snapshot_unchanged": true
+    },
+    {
+      "label": "地标",
+      "property": "showMapLandmarks",
+      "value_after_click": false,
+      "simulation_snapshot_unchanged": true
+    },
+    {
+      "label": "全部范围",
+      "property": "showAllRanges",
+      "value_after_click": true,
+      "simulation_snapshot_unchanged": true
+    }
+  ],
+  "all_controls_restored": true
+}

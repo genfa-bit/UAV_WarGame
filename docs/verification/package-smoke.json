@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "frozen": true,
+  "checks": [
+    "terrain_assets_zoom_and_overview",
+    "five_scenes_and_persistent_round_trip",
+    "start_pause_step_and_unit_details",
+    "automatic_result_and_export",
+    "bounded_completion_with_visible_draw_reason",
+    "restart_and_edit_original_deployment"
+  ],
+  "scene_ids": [
+    "standard",
+    "obstacles",
+    "custom",
+    "valley",
+    "river_city"
+  ]
+}

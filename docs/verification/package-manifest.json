@@ -1,0 +1,33 @@
+{
+  "filename": "UAV_WarGame.exe",
+  "bytes": 187620013,
+  "sha256": "76c76b87981f8ef85f7a12b45a519bad30a9940790e7d2b86a57f4694dff95bb",
+  "built_at": "2026-10-10T09:05:26.575184+08:00",
+  "platform": "Windows 11 build 26200 x64",
+  "smoke_exit_code": 0,
+  "smoke_report": "package-smoke.json",
+  "smoke_checks": 6,
+  "scene_ids": [
+    "standard",
+    "obstacles",
+    "custom",
+    "valley",
+    "river_city"
+  ],
+  "embedded_qml_matches_source": true,
+  "embedded_map_assets_and_scenarios_match_source": true,
+  "verified_resources_sha256": {
+    "ui/qml/Main.qml": "3a672a3aad9ca149c8e8929424193dc7a1a9ae44cdab6413c90eebd2bc84ca2a",
+    "ui/qml/HelpDialog.qml": "3b99ce0449ad2ebd0cbbc6ec811c8697a4073e73932759d0a74c9942ecce8a4b",
+    "ui/qml/TerrainLayer.qml": "229a33b91d547b02b6d9b587851dfd71176e8fc3525fdb5a48e66b3767efd620",
+    "ui/qml/MapOverview.qml": "bc9163f9b5305113b86bfe83d2e1f77535bee1d600580c1820b8ed9a20c196c0",
+    "ui/assets/maps/terrain_valley.png": "5adfe363247ce6a1fc09c2f46b17e57663f65200d392da7afc8efc81a1715df7",
+    "ui/assets/maps/terrain_river.png": "319ee7624734e906e104e4306338450cae0367839abcdf723957b1e9fc66efc5",
+    "ui/assets/maps/sources.json": "04ae2db8a927e400fb5a410d34c768958d4f12b45579d9c3a393c41825b55a31",
+    "data/scenario_1.json": "89faef5b8c556d73507dc323c7b5cae93139f4331d3b87211a55e676b1c3ceed",
+    "data/scenario_obstacles.json": "acd76411987a376345cfd8317a30d3f473f5915f5f4cfee747d773d64ba04c81",
+    "data/scenario_custom.json": "b95a368cb13f1ce46f6d81c0b7df73828776cef8fe30f66a93c7488acfe767f4",
+    "data/scenario_valley.json": "22c65be5fcef565fb273f65444e9886299b47b9d7f9e5d58369b558e11229fe5",
+    "data/scenario_river_city.json": "23123402947ce5bc300b9cc9168b488f9a5e8e408103b95c101463de81e3fade"
+  }
+}

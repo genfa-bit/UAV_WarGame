@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from time import perf_counter
+
 from PySide6.QtCore import (
     QAbstractListModel,
     QByteArray,
@@ -10,6 +12,8 @@ from PySide6.QtCore import (
     Property,
     Qt,
     QTimer,
+    QSettings,
+    QUrl,
     Signal,
     Slot,
 )
@@ -99,17 +103,21 @@ class UnitListModel(QAbstractListModel):
             self._rows = [dict(row) for row in rows]
             self.endResetModel()
             return
-        self._rows = [dict(row) for row in rows]
-        if self._rows:
-            top = self.index(0, 0)
-            bottom = self.index(len(self._rows) - 1, 0)
-            self.dataChanged.emit(top, bottom, list(self._ROLE_NAMES))
+        for index, row in enumerate(rows):
+            roles = [role for role, key in self._ROLE_KEYS.items()
+                     if self._rows[index].get(key) != row.get(key)]
+            self._rows[index] = dict(row)
+            if roles:
+                model_index = self.index(index, 0)
+                self.dataChanged.emit(model_index, model_index, roles)
 
 
 class SimulationViewModel(QObject):
     """Expose controller commands and snapshots to QML."""
 
     snapshotChanged = Signal()
+    selectionChanged = Signal()
+    helpChanged = Signal()
 
     def __init__(
         self,
@@ -119,6 +127,10 @@ class SimulationViewModel(QObject):
         super().__init__(parent)
         self.controller = controller or SimulationController()
         self._snapshot: dict = {}
+        self._selected_unit_id = ""
+        self._selected_unit = {}
+        self._settings = QSettings("UAV_WarGame", "preferences")
+        self._first_run = not self._settings.value("help_seen", False, type=bool)
         self._unit_model = UnitListModel(self)
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._advance)
@@ -131,6 +143,89 @@ class SimulationViewModel(QObject):
     @Property(QObject, constant=True)
     def unitModel(self) -> QObject:
         return self._unit_model
+
+    @Property(str, notify=selectionChanged)
+    def selectedUnitId(self) -> str:
+        return self._selected_unit_id
+
+    @Property("QVariantMap", notify=selectionChanged)
+    def selectedUnit(self) -> dict:
+        return self._selected_unit
+
+    @Property(bool, notify=helpChanged)
+    def firstRun(self) -> bool:
+        return self._first_run
+
+    @Property(QUrl, constant=True)
+    def userScenarioUrl(self) -> QUrl:
+        from core.map_persistence import user_scenario_dir
+        return QUrl.fromLocalFile(str(user_scenario_dir()))
+
+    @Slot()
+    def dismissHelp(self) -> None:
+        self._first_run = False
+        self._settings.setValue("help_seen", True)
+        self.helpChanged.emit()
+
+    @Slot(str)
+    def selectUnit(self, unit_id: str) -> None:
+        self._selected_unit_id = unit_id
+        self._update_selection()
+
+    @Slot(int)
+    def setSpeed(self, index: int) -> None:
+        self.controller.set_speed(index)
+        self._refresh()
+
+    @Slot(str)
+    def loadScenario(self, scenario_id: str) -> None:
+        result = self.controller.select_scene(scenario_id)
+        if result.ok:
+            self._selected_unit_id = ""
+        self._refresh()
+
+    @Slot(str)
+    def setMapStyle(self, style: str) -> None:
+        self.controller.set_map_style(style)
+        self._refresh()
+
+    @Slot()
+    def restartSimulation(self) -> None:
+        result = self.controller.restart()
+        if result.ok:
+            self._selected_unit_id = ""
+        self._refresh()
+
+    def _local_path(self, url: QUrl) -> str | None:
+        path = url.toLocalFile()
+        if not path:
+            self.controller.last_message = "请选择本机上的文件"
+            self._refresh()
+            return None
+        return path
+
+    @Slot(QUrl)
+    def loadMapFromUrl(self, url: QUrl) -> None:
+        path = self._local_path(url)
+        if path:
+            result = self.controller.load_map(path)
+            if result.ok:
+                self._selected_unit_id = ""
+            self._refresh()
+
+    @Slot(QUrl)
+    def saveMapToUrl(self, url: QUrl) -> None:
+        path = self._local_path(url)
+        if path:
+            self.controller.save_map(path)
+            self._refresh()
+
+    @Slot(QUrl)
+    def exportResultToUrl(self, url: QUrl) -> None:
+        path = self._local_path(url)
+        if path:
+            self.controller.export_result(path)
+            self._refresh()
 
     @Slot()
     def startSimulation(self) -> None:
@@ -150,6 +245,7 @@ class SimulationViewModel(QObject):
     @Slot()
     def resetSimulation(self) -> None:
         self.controller.reset()
+        self._selected_unit_id = ""
         self._refresh()
 
     @Slot()
@@ -184,6 +280,14 @@ class SimulationViewModel(QObject):
 
     @Slot(int, float, float)
     def pointerPress(self, button: int, x: float, y: float) -> None:
+        if self.controller.game_state != "deployment":
+            if button == 1:
+                candidates = [row for row in self._snapshot["units"]
+                              if (not row["destroyed"] or self._snapshot["show_wrecks"])
+                              and (row["x"] - x) ** 2 + (row["y"] - y) ** 2 <= 24 ** 2]
+                candidates.sort(key=lambda row: (row["x"] - x) ** 2 + (row["y"] - y) ** 2)
+                self.selectUnit(candidates[0]["id"] if candidates else "")
+            return
         self.controller.pointer_press(button, x, y)
         self._refresh()
 
@@ -227,13 +331,27 @@ class SimulationViewModel(QObject):
         self._refresh()
 
     def _advance(self) -> None:
-        self.controller.advance()
+        # Bound each fast-compute batch so Qt can process pause/reset and repaint.
+        deadline = perf_counter() + 0.012
+        for _ in range(24 if self.controller.speed_interval_ms == 0 else 1):
+            self.controller.advance()
+            if self.controller.game_state != "running" or perf_counter() >= deadline:
+                break
         self._refresh()
+
+    def _update_selection(self) -> None:
+        selected = next((row for row in self._snapshot.get("units", [])
+                         if row["id"] == self._selected_unit_id), {})
+        if not selected:
+            self._selected_unit_id = ""
+        self._selected_unit = dict(selected)
+        self.selectionChanged.emit()
 
     def _refresh(self) -> None:
         self._snapshot = self.controller.snapshot()
         self._unit_model.set_rows(self._snapshot["units"])
-        interval = max(1, int(self._snapshot["speed_interval_ms"]))
+        self._update_selection()
+        interval = int(self._snapshot["speed_interval_ms"]) or 33
         self._timer.setInterval(interval)
         if self._snapshot["game_state"] == "running":
             if not self._timer.isActive():

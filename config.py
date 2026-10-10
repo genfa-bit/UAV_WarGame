@@ -10,6 +10,7 @@ PANEL_WIDTH = SCREEN_WIDTH - MAP_WIDTH
 # ── 仿真参数 ──────────────────────────────────────────────────
 FPS = 60
 SIMULATION_INTERVAL_MS = 220
+MAX_SIMULATION_STEPS = 2000  # 教学演示上限，持续僵持时以平局结束
 SIM_SPEED_LEVELS = [
     ("1x", 220),
     ("2x", 110),
