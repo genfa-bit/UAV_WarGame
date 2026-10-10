@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "verified_at": "2026-10-10T09:17:26.671736+08:00",
+  "verified_at": "2026-10-11T00:07:43.581799+08:00",
   "input": "QtTest mouse events on offscreen QML window",
   "checks": [
     {

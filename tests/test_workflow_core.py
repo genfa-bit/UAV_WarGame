@@ -309,11 +309,9 @@ def test_natural_result_has_priority_over_limit_on_final_step(winner, cause):
     assert not any("时间步上限" in line for line in simulator.combat_logs)
 
 
-def test_controller_stops_advancing_after_standoff_limit(monkeypatch):
-    # Use the public simulator limit through the controller's creation boundary.
-    monkeypatch.setattr("core.controller.Simulator", lambda field, units: Simulator(
-        field, units, max_steps=1))
+def test_controller_stops_advancing_after_standoff_limit():
     controller = SimulationController()
+    assert controller.set_timing(0.22, 1).ok
     assert controller.start().ok
     assert controller.advance().ok
     assert controller.game_state == "finished"

@@ -1,4 +1,4 @@
-param([string]$PythonPath = (Join-Path $PSScriptRoot '.venv\Scripts\python.exe'))
+﻿param([string]$PythonPath = (Join-Path $PSScriptRoot '.venv\Scripts\python.exe'))
 
 $ErrorActionPreference = 'Stop'
 $originalBuildPath = $env:PATH

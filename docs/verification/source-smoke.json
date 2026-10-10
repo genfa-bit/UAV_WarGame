@@ -4,9 +4,12 @@
   "checks": [
     "terrain_assets_zoom_and_overview",
     "five_scenes_and_persistent_round_trip",
+    "editable_timing_and_cumulative_event_clock",
     "start_pause_step_and_unit_details",
     "automatic_result_and_export",
+    "complete_records_destruction_times_and_export",
     "bounded_completion_with_visible_draw_reason",
+    "independent_run_archives_survive_restart",
     "restart_and_edit_original_deployment"
   ],
   "scene_ids": [

@@ -27,6 +27,9 @@ ApplicationWindow {
     readonly property string selectedUnitId: viewModel.selectedUnitId
     property bool resultPresented: false
     property string logFilter: "all"
+    property string recordFilter: "all"
+    readonly property var timing: root.snap.timing || ({step_duration_seconds: 0.22, max_steps: 2000, editable: root.deploymentMode || root.snap.game_state === "paused"})
+    readonly property var recording: root.snap.recording || ({records: [], history: [], record_count: 0, has_run: false})
     property bool showAllRanges: false
     property bool showMapGrid: true
     property bool showMapLandmarks: true
@@ -37,6 +40,23 @@ ApplicationWindow {
     property string pendingMessage: ""
     readonly property bool dialogActive: confirmationDialog.visible || resultsDialog.visible
         || helpDialog.visible || loadMapDialog.visible || saveMapDialog.visible || exportDialog.visible
+        || timingDialog.visible || recordsDialog.visible || exportRecordsDialog.visible
+
+    function secondsLabel(value) {
+        return Number(value || 0).toFixed(2) + " 秒"
+    }
+
+    function filteredRecords() {
+        const records = root.recording.records || []
+        if (root.recordFilter === "all") return records
+        return records.filter(function(record) { return record.category === root.recordFilter })
+    }
+
+    function recordCategoryLabel(category) {
+        const labels = { scout: "侦察", sharing: "共享", destroyed: "摧毁",
+            tactical: "战术", result: "结果", settings: "设置", lifecycle: "运行", combat: "交战" }
+        return labels[category] || category
+    }
 
     function confirmAction(title, message, action) {
         pendingTitle = title
@@ -307,7 +327,7 @@ ApplicationWindow {
             }
 
             Rectangle {
-                implicitWidth: 148
+                implicitWidth: root.width < 1100 ? 152 : 170
                 implicitHeight: 44
                 radius: 8
                 color: "#13243a"
@@ -319,7 +339,7 @@ ApplicationWindow {
 
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: "时间步"
+                        text: "累计 " + root.secondsLabel(root.snap.statistics.elapsed_seconds)
                         color: root.mutedColor
                         font.family: "Microsoft YaHei"
                         font.pixelSize: 10
@@ -329,10 +349,22 @@ ApplicationWindow {
                         text: root.snap.statistics.time_step + " / " + (root.snap.statistics.max_steps || 2000)
                         color: "#ffffff"
                         font.family: "Consolas"
-                        font.pixelSize: 18
+                        font.pixelSize: root.width < 1100 ? 15 : 18
                         font.bold: true
                     }
                 }
+            }
+            AppButton {
+                objectName: "timingButton"
+                Layout.preferredWidth: 84
+                text: "时间设置"
+                onClicked: timingDialog.open()
+            }
+            AppButton {
+                objectName: "recordsButton"
+                Layout.preferredWidth: 84
+                text: "运行记录"
+                onClicked: recordsDialog.open()
             }
         }
     }
@@ -2033,6 +2065,326 @@ ApplicationWindow {
         onAccepted: viewModel.exportResultToUrl(selectedFile)
     }
 
+    FileDialog {
+        id: exportRecordsDialog
+        objectName: "exportRecordsDialog"
+        title: "导出运行记录（" + root.recordCategoryLabel(root.recordFilter === "all" ? "全部" : root.recordFilter) + "）"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "json"
+        currentFolder: viewModel.userScenarioUrl
+        nameFilters: ["运行记录 (*.json)"]
+        onAccepted: viewModel.exportRecordsToUrl(selectedFile, root.recordFilter)
+    }
+
+    Dialog {
+        id: timingDialog
+        objectName: "timingDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(480, root.width - 40)
+        height: Math.min(390, root.height - 40)
+        modal: true
+        title: "时间设置"
+        property string validationError: ""
+        padding: 18
+        palette.windowText: "#eaf4ff"
+        palette.base: "#0d1a2a"
+        palette.text: "#eaf4ff"
+        palette.button: "#182a42"
+        palette.buttonText: "#eaf4ff"
+        background: Rectangle { radius: 12; color: "#14243a"; border.color: "#36516e" }
+        header: Text {
+            text: timingDialog.title
+            color: "#eaf4ff"
+            padding: 18
+            bottomPadding: 8
+            font.family: "Microsoft YaHei"
+            font.pixelSize: 16
+            font.bold: true
+        }
+        onOpened: {
+            stepDurationField.text = String(root.timing.step_duration_seconds)
+            maxStepsField.text = String(root.timing.max_steps)
+            validationError = ""
+        }
+        contentItem: ScrollView {
+            id: timingScroll
+            clip: true
+            contentWidth: availableWidth
+            ColumnLayout {
+                width: timingScroll.availableWidth
+                spacing: 12
+                Text {
+                    Layout.fillWidth: true
+                    text: root.timing.editable ? "部署或暂停时可修改；暂停修改后从下一步生效。"
+                        : root.snap.game_state === "running" ? "当前正在运行，请先暂停再修改。" : "本局已结束，请返回部署后修改。"
+                    color: root.timing.editable ? root.mutedColor : "#ffca64"
+                    font.family: "Microsoft YaHei"
+                    font.pixelSize: 12
+                    wrapMode: Text.Wrap
+                }
+                Label { text: "单步时长（秒，0.01–60）"; color: "#dce8f6" }
+                TextField {
+                    id: stepDurationField
+                    objectName: "stepDurationField"
+                    Layout.fillWidth: true
+                    enabled: root.timing.editable
+                    selectByMouse: true
+                    inputMethodHints: Qt.ImhFormattedNumbersOnly
+                    validator: DoubleValidator { bottom: 0.01; top: 60; decimals: 6; notation: DoubleValidator.StandardNotation; locale: "C" }
+                    Accessible.name: "单步时长（秒）"
+                }
+                Label { text: "最大运行步数（1–1,000,000）"; color: "#dce8f6" }
+                TextField {
+                    id: maxStepsField
+                    objectName: "maxStepsField"
+                    Layout.fillWidth: true
+                    enabled: root.timing.editable
+                    selectByMouse: true
+                    inputMethodHints: Qt.ImhDigitsOnly
+                    validator: IntValidator { bottom: 1; top: 1000000 }
+                    Accessible.name: "最大运行步数"
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: "单步时长控制累计仿真时间与播放节奏；移动、侦察与攻击规则仍按步推进。速度倍率仅影响播放。"
+                    color: root.mutedColor
+                    font.family: "Microsoft YaHei"
+                    font.pixelSize: 11
+                    wrapMode: Text.Wrap
+                }
+                Text {
+                    objectName: "timingValidationError"
+                    Layout.fillWidth: true
+                    visible: text.length > 0
+                    text: timingDialog.validationError
+                    color: root.redColor
+                    font.family: "Microsoft YaHei"
+                    font.pixelSize: 12
+                    wrapMode: Text.Wrap
+                }
+            }
+        }
+        footer: Item {
+            implicitHeight: 58
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 12
+                ActionButton { Layout.fillWidth: true; text: "关闭"; onClicked: timingDialog.close() }
+                ActionButton {
+                    objectName: "applyTimingButton"
+                    Layout.fillWidth: true
+                    text: "应用设置"
+                    highlighted: true
+                    enabled: root.timing.editable
+                    onClicked: {
+                        const duration = Number(stepDurationField.text)
+                        const limit = Number(maxStepsField.text)
+                        if (!stepDurationField.acceptableInput || !maxStepsField.acceptableInput
+                            || !isFinite(duration) || !isFinite(limit)) {
+                            timingDialog.validationError = "请填写范围内的单步时长和整数步数。"
+                            return
+                        }
+                        if (limit < Number(root.snap.statistics.time_step || 0)) {
+                            timingDialog.validationError = "最大运行步数不能小于已经运行的步数。"
+                            return
+                        }
+                        viewModel.setTiming(duration, limit)
+                        if (Number(root.timing.step_duration_seconds) === duration && Number(root.timing.max_steps) === limit)
+                            timingDialog.close()
+                        else timingDialog.validationError = root.snap.message || "设置未生效，请检查当前状态。"
+                    }
+                }
+            }
+        }
+    }
+
+    Dialog {
+        id: recordsDialog
+        objectName: "recordsDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(780, root.width - 40)
+        height: Math.min(650, root.height - 40)
+        modal: true
+        title: "运行记录"
+        padding: 18
+        palette.windowText: "#eaf4ff"
+        palette.base: "#14243a"
+        palette.text: "#eaf4ff"
+        palette.button: "#182a42"
+        palette.buttonText: "#eaf4ff"
+        background: Rectangle { radius: 12; color: "#101d2e"; border.color: "#36516e" }
+        header: Text {
+            text: recordsDialog.title
+            color: "#eaf4ff"
+            padding: 18
+            bottomPadding: 8
+            font.family: "Microsoft YaHei"
+            font.pixelSize: 16
+            font.bold: true
+        }
+        contentItem: ColumnLayout {
+            spacing: 9
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    Layout.fillWidth: true
+                    text: root.recording.has_run ? "累计 " + root.recording.record_count + " 条 · 界面展示最近 200 条中的匹配记录"
+                        : "开始仿真后，侦察、共享、摧毁、战术状态与结果将自动记录。"
+                    color: root.mutedColor
+                    font.family: "Microsoft YaHei"
+                    font.pixelSize: 12
+                    wrapMode: Text.Wrap
+                }
+                ComboBox {
+                    id: recordCategorySelector
+                    objectName: "recordCategorySelector"
+                    Layout.preferredWidth: 104
+                    textRole: "label"
+                    valueRole: "key"
+                    model: [
+                        {label: "全部", key: "all"}, {label: "侦察", key: "scout"},
+                        {label: "共享", key: "sharing"}, {label: "摧毁", key: "destroyed"},
+                        {label: "战术", key: "tactical"}, {label: "结果", key: "result"},
+                        {label: "设置", key: "settings"}, {label: "运行", key: "lifecycle"},
+                        {label: "交战", key: "combat"}
+                    ]
+                    Accessible.name: "运行记录类别"
+                    onActivated: root.recordFilter = currentValue
+                }
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.minimumHeight: 130
+                color: "#0a1525"
+                radius: 8
+                border.color: "#263d5a"
+                ListView {
+                    id: recordsList
+                    objectName: "recordsList"
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    clip: true
+                    spacing: 5
+                    model: root.filteredRecords()
+                    ScrollBar.vertical: ScrollBar {}
+                    delegate: Column {
+                        id: recordRow
+                        required property var modelData
+                        width: recordsList.width
+                        spacing: 3
+                        Text {
+                            width: parent.width
+                            text: "#" + recordRow.modelData.seq + " · 第 " + recordRow.modelData.step + " 步 · "
+                                + root.secondsLabel(recordRow.modelData.elapsed_seconds) + " · "
+                                + root.recordCategoryLabel(recordRow.modelData.category)
+                            color: recordRow.modelData.category === "destroyed" ? root.redColor : root.accentColor
+                            font.family: "Microsoft YaHei"
+                            font.pixelSize: 11
+                            wrapMode: Text.Wrap
+                        }
+                        Text {
+                            width: parent.width
+                            text: recordRow.modelData.message || ""
+                            color: "#dce8f6"
+                            font.family: "Microsoft YaHei"
+                            font.pixelSize: 12
+                            wrapMode: Text.Wrap
+                        }
+                        Rectangle { width: parent.width; height: 1; color: "#1d3149" }
+                    }
+                    Text {
+                        anchors.centerIn: parent
+                        width: parent.width - 16
+                        visible: recordsList.count === 0
+                        text: root.recording.has_run ? "此类别暂无记录。导出包含本局全部匹配记录。" : "当前还没有运行记录。"
+                        color: root.mutedColor
+                        font.family: "Microsoft YaHei"
+                        font.pixelSize: 12
+                        wrapMode: Text.Wrap
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                }
+            }
+            Text {
+                Layout.fillWidth: true
+                text: root.recording.last_error ? "自动保存失败：" + root.recording.last_error + "。可手动导出保留记录。"
+                    : root.recording.save_path ? "已自动保存：" + root.recording.save_path
+                    : root.recording.directory ? "记录自动保存目录：" + root.recording.directory : "运行结束或返回部署时自动保存；手动导出可随时使用。"
+                color: root.recording.last_error ? root.redColor : root.mutedColor
+                font.family: "Microsoft YaHei"
+                font.pixelSize: 11
+                wrapMode: Text.WrapAnywhere
+                maximumLineCount: 3
+                elide: Text.ElideRight
+            }
+            Text {
+                Layout.fillWidth: true
+                text: "历史运行（最近 " + Math.min(10, (root.recording.history || []).length) + " 局，可在记录目录中查看完整文件）"
+                color: "#dce8f6"
+                font.family: "Microsoft YaHei"
+                font.pixelSize: 11
+                wrapMode: Text.Wrap
+                visible: (root.recording.history || []).length > 0
+            }
+            ScrollView {
+                    id: historyScroll
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.min(82, historyColumn.implicitHeight)
+                    visible: (root.recording.history || []).length > 0
+                    clip: true
+                    contentWidth: availableWidth
+                    Column {
+                        id: historyColumn
+                        width: historyScroll.availableWidth
+                        spacing: 5
+                        Repeater {
+                            model: (root.recording.history || []).slice(0, 10)
+                            delegate: Text {
+                                required property var modelData
+                                width: historyColumn.width
+                                text: (modelData.scene_name || "当前场景") + " · " + modelData.steps + " 步 · "
+                                    + root.secondsLabel(modelData.elapsed_seconds) + " · " + modelData.record_count + " 条 · "
+                                    + (modelData.finished ? (modelData.winner === "red" ? "红方胜" : modelData.winner === "blue" ? "蓝方胜" : "平局")
+                                       : modelData.run_id === root.recording.run_id && root.snap.game_state === "paused" ? "已暂停"
+                                       : modelData.run_id === root.recording.run_id && root.snap.game_state === "running" ? "运行中" : "已中止")
+                                    + "\n" + (modelData.save_path || "尚未保存")
+                                color: root.mutedColor
+                                font.family: "Microsoft YaHei"
+                                font.pixelSize: 11
+                                wrapMode: Text.WrapAnywhere
+                            }
+                        }
+                    }
+            }
+        }
+        footer: Item {
+            implicitHeight: 58
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 12
+                ActionButton { Layout.fillWidth: true; text: "关闭"; onClicked: recordsDialog.close() }
+                ActionButton {
+                    objectName: "openRecordsDirectoryButton"
+                    Layout.fillWidth: true
+                    text: "打开记录目录"
+                    enabled: !!root.recording.has_run || (root.recording.history || []).length > 0
+                    onClicked: Qt.openUrlExternally(viewModel.recordingDirectoryUrl)
+                }
+                ActionButton {
+                    objectName: "exportRecordsButton"
+                    Layout.fillWidth: true
+                    text: "导出此类别全部记录…"
+                    highlighted: true
+                    enabled: !!root.recording.has_run
+                    onClicked: exportRecordsDialog.open()
+                }
+            }
+        }
+    }
+
     ResultsDialog {
         id: resultsDialog
         objectName: "resultsDialog"
@@ -2041,11 +2393,13 @@ ApplicationWindow {
         width: Math.min(650, root.width - 40)
         height: Math.min(500, root.height - 40)
         stats: root.snap.statistics
+        destroyedUnits: root.recording.destroyed_units || []
         sceneName: root.snap.scene_name || root.snap.current_scenario || "当前场景"
         onReturnToMap: close()
         onRestart: { close(); viewModel.restartSimulation() }
         onEditDeployment: { close(); viewModel.resetSimulation() }
         onExportResult: exportDialog.open()
+        onViewRecords: { close(); recordsDialog.open() }
     }
 
     HelpDialog {

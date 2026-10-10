@@ -10,7 +10,7 @@ Rectangle {
     readonly property bool hasUnit: !!(unit && unit.id)
     readonly property color teamColor: unit && unit.team === "red" ? "#ff5d73" : "#4ca6ff"
     signal clearSelection()
-    implicitHeight: hasUnit ? 286 : 74
+    implicitHeight: hasUnit ? (unit.destroyed ? 330 : 286) : 74
     radius: 10
     color: "#14243a"
     border.color: hasUnit ? teamColor : "#263d5a"
@@ -106,6 +106,18 @@ Rectangle {
             color: detail.unit.destroyed ? "#ff8fa0" : "#54e1c2"
             font.family: "Microsoft YaHei"
             font.pixelSize: 12
+            wrapMode: Text.Wrap
+        }
+        Text {
+            objectName: "unitDestructionTime"
+            Layout.fillWidth: true
+            visible: !!detail.unit.destroyed && detail.unit.destroyed_step !== undefined && detail.unit.destroyed_step !== null
+            text: "摧毁时间  第 " + detail.unit.destroyed_step + " 步 · "
+                + Number(detail.unit.destroyed_elapsed_seconds || 0).toFixed(2) + " 秒"
+                + (detail.unit.killer_id ? "\n击毁方  " + detail.unit.killer_id : "")
+            color: "#ff8fa0"
+            font.family: "Microsoft YaHei"
+            font.pixelSize: 11
             wrapMode: Text.Wrap
         }
         Item { Layout.fillHeight: true }

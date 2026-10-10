@@ -39,6 +39,7 @@ def create_engine(
 
     engine = QQmlApplicationEngine()
     view_model = SimulationViewModel(controller)
+    app.aboutToQuit.connect(view_model.flushRecords)
     if not show_first_help:
         view_model._first_run = False
     engine.rootContext().setContextProperty("viewModel", view_model)
@@ -51,12 +52,26 @@ def run() -> int:
     smoke = "--smoke-test" in sys.argv
     if smoke:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        # The delivery check creates artificial battles; keep their archives out
+        # of the user's real run history, including in a packaged executable.
+        original_data_directory = os.environ.get("UAV_WARGAME_DATA_DIR")
+        with tempfile.TemporaryDirectory(prefix="uav-smoke-data-") as directory:
+            os.environ["UAV_WARGAME_DATA_DIR"] = directory
+            try:
+                app, engine, view_model = create_engine(show_first_help=False)
+                if not engine.rootObjects():
+                    return 1
+                engine._view_model = view_model
+                return _verify_delivery(app, engine, view_model)
+            finally:
+                if original_data_directory is None:
+                    os.environ.pop("UAV_WARGAME_DATA_DIR", None)
+                else:
+                    os.environ["UAV_WARGAME_DATA_DIR"] = original_data_directory
     app, engine, view_model = create_engine(show_first_help=not smoke)
     if not engine.rootObjects():
         return 1
     engine._view_model = view_model
-    if smoke:
-        return _verify_delivery(app, engine, view_model)
     return app.exec()
 
 
@@ -127,10 +142,30 @@ def _verify_delivery(app, engine, view_model) -> int:
                 if report_path:
                     report_path.parent.mkdir(parents=True, exist_ok=True)
                     deployment_frame.save(str(report_path.with_name(f"deployment-{width}x{height}.png")))
+            timing_dialog = root.findChild(QObject, "timingDialog")
+            assert timing_dialog and QMetaObject.invokeMethod(timing_dialog, "open")
+            render()
+            duration_field = root.findChild(QObject, "stepDurationField")
+            steps_field = root.findChild(QObject, "maxStepsField")
+            apply_button = root.findChild(QObject, "applyTimingButton")
+            assert duration_field and steps_field and apply_button
+            duration_field.setProperty("text", "0.25")
+            steps_field.setProperty("text", "10")
+            assert QMetaObject.invokeMethod(apply_button, "clicked")
+            render()
+            assert controller.snapshot()["timing"]["step_duration_seconds"] == 0.25
+            assert controller.snapshot()["timing"]["max_steps"] == 10
             view_model.startSimulation()
             view_model.togglePause()
             view_model.stepSimulation()
             assert controller.simulator.time_step == 1
+            assert controller.simulator.elapsed_seconds == 0.25
+            view_model.setTiming(0.5, 10)
+            view_model.stepSimulation()
+            assert controller.simulator.time_step == 2
+            assert controller.simulator.elapsed_seconds == 0.75
+            assert any(record["category"] == "settings" for record in controller.simulator.records)
+            report["checks"].append("editable_timing_and_cumulative_event_clock")
             view_model.selectUnit(view_model.snapshot["units"][0]["id"])
             assert view_model.selectedUnit
             if report_path:
@@ -143,15 +178,34 @@ def _verify_delivery(app, engine, view_model) -> int:
             assert view_model.snapshot["game_state"] == "finished"
             assert view_model.snapshot["statistics"]["winner"] == "red"
             assert controller.export_result(temporary / "result.json").ok
+            exported_result = json.loads((temporary / "result.json").read_text(encoding="utf-8"))
+            assert exported_result["schema_version"] == 2
+            assert exported_result["records"]
+            assert exported_result["destroyed_units"]
+            assert sum(record["category"] == "result" for record in exported_result["records"]) == 1
             result_frame = render()
             result_dialog = root.findChild(QObject, "resultsDialog")
             assert result_dialog and result_dialog.property("visible"), "Automatic results did not open"
             if report_path:
                 result_frame.save(str(report_path.with_name("results-1280x720.png")))
             report["checks"].append("automatic_result_and_export")
+            assert QMetaObject.invokeMethod(result_dialog, "returnToMap")
+            records_dialog = root.findChild(QObject, "recordsDialog")
+            assert records_dialog and QMetaObject.invokeMethod(records_dialog, "open")
+            records_frame = render()
+            assert records_dialog.property("visible")
+            if report_path:
+                records_frame.save(str(report_path.with_name("records-1280x720.png")))
+            assert controller.export_records(temporary / "records.json").ok
+            exported_records = json.loads((temporary / "records.json").read_text(encoding="utf-8"))
+            assert exported_records["records"] == exported_result["records"]
+            assert QMetaObject.invokeMethod(records_dialog, "close")
+            report["checks"].append("complete_records_destruction_times_and_export")
+            assert controller.snapshot()["recording"]["history"]
+            assert controller.reset().ok
+            assert controller.set_timing(0.5, 1).ok
             view_model.restartSimulation()
             assert controller.game_state == "running"
-            controller.simulator.max_steps = 1
             view_model.stepSimulation()
             assert view_model.snapshot["statistics"]["finish_reason"] == "step_limit"
             limit_frame = render()
@@ -163,6 +217,9 @@ def _verify_delivery(app, engine, view_model) -> int:
             report["checks"].append("bounded_completion_with_visible_draw_reason")
             view_model.resetSimulation()
             assert controller.game_state == "deployment"
+            assert len(controller.snapshot()["recording"]["history"]) >= 2
+            assert controller.snapshot()["recording"]["has_run"]
+            report["checks"].append("independent_run_archives_survive_restart")
             view_model._timer.stop()
             report["checks"].append("restart_and_edit_original_deployment")
             report["ok"] = True

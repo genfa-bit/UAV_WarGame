@@ -161,6 +161,10 @@ class SimulationViewModel(QObject):
         from core.map_persistence import user_scenario_dir
         return QUrl.fromLocalFile(str(user_scenario_dir()))
 
+    @Property(QUrl, constant=True)
+    def recordingDirectoryUrl(self) -> QUrl:
+        return QUrl.fromLocalFile(str(self.controller.recording_directory))
+
     @Slot()
     def dismissHelp(self) -> None:
         self._first_run = False
@@ -175,6 +179,11 @@ class SimulationViewModel(QObject):
     @Slot(int)
     def setSpeed(self, index: int) -> None:
         self.controller.set_speed(index)
+        self._refresh()
+
+    @Slot(float, int)
+    def setTiming(self, duration: float, max_steps: int) -> None:
+        self.controller.set_timing(duration, max_steps)
         self._refresh()
 
     @Slot(str)
@@ -226,6 +235,17 @@ class SimulationViewModel(QObject):
         if path:
             self.controller.export_result(path)
             self._refresh()
+
+    @Slot(QUrl, str)
+    def exportRecordsToUrl(self, url: QUrl, category: str = "all") -> None:
+        path = self._local_path(url)
+        if path:
+            self.controller.export_records(path, category)
+            self._refresh()
+
+    @Slot()
+    def flushRecords(self) -> None:
+        self.controller.flush_records()
 
     @Slot()
     def startSimulation(self) -> None:

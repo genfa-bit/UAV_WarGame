@@ -8,10 +8,12 @@ Dialog {
     id: dialog
     required property var stats
     property string sceneName: "当前场景"
+    property var destroyedUnits: []
     signal returnToMap()
     signal restart()
     signal editDeployment()
     signal exportResult()
+    signal viewRecords()
     modal: true
     title: "本局结算"
     closePolicy: Popup.CloseOnEscape
@@ -35,7 +37,12 @@ Dialog {
     readonly property color winnerColor: stats.winner === "red" ? "#ff5d73"
         : stats.winner === "blue" ? "#4ca6ff" : "#ffd166"
 
-    contentItem: ColumnLayout {
+    contentItem: ScrollView {
+        id: resultScroll
+        clip: true
+        contentWidth: availableWidth
+        ColumnLayout {
+        width: resultScroll.availableWidth
         spacing: 6
         Text {
             Layout.fillWidth: true
@@ -50,7 +57,8 @@ Dialog {
         }
         Text {
             Layout.fillWidth: true
-            text: dialog.sceneName + "  ·  运行 " + dialog.stats.time_step + " 时间步"
+            text: dialog.sceneName + "  ·  运行 " + dialog.stats.time_step + " 时间步 · "
+                + Number(dialog.stats.elapsed_seconds || 0).toFixed(2) + " 秒"
             color: "#9fb4c9"
             font.family: "Microsoft YaHei"
             font.pixelSize: 12
@@ -98,7 +106,36 @@ Dialog {
                 Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: String(resultRow.modelData.blue ?? 0); color: "#8fc7ff"; font.family: "Consolas"; font.pixelSize: 17; horizontalAlignment: Text.AlignHCenter }
             }
         }
-        Item { Layout.fillHeight: true }
+        Text {
+            Layout.fillWidth: true
+            text: "摧毁时间（单位 / 基地） · " + dialog.destroyedUnits.length + " 条"
+            color: "#dce8f6"
+            font.family: "Microsoft YaHei"
+            font.pixelSize: 12
+            font.bold: true
+        }
+        Text {
+            Layout.fillWidth: true
+            visible: dialog.destroyedUnits.length === 0
+            text: "本局暂无摧毁记录。"
+            color: "#8da2ba"
+            font.family: "Microsoft YaHei"
+            font.pixelSize: 11
+        }
+        Repeater {
+            model: dialog.destroyedUnits
+            delegate: Text {
+                required property var modelData
+                Layout.fillWidth: true
+                text: (modelData.name || modelData.unit_id) + " · 第 " + modelData.step + " 步 · "
+                    + Number(modelData.elapsed_seconds || 0).toFixed(2) + " 秒"
+                    + ((modelData.killer_name || modelData.killer_id) ? " · 击毁方 " + (modelData.killer_name || modelData.killer_id) : "")
+                color: modelData.team === "red" ? "#ff8fa0" : "#8fc7ff"
+                font.family: "Microsoft YaHei"
+                font.pixelSize: 11
+                wrapMode: Text.Wrap
+            }
+        }
         Text {
             Layout.fillWidth: true
             text: "返回地图可查看最终态势；再来一局沿用本局部署。"
@@ -107,9 +144,10 @@ Dialog {
             font.pixelSize: 11
             wrapMode: Text.Wrap
         }
+        }
     }
     footer: Item {
-        implicitHeight: 100
+        implicitHeight: 142
         GridLayout {
             anchors.fill: parent
             anchors.leftMargin: 18
@@ -122,6 +160,7 @@ Dialog {
             ActionButton { Layout.fillWidth: true; text: "再来一局"; highlighted: true; onClicked: dialog.restart() }
             ActionButton { Layout.fillWidth: true; text: "调整部署"; onClicked: dialog.editDeployment() }
             ActionButton { Layout.fillWidth: true; text: "导出战报…"; tone: "#ffca64"; onClicked: dialog.exportResult() }
+            ActionButton { objectName: "resultRecordsButton"; Layout.fillWidth: true; Layout.columnSpan: 2; text: "查看运行记录与摧毁时间"; onClicked: dialog.viewRecords() }
         }
     }
 }
