@@ -1,8 +1,8 @@
 {
   "filename": "UAV_WarGame.exe",
-  "bytes": 207936716,
-  "sha256": "7132a37987dd2a1eeadada4d57c063ea0b8ad567da77c70768c9a2053e3ae989",
-  "built_at": "2026-10-11T12:58:11.791113+08:00",
+  "bytes": 207934964,
+  "sha256": "462bf72e9516ad8775051124eff870a36dcc1b9ecd0a4e6e7599221f91ec3362",
+  "built_at": "2026-10-11T13:31:21.294789+08:00",
   "platform": "Windows 11 build 26200 x64",
   "smoke_exit_code": 0,
   "smoke_report": "package-smoke.json",
@@ -19,7 +19,7 @@
   "embedded_ui_fonts_match_source": true,
   "embedded_map_assets_and_scenarios_match_source": true,
   "verified_resources_sha256": {
-    "ui/qml/Main.qml": "48aa8a282bf8cd0fe352f187cbf5e4105511bcdd49296d326956b0d14a1b6502",
+    "ui/qml/Main.qml": "1dea9db2c424d11ecd89a86b0ffcc3087c645724c9351bc271fe04e877019ed8",
     "ui/qml/ActionButton.qml": "acecf54b0837a0d5ed9b321e6ef397888828f39609640e9def06094a81fc86da",
     "ui/qml/Theme.js": "3e245e197b231b540ef1b7626587fbe8ffb9ab395ff58390c9830ac420c5ca2c",
     "ui/qml/HelpDialog.qml": "2a03a277c79ce29d7f37a58e361a8bf38453c135de902a7115157a4350fbef84",

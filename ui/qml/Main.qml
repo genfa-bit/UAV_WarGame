@@ -1619,35 +1619,35 @@ ApplicationWindow {
                 spacing: 6
                 AppButton {
                     width: (parent.width - 6) / 2
-                    text: "1  侦察无人机"
+                    text: "侦察无人机"
                     tone: Theme.selectionText
                     selected: root.snap.deployment.selected_unit_type === "scout_drone"
                     onClicked: viewModel.selectUnitType("scout_drone")
                 }
                 AppButton {
                     width: (parent.width - 6) / 2
-                    text: "2  打击无人机"
+                    text: "打击无人机"
                     tone: Theme.selectionText
                     selected: root.snap.deployment.selected_unit_type === "strike_drone"
                     onClicked: viewModel.selectUnitType("strike_drone")
                 }
                 AppButton {
                     width: (parent.width - 6) / 2
-                    text: "3  无人战车"
+                    text: "无人战车"
                     tone: Theme.selectionText
                     selected: root.snap.deployment.selected_unit_type === "ground_vehicle"
                     onClicked: viewModel.selectUnitType("ground_vehicle")
                 }
                 AppButton {
                     width: (parent.width - 6) / 2
-                    text: "4  导弹发射车"
+                    text: "导弹发射车"
                     tone: Theme.selectionText
                     selected: root.snap.deployment.selected_unit_type === "missile_vehicle"
                     onClicked: viewModel.selectUnitType("missile_vehicle")
                 }
                 AppButton {
                     width: (parent.width - 6) / 2
-                    text: "5  指挥节点"
+                    text: "指挥节点"
                     tone: Theme.selectionText
                     selected: root.snap.deployment.selected_unit_type === "command_node"
                     onClicked: viewModel.selectUnitType("command_node")
@@ -1665,21 +1665,21 @@ ApplicationWindow {
                 spacing: 6
                 AppButton {
                     width: (parent.width - 12) / 3
-                    text: "6 山地"
+                    text: "山地"
                     tone: Theme.selectionText
                     selected: root.snap.deployment.selected_obstacle_type === "mountain"
                     onClicked: viewModel.selectObstacleType("mountain")
                 }
                 AppButton {
                     width: (parent.width - 12) / 3
-                    text: "7 建筑"
+                    text: "建筑"
                     tone: Theme.selectionText
                     selected: root.snap.deployment.selected_obstacle_type === "building"
                     onClicked: viewModel.selectObstacleType("building")
                 }
                 AppButton {
                     width: (parent.width - 12) / 3
-                    text: "8 禁行区"
+                    text: "禁行区"
                     tone: Theme.selectionText
                     selected: root.snap.deployment.selected_obstacle_type === "restricted"
                     onClicked: viewModel.selectObstacleType("restricted")
