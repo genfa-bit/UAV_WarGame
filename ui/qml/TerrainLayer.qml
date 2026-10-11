@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import "Theme.js" as Theme
 
 Item {
     id: terrain
@@ -15,7 +16,7 @@ Item {
     readonly property real sx: width / Math.max(1, worldWidth)
     readonly property real sy: height / Math.max(1, worldHeight)
 
-    Rectangle { anchors.fill: parent; color: "#0a1828" }
+    Rectangle { anchors.fill: parent; color: Theme.field }
     Image {
         id: terrainImage
         objectName: "terrainImage"
@@ -29,7 +30,7 @@ Item {
     }
     Rectangle {
         anchors.fill: parent
-        color: "#102331"
+        color: Theme.canvas
         opacity: terrain.imageSource.toString() ? 0.2 : 0
     }
 
@@ -43,10 +44,10 @@ Item {
             const sy = terrain.sy
             if (terrain.showGrid) {
                 const step = terrain.mapStyle === "tactical" ? 40 : 100
-                ctx.strokeStyle = terrain.mapStyle === "tactical" ? "#17314a" : "rgba(228,242,225,0.18)"
+                ctx.strokeStyle = terrain.mapStyle === "tactical" ? "#293842" : "rgba(228,236,231,0.12)"
                 ctx.lineWidth = 1
-                ctx.fillStyle = "rgba(227,243,233,0.64)"
-                ctx.font = "10px Microsoft YaHei"
+                ctx.fillStyle = "rgba(227,236,231,0.60)"
+                ctx.font = '11px "' + Theme.fontFamily + '"'
                 for (let x = 0; x <= terrain.worldWidth; x += step) {
                     ctx.beginPath()
                     ctx.moveTo(x * sx, 0)
@@ -71,7 +72,7 @@ Item {
                 if (!points || points.length < 2) continue
                 ctx.beginPath()
                 ctx.strokeStyle = route.color || "rgba(250,230,164,0.58)"
-                ctx.lineWidth = 2
+                ctx.lineWidth = 1.5
                 ctx.setLineDash([7, 5])
                 for (let p = 0; p < points.length; ++p) {
                     const point = points[p]
@@ -96,15 +97,15 @@ Item {
             readonly property string symbol: modelData.kind === "lake" ? "≈"
                 : modelData.kind === "bridge" ? "═" : modelData.kind === "airfield" ? "✈"
                 : modelData.kind === "farmland" ? "▦" : "◇"
-            readonly property color tint: modelData.kind === "lake" ? "#b1e0ee"
-                : modelData.kind === "farmland" ? "#e2efb5" : "#f4ebcc"
+            readonly property color tint: modelData.kind === "lake" ? "#b7d5df"
+                : modelData.kind === "farmland" ? "#d2dbb9" : "#ddd9c6"
             Rectangle {
                 x: -8
                 y: -8
                 width: 16
                 height: 16
                 radius: 4
-                color: "#b80b1924"
+                color: "#de18212a"
                 border.color: landmark.tint
                 Text { anchors.centerIn: parent; text: landmark.symbol; color: landmark.tint; font.pixelSize: 12 }
             }
@@ -114,14 +115,14 @@ Item {
                 width: placeName.implicitWidth + 12
                 height: 23
                 radius: 4
-                color: "#b80b1924"
+                color: "#de18212a"
                 Text {
                     id: placeName
                     anchors.centerIn: parent
                     text: landmark.modelData.name
                     color: landmark.tint
-                    font.family: "Microsoft YaHei"
-                    font.pixelSize: 11
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSmall
                 }
             }
         }

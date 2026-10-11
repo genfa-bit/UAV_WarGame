@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "Theme.js" as Theme
 
 Dialog {
     id: dialog
@@ -17,25 +18,25 @@ Dialog {
     modal: true
     title: "本局结算"
     closePolicy: Popup.CloseOnEscape
-    padding: 18
-    palette.windowText: "#eaf4ff"
-    palette.window: "#101d2e"
-    palette.base: "#14243a"
-    palette.button: "#182a42"
-    palette.buttonText: "#eaf4ff"
-    background: Rectangle { radius: 14; color: "#101d2e"; border.color: "#36516e" }
+    padding: 16
+    palette.windowText: Theme.text
+    palette.window: Theme.surface
+    palette.base: Theme.field
+    palette.button: Theme.surfaceRaised
+    palette.buttonText: Theme.text
+    background: Rectangle { radius: Theme.radius; color: Theme.surface; border.color: Theme.border }
     header: Text {
         text: dialog.title
-        color: "#eaf4ff"
-        padding: 18
-        bottomPadding: 8
-        font.family: "Microsoft YaHei"
-        font.pixelSize: 16
+        color: Theme.text
+        padding: 16
+        bottomPadding: 10
+        font.family: Theme.fontFamily
+        font.pixelSize: Theme.fontTitle
         font.bold: true
     }
 
-    readonly property color winnerColor: stats.winner === "red" ? "#ff5d73"
-        : stats.winner === "blue" ? "#4ca6ff" : "#ffd166"
+    readonly property color winnerColor: stats.winner === "red" ? Theme.red
+        : stats.winner === "blue" ? Theme.blue : Theme.warning
 
     contentItem: ScrollView {
         id: resultScroll
@@ -43,15 +44,15 @@ Dialog {
         contentWidth: availableWidth
         ColumnLayout {
         width: resultScroll.availableWidth
-        spacing: 6
+        spacing: 8
         Text {
             Layout.fillWidth: true
             text: dialog.stats.winner === "red" ? "红方获胜"
                 : dialog.stats.winner === "blue" ? "蓝方获胜"
                 : dialog.stats.winner === "draw" ? "双方平局" : "本局结束"
             color: dialog.winnerColor
-            font.family: "Microsoft YaHei"
-            font.pixelSize: 28
+            font.family: Theme.fontFamily
+            font.pixelSize: 22
             font.bold: true
             horizontalAlignment: Text.AlignHCenter
         }
@@ -59,9 +60,10 @@ Dialog {
             Layout.fillWidth: true
             text: dialog.sceneName + "  ·  运行 " + dialog.stats.time_step + " 时间步 · "
                 + Number(dialog.stats.elapsed_seconds || 0).toFixed(2) + " 秒"
-            color: "#9fb4c9"
-            font.family: "Microsoft YaHei"
-            font.pixelSize: 12
+            color: Theme.muted
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSize
+            wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter
         }
         Text {
@@ -71,21 +73,21 @@ Dialog {
             text: dialog.stats.finish_reason === "step_limit" ? "达到时间步上限，双方平局"
                 : dialog.stats.finish_reason === "base_destroyed" ? "基地被摧毁"
                 : dialog.stats.finish_reason === "elimination" ? "一方单位全灭" : ""
-            color: dialog.winnerColor
-            font.family: "Microsoft YaHei"
-            font.pixelSize: 13
-            font.bold: true
+            color: Theme.muted
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSize
             wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter
         }
         RowLayout {
             Layout.fillWidth: true
+            Layout.topMargin: 6
             spacing: 8
-            Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: "结算项目"; color: "#9fb4c9"; font.family: "Microsoft YaHei"; font.pixelSize: 12 }
-            Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: "红方"; color: "#ff5d73"; font.family: "Microsoft YaHei"; font.pixelSize: 13; horizontalAlignment: Text.AlignHCenter }
-            Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: "蓝方"; color: "#4ca6ff"; font.family: "Microsoft YaHei"; font.pixelSize: 13; horizontalAlignment: Text.AlignHCenter }
+            Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: "结算项目"; color: Theme.muted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
+            Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: "红方"; color: Theme.red; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize; horizontalAlignment: Text.AlignHCenter }
+            Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: "蓝方"; color: Theme.blue; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize; horizontalAlignment: Text.AlignHCenter }
         }
-        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: "#294461" }
+        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.divider }
         Repeater {
             model: [
                 { label: "剩余单位", red: dialog.stats.red_remaining, blue: dialog.stats.blue_remaining },
@@ -101,26 +103,27 @@ Dialog {
                 required property var modelData
                 Layout.fillWidth: true
                 spacing: 8
-                Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: resultRow.modelData.label; color: "#dce8f6"; font.family: "Microsoft YaHei"; font.pixelSize: 12 }
-                Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: String(resultRow.modelData.red ?? 0); color: "#ff8fa0"; font.family: "Consolas"; font.pixelSize: 17; horizontalAlignment: Text.AlignHCenter }
-                Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: String(resultRow.modelData.blue ?? 0); color: "#8fc7ff"; font.family: "Consolas"; font.pixelSize: 17; horizontalAlignment: Text.AlignHCenter }
+                Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: resultRow.modelData.label; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
+                Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: String(resultRow.modelData.red ?? 0); color: Theme.text; font.family: "Consolas"; font.pixelSize: 15; horizontalAlignment: Text.AlignHCenter }
+                Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: String(resultRow.modelData.blue ?? 0); color: Theme.text; font.family: "Consolas"; font.pixelSize: 15; horizontalAlignment: Text.AlignHCenter }
             }
         }
+        Rectangle { Layout.fillWidth: true; Layout.topMargin: 4; implicitHeight: 1; color: Theme.divider }
         Text {
             Layout.fillWidth: true
             text: "摧毁时间（单位 / 基地） · " + dialog.destroyedUnits.length + " 条"
-            color: "#dce8f6"
-            font.family: "Microsoft YaHei"
-            font.pixelSize: 12
+            color: Theme.text
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSize
             font.bold: true
         }
         Text {
             Layout.fillWidth: true
             visible: dialog.destroyedUnits.length === 0
             text: "本局暂无摧毁记录。"
-            color: "#8da2ba"
-            font.family: "Microsoft YaHei"
-            font.pixelSize: 11
+            color: Theme.muted
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSize
         }
         Repeater {
             model: dialog.destroyedUnits
@@ -130,37 +133,37 @@ Dialog {
                 text: (modelData.name || modelData.unit_id) + " · 第 " + modelData.step + " 步 · "
                     + Number(modelData.elapsed_seconds || 0).toFixed(2) + " 秒"
                     + ((modelData.killer_name || modelData.killer_id) ? " · 击毁方 " + (modelData.killer_name || modelData.killer_id) : "")
-                color: modelData.team === "red" ? "#ff8fa0" : "#8fc7ff"
-                font.family: "Microsoft YaHei"
-                font.pixelSize: 11
+                color: Theme.muted
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSize
                 wrapMode: Text.Wrap
             }
         }
         Text {
             Layout.fillWidth: true
-            text: "返回地图可查看最终态势；再来一局沿用本局部署。"
-            color: "#8da2ba"
-            font.family: "Microsoft YaHei"
-            font.pixelSize: 11
+            text: "再来一局将沿用本局部署。"
+            color: Theme.muted
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSize
             wrapMode: Text.Wrap
         }
         }
     }
     footer: Item {
-        implicitHeight: 142
+        implicitHeight: 124
         GridLayout {
             anchors.fill: parent
-            anchors.leftMargin: 18
-            anchors.rightMargin: 18
-            anchors.bottomMargin: 18
+            anchors.leftMargin: 16
+            anchors.rightMargin: 16
+            anchors.bottomMargin: 16
             columns: 2
             columnSpacing: 8
-            rowSpacing: 8
+            rowSpacing: 6
             ActionButton { Layout.fillWidth: true; text: "返回地图"; onClicked: dialog.returnToMap() }
             ActionButton { Layout.fillWidth: true; text: "再来一局"; highlighted: true; onClicked: dialog.restart() }
             ActionButton { Layout.fillWidth: true; text: "调整部署"; onClicked: dialog.editDeployment() }
-            ActionButton { Layout.fillWidth: true; text: "导出战报…"; tone: "#ffca64"; onClicked: dialog.exportResult() }
-            ActionButton { objectName: "resultRecordsButton"; Layout.fillWidth: true; Layout.columnSpan: 2; text: "查看运行记录与摧毁时间"; onClicked: dialog.viewRecords() }
+            ActionButton { Layout.fillWidth: true; text: "导出战报…"; onClicked: dialog.exportResult() }
+            ActionButton { objectName: "resultRecordsButton"; Layout.fillWidth: true; Layout.columnSpan: 2; text: "运行记录与摧毁时间"; flat: true; onClicked: dialog.viewRecords() }
         }
     }
 }

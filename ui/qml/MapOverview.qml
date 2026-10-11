@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import "Theme.js" as Theme
 
 Rectangle {
     id: overview
@@ -13,9 +14,9 @@ Rectangle {
     property real visibleWidth: worldWidth
     property real visibleHeight: worldHeight
     signal centerRequested(real worldX, real worldY)
-    radius: 6
-    color: "#e60a1828"
-    border.color: "#5c7689"
+    radius: Theme.radiusSmall
+    color: Theme.surface
+    border.color: Theme.border
     clip: true
 
     Text {
@@ -23,9 +24,9 @@ Rectangle {
         anchors.left: parent.left
         anchors.margins: 5
         text: "总览 · 点击定位"
-        color: "#cbdbe6"
-        font.family: "Microsoft YaHei"
-        font.pixelSize: 9
+        color: Theme.muted
+        font.family: Theme.fontFamily
+        font.pixelSize: Theme.fontSmall
     }
     Item {
         id: overviewMap
@@ -36,11 +37,11 @@ Rectangle {
         anchors.leftMargin: 4
         anchors.rightMargin: 4
         anchors.bottomMargin: 4
-        anchors.topMargin: 21
+        anchors.topMargin: 24
         clip: true
         readonly property real sx: width / Math.max(1, overview.worldWidth)
         readonly property real sy: height / Math.max(1, overview.worldHeight)
-        Rectangle { anchors.fill: parent; color: "#172c3c" }
+        Rectangle { anchors.fill: parent; color: Theme.field }
         Image {
             anchors.fill: parent
             source: overview.visual && overview.visual.background
@@ -58,7 +59,7 @@ Rectangle {
                 width: 5
                 height: 5
                 radius: 2.5
-                color: modelData.team === "red" ? "#ff5d73" : "#4ca6ff"
+                color: modelData.team === "red" ? Theme.red : Theme.blue
                 opacity: modelData.destroyed ? 0.25 : 1
             }
         }
@@ -67,9 +68,9 @@ Rectangle {
             y: overview.visibleY * overviewMap.sy
             width: overview.visibleWidth * overviewMap.sx
             height: overview.visibleHeight * overviewMap.sy
-            color: "#2254e1c2"
-            border.width: 1.5
-            border.color: "#8deed8"
+            color: "#1682b7af"
+            border.width: 1
+            border.color: Theme.accent
         }
         MouseArea {
             anchors.fill: parent

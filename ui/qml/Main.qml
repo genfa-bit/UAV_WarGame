@@ -5,6 +5,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
 import QtQuick.Dialogs
+import "Theme.js" as Theme
 
 ApplicationWindow {
     id: root
@@ -13,17 +14,28 @@ ApplicationWindow {
     minimumWidth: 920
     minimumHeight: 540
     visible: true
-    color: "#08111f"
+    color: Theme.canvas
+    font.family: Theme.fontFamily
+    font.pixelSize: Theme.fontSize
+    palette.window: Theme.surface
+    palette.base: Theme.field
+    palette.button: Theme.field
+    palette.buttonText: Theme.text
+    palette.text: Theme.text
+    palette.windowText: Theme.text
+    palette.highlight: Theme.selection
+    palette.highlightedText: Theme.text
+    palette.mid: Theme.border
     title: "无人装备战争游戏仿真系统"
 
     property var snap: viewModel.snapshot
     readonly property bool deploymentMode: snap.game_state === "deployment"
-    readonly property color redColor: "#ff5d73"
-    readonly property color blueColor: "#4ca6ff"
-    readonly property color accentColor: "#54e1c2"
-    readonly property color panelColor: "#101d2e"
-    readonly property color cardColor: "#14243a"
-    readonly property color mutedColor: "#8da2ba"
+    readonly property color redColor: Theme.red
+    readonly property color blueColor: Theme.blue
+    readonly property color accentColor: Theme.accent
+    readonly property color panelColor: Theme.surface
+    readonly property color cardColor: Theme.surfaceRaised
+    readonly property color mutedColor: Theme.muted
     readonly property string selectedUnitId: viewModel.selectedUnitId
     property bool resultPresented: false
     property string logFilter: "all"
@@ -41,6 +53,7 @@ ApplicationWindow {
     readonly property bool dialogActive: confirmationDialog.visible || resultsDialog.visible
         || helpDialog.visible || loadMapDialog.visible || saveMapDialog.visible || exportDialog.visible
         || timingDialog.visible || recordsDialog.visible || exportRecordsDialog.visible
+    readonly property bool controlHasFocus: !!root.activeFocusControl
 
     function secondsLabel(value) {
         return Number(value || 0).toFixed(2) + " 秒"
@@ -125,7 +138,7 @@ ApplicationWindow {
 
     function stateColor(state) {
         if (state === "running") return accentColor
-        if (state === "paused") return "#ffca64"
+        if (state === "paused") return Theme.warning
         if (state === "finished") return redColor
         return blueColor
     }
@@ -154,215 +167,181 @@ ApplicationWindow {
         return null
     }
 
-    component AppButton: Rectangle {
-        id: button
-        property string text: ""
-        property color tone: root.accentColor
-        property bool selected: false
-        signal clicked()
-        Accessible.role: Accessible.Button
-        Accessible.name: text
+    function revealSideControl(control) {
+        let ancestor = control.parent
+        while (ancestor && ancestor !== sidePanel) ancestor = ancestor.parent
+        if (!ancestor) return
+        const flick = sideScroll.contentItem
+        const point = control.mapToItem(flick.contentItem, 0, 0)
+        if (point.y < flick.contentY)
+            flick.contentY = Math.max(0, point.y - 4)
+        else if (point.y + control.height > flick.contentY + flick.height)
+            flick.contentY = Math.min(Math.max(0, flick.contentHeight - flick.height), point.y + control.height - flick.height + 4)
+    }
 
-        implicitHeight: 38
-        implicitWidth: 110
-        radius: 8
-        opacity: enabled ? 1 : 0.42
-        color: selected ? root.alphaColor(tone, 0.24)
-                        : mouseArea.containsMouse ? "#203653" : "#182a42"
-        border.width: selected ? 1.5 : 1
-        border.color: selected ? tone : "#2b4260"
+    component AppButton: ActionButton {
+        onActiveFocusChanged: if (activeFocus) root.revealSideControl(this)
+    }
 
-        Text {
-            anchors.centerIn: parent
-            text: button.text
-            color: button.selected ? button.tone : "#dce8f6"
-            font.family: "Microsoft YaHei"
-            font.pixelSize: 13
-            font.bold: button.selected
+    component AppComboBox: ComboBox {
+        id: combo
+        implicitHeight: Theme.controlHeight
+        font.family: Theme.fontFamily
+        font.pixelSize: Theme.fontSize
+        leftPadding: 10
+        rightPadding: 28
+        onActiveFocusChanged: if (activeFocus) root.revealSideControl(this)
+        palette.button: Theme.field
+        palette.buttonText: Theme.text
+        palette.base: Theme.surfaceRaised
+        palette.text: Theme.text
+        palette.highlight: Theme.selection
+        palette.highlightedText: Theme.text
+        background: Rectangle {
+            radius: Theme.radiusSmall
+            color: combo.hovered ? Theme.surfaceRaised : Theme.field
+            border.color: combo.activeFocus ? Theme.accent : Theme.border
+            border.width: combo.activeFocus ? 2 : 1
         }
-
-        MouseArea {
-            id: mouseArea
-            anchors.fill: parent
-            hoverEnabled: true
-            enabled: button.enabled
-            cursorShape: Qt.PointingHandCursor
-            onClicked: button.clicked()
+        contentItem: Text {
+            text: combo.displayText
+            color: Theme.text
+            font: combo.font
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+        indicator: Canvas {
+            x: combo.width - width - 10
+            y: (combo.height - height) / 2
+            width: 10
+            height: 6
+            onPaint: {
+                const ctx = getContext("2d")
+                ctx.clearRect(0, 0, width, height)
+                ctx.strokeStyle = Theme.muted
+                ctx.lineWidth = 1.5
+                ctx.beginPath()
+                ctx.moveTo(1, 1)
+                ctx.lineTo(5, 5)
+                ctx.lineTo(9, 1)
+                ctx.stroke()
+            }
         }
     }
 
     component SectionTitle: Text {
-        color: "#ecf5ff"
-        font.family: "Microsoft YaHei"
-        font.pixelSize: 13
+        color: Theme.text
+        font.family: Theme.fontFamily
+        font.pixelSize: Theme.fontSection
         font.bold: true
-        font.letterSpacing: 1
     }
 
-    component StatPair: Rectangle {
+    component StatPair: Item {
         property string label: ""
         property string redValue: "0"
         property string blueValue: "0"
-
-        implicitHeight: 72
-        radius: 10
-        color: "#13243a"
-        border.color: "#263d5a"
-
-        Column {
-            anchors.fill: parent
-            anchors.margins: 9
-            spacing: 5
-
-            Text {
-                width: parent.width
-                text: label
-                color: root.mutedColor
-                font.family: "Microsoft YaHei"
-                font.pixelSize: 11
-                horizontalAlignment: Text.AlignHCenter
-            }
-
-            Row {
-                width: parent.width
-                height: 31
-
-                Text {
-                    width: parent.width / 2
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: redValue
-                    color: root.redColor
-                    font.family: "Microsoft YaHei"
-                    font.pixelSize: 17
-                    font.bold: true
-                    minimumPixelSize: 10
-                    fontSizeMode: Text.Fit
-                    horizontalAlignment: Text.AlignHCenter
-                }
-
-                Text {
-                    width: parent.width / 2
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: blueValue
-                    color: root.blueColor
-                    font.family: "Microsoft YaHei"
-                    font.pixelSize: 17
-                    font.bold: true
-                    minimumPixelSize: 10
-                    fontSizeMode: Text.Fit
-                    horizontalAlignment: Text.AlignHCenter
-                }
-            }
-        }
-    }
-
-    background: Rectangle {
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: "#0b1728" }
-            GradientStop { position: 1.0; color: "#07101c" }
-        }
-    }
-
-    header: Rectangle {
-        height: root.height < 700 ? 62 : 72
-        color: "#0c192a"
-        border.color: "#1d334e"
-
+        implicitHeight: 28
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: 24
-            anchors.rightMargin: 24
-            spacing: 18
-
-            Column {
-                Layout.alignment: Qt.AlignVCenter
-                spacing: 2
-
-                Text {
-                    text: "UAV WARGAME"
-                    color: root.accentColor
-                    font.family: "Segoe UI"
-                    font.pixelSize: 11
-                    font.bold: true
-                    font.letterSpacing: 3
-                }
-
-                Text {
-                    text: "无人装备战争游戏仿真系统"
-                    color: "#f1f7ff"
-                    font.family: "Microsoft YaHei"
-                    font.pixelSize: root.width < 1100 ? 18 : 22
-                    font.bold: true
-                }
+            spacing: 8
+            Text {
+                Layout.fillWidth: true
+                text: label
+                color: root.mutedColor
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSize
             }
+            Text {
+                Layout.preferredWidth: 82
+                text: redValue
+                color: root.redColor
+                font.family: "Consolas"
+                font.pixelSize: 13
+                minimumPixelSize: 11
+                fontSizeMode: Text.Fit
+                horizontalAlignment: Text.AlignRight
+            }
+            Text {
+                Layout.preferredWidth: 82
+                text: blueValue
+                color: root.blueColor
+                font.family: "Consolas"
+                font.pixelSize: 13
+                minimumPixelSize: 11
+                fontSizeMode: Text.Fit
+                horizontalAlignment: Text.AlignRight
+            }
+        }
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: 1
+            color: Theme.divider
+        }
+    }
 
+    background: Rectangle { color: Theme.canvas }
+
+    header: Rectangle {
+        height: 52
+        color: Theme.surface
+        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.divider }
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 16
+            anchors.rightMargin: 16
+            spacing: 12
+            Text {
+                text: "无人装备战争游戏仿真系统"
+                color: Theme.text
+                font.family: Theme.fontFamily
+                font.pixelSize: root.width < 1100 ? 15 : 17
+                font.bold: true
+            }
             Item { Layout.fillWidth: true }
-
-            Rectangle {
-                implicitWidth: 114
-                implicitHeight: 36
-                radius: 18
-                color: root.alphaColor(root.stateColor(root.snap.game_state), 0.15)
-                border.color: root.stateColor(root.snap.game_state)
-
-                Row {
-                    anchors.centerIn: parent
-                    spacing: 8
-
-                    Rectangle {
-                        width: 8
-                        height: 8
-                        radius: 4
-                        color: root.stateColor(root.snap.game_state)
-                    }
-
-                    Text {
-                        text: root.snap.state_label
-                        color: "#eaf4ff"
-                        font.family: "Microsoft YaHei"
-                        font.pixelSize: 13
-                        font.bold: true
-                    }
+            Row {
+                spacing: 6
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 6; height: 6; radius: 3
+                    color: root.stateColor(root.snap.game_state)
+                }
+                Text {
+                    text: root.snap.state_label
+                    color: Theme.text
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
                 }
             }
-
-            Rectangle {
-                implicitWidth: root.width < 1100 ? 152 : 170
-                implicitHeight: 44
-                radius: 8
-                color: "#13243a"
-                border.color: "#263f5e"
-
-                Column {
-                    anchors.centerIn: parent
-                    spacing: 1
-
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: "累计 " + root.secondsLabel(root.snap.statistics.elapsed_seconds)
-                        color: root.mutedColor
-                        font.family: "Microsoft YaHei"
-                        font.pixelSize: 10
-                    }
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: root.snap.statistics.time_step + " / " + (root.snap.statistics.max_steps || 2000)
-                        color: "#ffffff"
-                        font.family: "Consolas"
-                        font.pixelSize: root.width < 1100 ? 15 : 18
-                        font.bold: true
-                    }
+            Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 20; color: Theme.divider }
+            Column {
+                Layout.preferredWidth: root.width < 1100 ? 132 : 150
+                spacing: 0
+                Text {
+                    text: "累计 " + root.secondsLabel(root.snap.statistics.elapsed_seconds)
+                    color: Theme.muted
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 11
+                }
+                Text {
+                    text: root.snap.statistics.time_step + " / " + (root.snap.statistics.max_steps || 2000) + " 步"
+                    color: Theme.text
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
                 }
             }
             AppButton {
                 objectName: "timingButton"
-                Layout.preferredWidth: 84
+                Layout.preferredWidth: 80
+                flat: true
                 text: "时间设置"
                 onClicked: timingDialog.open()
             }
             AppButton {
                 objectName: "recordsButton"
-                Layout.preferredWidth: 84
+                Layout.preferredWidth: 80
+                flat: true
                 text: "运行记录"
                 onClicked: recordsDialog.open()
             }
@@ -371,72 +350,47 @@ ApplicationWindow {
 
     RowLayout {
         anchors.fill: parent
-        anchors.margins: 12
-        spacing: 12
+        anchors.margins: 8
+        spacing: 8
 
         Rectangle {
             id: battlefieldCard
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.minimumWidth: 500
-            radius: 14
-            color: "#0d1a2a"
-            border.color: "#203955"
+            radius: Theme.radius
+            color: Theme.canvas
+            border.color: Theme.divider
             clip: true
-
-            Rectangle {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                height: 42
-                color: "#112238"
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 14
-                    anchors.rightMargin: 14
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: "战场态势  /  " + (root.mapVisual.title || "战术地图")
-                        color: "#cfe0f2"
-                        font.family: "Microsoft YaHei"
-                        font.pixelSize: 13
-                        font.bold: true
-                        elide: Text.ElideRight
-                    }
-                    Text {
-                        text: root.deploymentMode
-                              ? root.snap.deployment.selected_label + " · "
-                                + (root.snap.deployment.selected_team === "red" ? "红方" : "蓝方")
-                              : "速度 " + root.snap.speed_label
-                        color: root.deploymentMode
-                               ? (root.snap.deployment.selected_team === "red"
-                                  ? root.redColor : root.blueColor)
-                               : root.accentColor
-                        font.family: "Microsoft YaHei"
-                        font.pixelSize: 12
-                    }
-                }
-            }
 
             Rectangle {
                 id: mapToolbar
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                anchors.topMargin: 42
-                height: 36
-                color: "#0f2033"
+                height: 40
+                color: Theme.surface
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: 10
                     anchors.rightMargin: 10
                     spacing: 6
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 72
+                        text: root.snap.scene_name || root.snap.current_scenario || root.mapVisual.title || "战术地图"
+                        color: Theme.text
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSize
+                        font.bold: true
+                        elide: Text.ElideRight
+                    }
                     AppButton {
                         objectName: "mapZoomOut"
                         Layout.preferredWidth: 28
-                        height: 26
+                        leftPadding: 0
+                        rightPadding: 0
+                        Layout.preferredHeight: 28
                         text: "−"
                         enabled: battlefieldViewport.zoomLevel > 1.001
                         onClicked: battlefieldViewport.zoomAt(battlefieldViewport.zoomLevel / 1.25,
@@ -445,7 +399,7 @@ ApplicationWindow {
                     Text {
                         Layout.preferredWidth: 38
                         text: Math.round(battlefieldViewport.zoomLevel * 100) + "%"
-                        color: "#cfe0f2"
+                        color: Theme.text
                         font.family: "Consolas"
                         font.pixelSize: 11
                         horizontalAlignment: Text.AlignHCenter
@@ -453,7 +407,9 @@ ApplicationWindow {
                     AppButton {
                         objectName: "mapZoomIn"
                         Layout.preferredWidth: 28
-                        height: 26
+                        leftPadding: 0
+                        rightPadding: 0
+                        Layout.preferredHeight: 28
                         text: "+"
                         enabled: battlefieldViewport.zoomLevel < 3.999
                         onClicked: battlefieldViewport.zoomAt(battlefieldViewport.zoomLevel * 1.25,
@@ -461,30 +417,32 @@ ApplicationWindow {
                     }
                     AppButton {
                         objectName: "mapFit"
-                        Layout.preferredWidth: 74
-                        height: 26
+                        Layout.preferredWidth: 70
+                        Layout.preferredHeight: 28
                         text: "适应地图"
                         onClicked: battlefieldViewport.resetView()
                     }
-                    Item { Layout.fillWidth: true }
                     AppButton {
-                        Layout.preferredWidth: 64
-                        height: 26
+                        Layout.preferredWidth: 72
+                        Layout.preferredHeight: 28
                         text: "全部范围"
+                        tone: Theme.selectionText
                         selected: root.showAllRanges
                         onClicked: { root.showAllRanges = !root.showAllRanges; battleCanvas.requestPaint() }
                     }
                     AppButton {
                         Layout.preferredWidth: 46
-                        height: 26
+                        Layout.preferredHeight: 28
                         text: "网格"
+                        tone: Theme.selectionText
                         selected: root.showMapGrid
                         onClicked: root.showMapGrid = !root.showMapGrid
                     }
                     AppButton {
                         Layout.preferredWidth: 46
-                        height: 26
+                        Layout.preferredHeight: 28
                         text: "地标"
+                        tone: Theme.selectionText
                         selected: root.showMapLandmarks
                         onClicked: root.showMapLandmarks = !root.showMapLandmarks
                     }
@@ -498,7 +456,7 @@ ApplicationWindow {
                 anchors.right: parent.right
                 anchors.top: mapToolbar.bottom
                 anchors.bottom: messageBar.top
-                anchors.margins: 14
+                anchors.margins: 8
                 clip: true
                 property real zoomLevel: 1
                 property real panX: 0
@@ -543,6 +501,13 @@ ApplicationWindow {
                 onSceneKeyChanged: resetView()
                 onWidthChanged: constrainPan()
                 onHeightChanged: constrainPan()
+
+                MouseArea {
+                    anchors.fill: parent
+                    z: -1
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    onPressed: battlefieldViewport.forceActiveFocus(Qt.MouseFocusReason)
+                }
 
                 Item {
                     id: battlefield
@@ -1211,7 +1176,7 @@ ApplicationWindow {
                                 visible: unitDelegate.showDetails
                                 width: parent.width
                                 text: unitDelegate.unitName
-                                color: "#dce8f6"
+                                color: Theme.text
                                 font.family: "Microsoft YaHei"
                                 font.pixelSize: 10
                                 elide: Text.ElideRight
@@ -1240,6 +1205,7 @@ ApplicationWindow {
                                 hoverEnabled: true
                                 enabled: !root.deploymentMode
                                 cursorShape: Qt.PointingHandCursor
+                                onPressed: battlefieldViewport.forceActiveFocus(Qt.MouseFocusReason)
                                 onClicked: viewModel.selectUnit(unitDelegate.unitId)
                             }
                         }
@@ -1249,6 +1215,7 @@ ApplicationWindow {
                         anchors.fill: parent
                         z: 4.5
                         enabled: !root.deploymentMode
+                        onPressed: battlefieldViewport.forceActiveFocus(Qt.MouseFocusReason)
                         onClicked: function(mouse) {
                             viewModel.pointerPress(1, mouse.x / battlefieldViewport.scaleFactor,
                                                    mouse.y / battlefieldViewport.scaleFactor)
@@ -1264,6 +1231,7 @@ ApplicationWindow {
                         cursorShape: root.deploymentMode ? Qt.CrossCursor : Qt.ArrowCursor
 
                         onPressed: function(mouse) {
+                            battlefieldViewport.forceActiveFocus(Qt.MouseFocusReason)
                             const button = mouse.button === Qt.RightButton ? 3 : 1
                             viewModel.pointerPress(
                                 button,
@@ -1303,6 +1271,7 @@ ApplicationWindow {
                     cursorShape: pressed ? Qt.ClosedHandCursor
                         : root.deploymentMode ? Qt.CrossCursor : Qt.ArrowCursor
                     onPressed: function(mouse) {
+                        battlefieldViewport.forceActiveFocus(Qt.MouseFocusReason)
                         lastX = mouse.x
                         lastY = mouse.y
                     }
@@ -1358,7 +1327,10 @@ ApplicationWindow {
                     visibleY: battlefieldViewport.visibleWorldY
                     visibleWidth: battlefieldViewport.visibleWorldWidth
                     visibleHeight: battlefieldViewport.visibleWorldHeight
-                    onCenterRequested: function(worldX, worldY) { battlefieldViewport.centerOn(worldX, worldY) }
+                    onCenterRequested: function(worldX, worldY) {
+                        battlefieldViewport.forceActiveFocus(Qt.MouseFocusReason)
+                        battlefieldViewport.centerOn(worldX, worldY)
+                    }
                 }
             }
 
@@ -1367,19 +1339,18 @@ ApplicationWindow {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
-                anchors.margins: 12
-                height: 38
-                radius: 8
-                color: "#13243a"
-                border.color: "#294461"
+                anchors.margins: 8
+                height: 26
+                radius: Theme.radiusSmall
+                color: Theme.surface
 
                 Text {
                     anchors.fill: parent
-                    anchors.leftMargin: 12
-                    anchors.rightMargin: 12
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
                     verticalAlignment: Text.AlignVCenter
                     text: root.snap.message
-                    color: "#b9cadc"
+                    color: Theme.muted
                     font.family: "Microsoft YaHei"
                     font.pixelSize: 12
                     elide: Text.ElideRight
@@ -1389,19 +1360,22 @@ ApplicationWindow {
 
         Rectangle {
             id: sidePanel
-            Layout.preferredWidth: root.width < 1300 ? 320 : 370
-            Layout.minimumWidth: 300
+            Layout.preferredWidth: root.width < 1100 ? 288 : 312
+            Layout.minimumWidth: 288
             Layout.fillHeight: true
-            radius: 14
+            radius: Theme.radius
             color: root.panelColor
-            border.color: "#203955"
+            border.color: Theme.divider
 
             ScrollView {
                 id: sideScroll
                 anchors.fill: parent
                 anchors.margins: 12
                 clip: true
+                rightPadding: 10
                 contentWidth: availableWidth
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                ScrollBar.vertical.policy: ScrollBar.AlwaysOn
 
                 Column {
                     width: sideScroll.availableWidth
@@ -1423,155 +1397,34 @@ ApplicationWindow {
                     Rectangle {
                         width: parent.width
                         height: 1
-                        color: "#263d5a"
+                        color: Theme.divider
                     }
 
-                    SectionTitle {
-                        text: "战场统计"
-                    }
-
-                    GridLayout {
+                    RowLayout {
                         width: parent.width
-                        columns: 2
-                        columnSpacing: 8
-                        rowSpacing: 8
-
-                        StatPair {
-                            Layout.fillWidth: true
-                            label: "剩余单位"
-                            redValue: String(root.snap.statistics.red_remaining)
-                            blueValue: String(root.snap.statistics.blue_remaining)
-                        }
-                        StatPair {
-                            Layout.fillWidth: true
-                            label: "战斗力"
-                            redValue: String(root.snap.statistics.red_strength)
-                            blueValue: String(root.snap.statistics.blue_strength)
-                        }
-                        StatPair {
-                            Layout.fillWidth: true
-                            label: "击毁"
-                            redValue: String(root.snap.statistics.red_kills)
-                            blueValue: String(root.snap.statistics.blue_kills)
-                        }
-                        StatPair {
-                            Layout.fillWidth: true
-                            label: "累计伤害"
-                            redValue: String(root.snap.statistics.red_damage)
-                            blueValue: String(root.snap.statistics.blue_damage)
-                        }
-                        StatPair {
-                            Layout.fillWidth: true
-                            label: "发现目标"
-                            redValue: String(root.snap.statistics.red_detected)
-                            blueValue: String(root.snap.statistics.blue_detected)
-                        }
-                        StatPair {
-                            Layout.fillWidth: true
-                            label: "命中次数"
-                            redValue: String(root.snap.statistics.red_hits)
-                            blueValue: String(root.snap.statistics.blue_hits)
-                        }
-                        Rectangle {
-                            Layout.columnSpan: 2
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 86
-                            radius: 10
-                            color: "#13243a"
-                            border.color: "#263d5a"
-
-                            Column {
-                                anchors.fill: parent
-                                anchors.margins: 10
-                                spacing: 7
-
-                                Text {
-                                    width: parent.width
-                                    text: "基地耐久"
-                                    color: root.mutedColor
-                                    font.family: "Microsoft YaHei"
-                                    font.pixelSize: 11
-                                    horizontalAlignment: Text.AlignHCenter
-                                }
-
-                                Row {
-                                    width: parent.width
-                                    height: 42
-                                    spacing: 10
-
-                                    Column {
-                                        width: (parent.width - parent.spacing * 2 - 1) / 2
-                                        spacing: 2
-
-                                        Text {
-                                            width: parent.width
-                                            text: "红方基地"
-                                            color: root.redColor
-                                            font.family: "Microsoft YaHei"
-                                            font.pixelSize: 10
-                                            horizontalAlignment: Text.AlignHCenter
-                                        }
-                                        Text {
-                                            width: parent.width
-                                            text: root.snap.statistics.red_base_hp
-                                                  + " / " + root.snap.statistics.red_base_max
-                                            color: root.redColor
-                                            font.family: "Consolas"
-                                            font.pixelSize: 19
-                                            font.bold: true
-                                            minimumPixelSize: 12
-                                            fontSizeMode: Text.Fit
-                                            horizontalAlignment: Text.AlignHCenter
-                                        }
-                                    }
-
-                                    Rectangle {
-                                        width: 1
-                                        height: 36
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        color: "#314964"
-                                    }
-
-                                    Column {
-                                        width: (parent.width - parent.spacing * 2 - 1) / 2
-                                        spacing: 2
-
-                                        Text {
-                                            width: parent.width
-                                            text: "蓝方基地"
-                                            color: root.blueColor
-                                            font.family: "Microsoft YaHei"
-                                            font.pixelSize: 10
-                                            horizontalAlignment: Text.AlignHCenter
-                                        }
-                                        Text {
-                                            width: parent.width
-                                            text: root.snap.statistics.blue_base_hp
-                                                  + " / " + root.snap.statistics.blue_base_max
-                                            color: root.blueColor
-                                            font.family: "Consolas"
-                                            font.pixelSize: 19
-                                            font.bold: true
-                                            minimumPixelSize: 12
-                                            fontSizeMode: Text.Fit
-                                            horizontalAlignment: Text.AlignHCenter
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        SectionTitle { Layout.fillWidth: true; text: "战场统计" }
+                        Text { Layout.preferredWidth: 82; text: "红方"; color: root.redColor; font.pixelSize: 11; horizontalAlignment: Text.AlignRight }
+                        Text { Layout.preferredWidth: 82; text: "蓝方"; color: root.blueColor; font.pixelSize: 11; horizontalAlignment: Text.AlignRight }
+                    }
+                    Column {
+                        width: parent.width
+                        StatPair { width: parent.width; label: "剩余单位"; redValue: String(root.snap.statistics.red_remaining); blueValue: String(root.snap.statistics.blue_remaining) }
+                        StatPair { width: parent.width; label: "战斗力"; redValue: String(root.snap.statistics.red_strength); blueValue: String(root.snap.statistics.blue_strength) }
+                        StatPair { width: parent.width; label: "击毁"; redValue: String(root.snap.statistics.red_kills); blueValue: String(root.snap.statistics.blue_kills) }
+                        StatPair { width: parent.width; label: "累计伤害"; redValue: String(root.snap.statistics.red_damage); blueValue: String(root.snap.statistics.blue_damage) }
+                        StatPair { width: parent.width; label: "发现目标"; redValue: String(root.snap.statistics.red_detected); blueValue: String(root.snap.statistics.blue_detected) }
+                        StatPair { width: parent.width; label: "命中次数"; redValue: String(root.snap.statistics.red_hits); blueValue: String(root.snap.statistics.blue_hits) }
+                        StatPair { width: parent.width; label: "基地耐久"; redValue: root.snap.statistics.red_base_hp + " / " + root.snap.statistics.red_base_max; blueValue: root.snap.statistics.blue_base_hp + " / " + root.snap.statistics.blue_base_max }
                     }
 
                     Rectangle {
                         width: parent.width
-                        height: 108
-                        radius: 10
-                        color: root.cardColor
-                        border.color: "#263d5a"
+                        height: 96
+                        color: "transparent"
 
                         Column {
                             anchors.fill: parent
-                            anchors.margins: 10
+                            anchors.margins: 0
                             spacing: 6
 
                             Text {
@@ -1597,7 +1450,7 @@ ApplicationWindow {
                             Text {
                                 text: "集火  " + root.snap.statistics.red_focus
                                       + " / " + root.snap.statistics.blue_focus
-                                color: "#c7d6e6"
+                                color: Theme.text
                                 font.family: "Microsoft YaHei"
                                 font.pixelSize: 11
                                 elide: Text.ElideRight
@@ -1610,7 +1463,7 @@ ApplicationWindow {
                         text: "实时日志"
                     }
 
-                    ComboBox {
+                    AppComboBox {
                         id: logCategory
                         objectName: "logCategorySelector"
                         width: parent.width
@@ -1623,18 +1476,18 @@ ApplicationWindow {
                             { label: "战术、状态与结果", value: "state" }
                         ]
                         onActivated: root.logFilter = model[currentIndex].value
-                        palette.button: "#182a42"
-                        palette.buttonText: "#dce8f6"
-                        palette.base: "#13243a"
-                        palette.text: "#dce8f6"
+                        palette.button: Theme.field
+                        palette.buttonText: Theme.text
+                        palette.base: Theme.field
+                        palette.text: Theme.text
                     }
 
                     Rectangle {
                         width: parent.width
                         height: 200
-                        radius: 10
-                        color: "#0b1726"
-                        border.color: "#263d5a"
+                        radius: Theme.radiusSmall
+                        color: Theme.field
+                        border.color: Theme.divider
                         clip: true
 
                         ListView {
@@ -1661,7 +1514,7 @@ ApplicationWindow {
                                 width: logView.width - 12
                                 text: modelData
                                 color: modelData.indexOf("[Attack]") === 0 ? "#ffd166"
-                                    : modelData.indexOf("[Destroyed]") === 0 ? root.redColor : "#9fb4c9"
+                                    : modelData.indexOf("[Destroyed]") === 0 ? root.redColor : Theme.muted
                                 font.family: "Microsoft YaHei"
                                 font.pixelSize: 11
                                 wrapMode: Text.Wrap
@@ -1672,7 +1525,7 @@ ApplicationWindow {
                     Text {
                         width: parent.width
                         text: "Enter 开始 · Space 暂停 · S 单步 · F 变速 · F1 帮助"
-                        color: "#71879e"
+                        color: Theme.subtle
                         font.family: "Microsoft YaHei"
                         font.pixelSize: 10
                         wrapMode: Text.Wrap
@@ -1684,14 +1537,11 @@ ApplicationWindow {
 
     Component {
         id: deploymentControls
-
         Column {
-            width: parent ? parent.width : 320
-            spacing: 10
-
+            width: parent ? parent.width : 288
+            spacing: 8
             SectionTitle { text: "场景与地图" }
-
-            ComboBox {
+            AppComboBox {
                 id: scenarioSelector
                 objectName: "scenarioSelector"
                 width: parent.width
@@ -1699,33 +1549,19 @@ ApplicationWindow {
                 textRole: "name"
                 displayText: root.snap.scene_name || root.snap.current_scenario || "选择场景"
                 currentIndex: root.scenarioIndex()
+                Accessible.name: "选择场景"
                 onActivated: {
                     root.selectScenario(currentIndex)
                     currentIndex = Qt.binding(function() { return root.scenarioIndex() })
                 }
-                palette.button: "#182a42"
-                palette.buttonText: "#dce8f6"
-                palette.base: "#13243a"
-                palette.text: "#dce8f6"
             }
-
-            Text {
-                width: parent.width
-                text: "单位模式左键放置；障碍模式左键拖拽绘制。左键选中障碍后 Delete 删除；右键直接删除对象。\n滚轮缩放 · 中键拖动地图 · 总览点击定位"
-                color: root.mutedColor
-                font.family: "Microsoft YaHei"
-                font.pixelSize: 11
-                wrapMode: Text.Wrap
-            }
-
             Row {
                 width: parent.width
-                spacing: 8
-                AppButton { width: (parent.width - 8) / 2; text: "载入地图…"; onClicked: root.requestLoadMap() }
-                AppButton { width: (parent.width - 8) / 2; text: "保存地图"; onClicked: viewModel.saveMap() }
+                spacing: 6
+                AppButton { width: (parent.width - 12) / 3; implicitHeight: 28; text: "载入地图…"; onClicked: root.requestLoadMap() }
+                AppButton { width: (parent.width - 12) / 3; implicitHeight: 28; text: "保存地图"; onClicked: viewModel.saveMap() }
+                AppButton { width: (parent.width - 12) / 3; implicitHeight: 28; text: "另存为…"; Accessible.name: "地图另存为"; onClicked: saveMapDialog.open() }
             }
-            AppButton { width: parent.width; text: "地图另存为…"; onClicked: saveMapDialog.open() }
-
             Row {
                 width: parent.width
                 spacing: 6
@@ -1738,217 +1574,218 @@ ApplicationWindow {
                     delegate: AppButton {
                         required property var modelData
                         width: (parent.width - 12) / 3
+                        implicitHeight: 28
                         text: modelData.label
+                        tone: Theme.selectionText
                         selected: root.mapStyle === modelData.style
                         onClicked: viewModel.setMapStyle(modelData.style)
                     }
                 }
             }
-
-            SectionTitle { text: "部署控制" }
-
-            Row {
+            Rectangle { width: parent.width; height: 1; color: Theme.divider }
+            RowLayout {
                 width: parent.width
-                spacing: 8
-
+                spacing: 6
+                SectionTitle { Layout.fillWidth: true; text: "部署" }
                 AppButton {
-                    width: (parent.width - 8) / 2
-                    text: "当前：红方"
+                    Layout.preferredWidth: 82
+                    text: "红方"
                     tone: root.redColor
                     selected: root.snap.deployment.selected_team === "red"
                     onClicked: {
-                        if (root.snap.deployment.selected_team !== "red")
-                            viewModel.toggleTeam()
+                        if (root.snap.deployment.selected_team !== "red") viewModel.toggleTeam()
                     }
                 }
                 AppButton {
-                    width: (parent.width - 8) / 2
-                    text: "当前：蓝方"
+                    Layout.preferredWidth: 82
+                    text: "蓝方"
                     tone: root.blueColor
                     selected: root.snap.deployment.selected_team === "blue"
                     onClicked: {
-                        if (root.snap.deployment.selected_team !== "blue")
-                            viewModel.toggleTeam()
+                        if (root.snap.deployment.selected_team !== "blue") viewModel.toggleTeam()
                     }
                 }
             }
-
-            SectionTitle { text: "作战单位" }
-
+            Text {
+                width: parent.width
+                text: "选择兵种后左键放置 · 右键删除"
+                color: root.mutedColor
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSmall
+            }
             Grid {
                 width: parent.width
                 columns: 2
-                spacing: 8
-
+                spacing: 6
                 AppButton {
-                    width: (parent.width - 8) / 2
+                    width: (parent.width - 6) / 2
                     text: "1  侦察无人机"
+                    tone: Theme.selectionText
                     selected: root.snap.deployment.selected_unit_type === "scout_drone"
                     onClicked: viewModel.selectUnitType("scout_drone")
                 }
                 AppButton {
-                    width: (parent.width - 8) / 2
+                    width: (parent.width - 6) / 2
                     text: "2  打击无人机"
+                    tone: Theme.selectionText
                     selected: root.snap.deployment.selected_unit_type === "strike_drone"
                     onClicked: viewModel.selectUnitType("strike_drone")
                 }
                 AppButton {
-                    width: (parent.width - 8) / 2
+                    width: (parent.width - 6) / 2
                     text: "3  无人战车"
+                    tone: Theme.selectionText
                     selected: root.snap.deployment.selected_unit_type === "ground_vehicle"
                     onClicked: viewModel.selectUnitType("ground_vehicle")
                 }
                 AppButton {
-                    width: (parent.width - 8) / 2
+                    width: (parent.width - 6) / 2
                     text: "4  导弹发射车"
+                    tone: Theme.selectionText
                     selected: root.snap.deployment.selected_unit_type === "missile_vehicle"
                     onClicked: viewModel.selectUnitType("missile_vehicle")
                 }
                 AppButton {
-                    width: (parent.width - 8) / 2
+                    width: (parent.width - 6) / 2
                     text: "5  指挥节点"
+                    tone: Theme.selectionText
                     selected: root.snap.deployment.selected_unit_type === "command_node"
                     onClicked: viewModel.selectUnitType("command_node")
                 }
+                AppButton {
+                    width: (parent.width - 6) / 2
+                    text: "撤销放置"
+                    flat: true
+                    onClicked: viewModel.undoDeployment()
+                }
             }
-
-            AppButton {
-                width: parent.width
-                text: "撤销上次兵种放置"
-                onClicked: viewModel.undoDeployment()
-            }
-
             SectionTitle { text: "地图障碍" }
-
             Row {
                 width: parent.width
-                spacing: 7
-
+                spacing: 6
                 AppButton {
-                    width: (parent.width - 14) / 3
+                    width: (parent.width - 12) / 3
                     text: "6 山地"
-                    tone: "#7db08b"
+                    tone: Theme.selectionText
                     selected: root.snap.deployment.selected_obstacle_type === "mountain"
                     onClicked: viewModel.selectObstacleType("mountain")
                 }
                 AppButton {
-                    width: (parent.width - 14) / 3
+                    width: (parent.width - 12) / 3
                     text: "7 建筑"
-                    tone: "#8da8cc"
+                    tone: Theme.selectionText
                     selected: root.snap.deployment.selected_obstacle_type === "building"
                     onClicked: viewModel.selectObstacleType("building")
                 }
                 AppButton {
-                    width: (parent.width - 14) / 3
+                    width: (parent.width - 12) / 3
                     text: "8 禁行区"
-                    tone: root.redColor
+                    tone: Theme.selectionText
                     selected: root.snap.deployment.selected_obstacle_type === "restricted"
                     onClicked: viewModel.selectObstacleType("restricted")
                 }
             }
-
-            AppButton {
+            Text {
                 width: parent.width
-                text: "删除选中障碍"
-                tone: "#ffca64"
-                onClicked: viewModel.deleteSelected()
+                text: "左键拖拽绘制 · 选中后 Delete 删除"
+                color: root.mutedColor
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSmall
             }
-
-            SectionTitle { text: "全局地图操作" }
-
-            AppButton {
+            Row {
                 width: parent.width
-                text: "清空全部兵种与障碍"
-                tone: root.redColor
-                onClicked: root.confirmAction("清空部署", "清空全部兵种和障碍？基地与地图尺寸会保留。",
-                                             function() { viewModel.clearDeployment() })
+                spacing: 6
+                AppButton {
+                    width: (parent.width - 6) / 2
+                    implicitHeight: 28
+                    text: "删除选中障碍"
+                    flat: true
+                    onClicked: viewModel.deleteSelected()
+                }
+                AppButton {
+                    width: (parent.width - 6) / 2
+                    implicitHeight: 28
+                    text: "清空部署…"
+                    flat: true
+                    tone: root.redColor
+                    onClicked: root.confirmAction("清空部署", "清空全部兵种和障碍？基地与地图尺寸会保留。",
+                                                 function() { viewModel.clearDeployment() })
+                }
             }
         }
     }
 
     Component {
         id: runtimeControls
-
         Column {
-            width: parent ? parent.width : 320
-            spacing: 10
-
-            SectionTitle { text: "运行观察" }
-
+            width: parent ? parent.width : 288
+            spacing: 8
+            RowLayout {
+                width: parent.width
+                SectionTitle { Layout.fillWidth: true; text: "运行观察" }
+                AppButton {
+                    Layout.preferredWidth: 88
+                    implicitHeight: 28
+                    flat: true
+                    text: root.snap.show_wrecks ? "隐藏残骸" : "显示残骸"
+                    onClicked: viewModel.toggleWrecks()
+                }
+            }
             Text {
                 width: parent.width
-                text: "点击单位查看详情与范围。滚轮缩放，中键拖动地图；右下总览可点击定位。"
+                text: "点击单位查看详情与范围 · 滚轮缩放
+中键拖动地图 · 总览点击定位"
                 color: root.mutedColor
-                font.family: "Microsoft YaHei"
-                font.pixelSize: 11
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSmall
                 wrapMode: Text.Wrap
             }
-
-            AppButton {
-                width: parent.width
-                text: root.snap.show_wrecks ? "隐藏残骸" : "显示残骸"
-                onClicked: viewModel.toggleWrecks()
-            }
-
             AppButton {
                 width: parent.width
                 visible: root.snap.game_state === "finished"
-                text: "查看本局结算"
-                tone: "#ffca64"
+                text: (root.snap.statistics.winner === "red" ? "红方获胜"
+                    : root.snap.statistics.winner === "blue" ? "蓝方获胜"
+                    : "双方平局") + " · 查看结算"
+                tone: root.snap.statistics.winner === "red" ? root.redColor
+                    : root.snap.statistics.winner === "blue" ? root.blueColor : Theme.muted
+                selected: true
                 onClicked: resultsDialog.open()
-            }
-
-            Rectangle {
-                width: parent.width
-                height: 56
-                radius: 10
-                color: root.snap.statistics.winner ? root.alphaColor(root.redColor, 0.14) : root.cardColor
-                border.color: root.snap.statistics.winner ? root.redColor : "#263d5a"
-
-                Text {
-                    anchors.centerIn: parent
-                    text: root.snap.statistics.winner === "red" ? "红方获胜"
-                          : root.snap.statistics.winner === "blue" ? "蓝方获胜"
-                          : root.snap.statistics.winner === "draw" ? "双方平局"
-                          : "交战进行中"
-                    color: root.snap.statistics.winner ? "#ffffff" : root.accentColor
-                    font.family: "Microsoft YaHei"
-                    font.pixelSize: 17
-                    font.bold: true
-                }
             }
         }
     }
 
     footer: Rectangle {
         objectName: "workflowControls"
-        height: 64
-        color: "#0c192a"
-        border.color: "#203955"
+        height: 52
+        color: Theme.surface
+        Rectangle { width: parent.width; height: 1; color: Theme.divider }
 
         RowLayout {
             anchors.fill: parent
-            anchors.margins: 12
+            anchors.margins: 10
             spacing: 8
 
             AppButton {
-                Layout.preferredWidth: 100
+                objectName: "startSimulationButton"
+                Layout.preferredWidth: 104
                 text: root.snap.game_state === "finished" ? "再来一局" : "开始仿真"
                 tone: root.accentColor
-                selected: root.deploymentMode || root.snap.game_state === "finished"
+                highlighted: root.deploymentMode || root.snap.game_state === "finished"
                 enabled: root.deploymentMode || root.snap.game_state === "finished"
                 onClicked: root.deploymentMode ? viewModel.startSimulation() : viewModel.restartSimulation()
             }
             AppButton {
-                Layout.preferredWidth: 84
+                objectName: "pauseSimulationButton"
+                Layout.preferredWidth: 80
                 text: root.snap.game_state === "paused" ? "继续" : "暂停"
-                tone: "#ffca64"
+                tone: Theme.warning
                 selected: root.snap.game_state === "paused"
                 enabled: root.snap.game_state === "running" || root.snap.game_state === "paused"
                 onClicked: viewModel.togglePause()
             }
             AppButton {
-                Layout.preferredWidth: 82
+                objectName: "stepSimulationButton"
+                Layout.preferredWidth: 80
                 text: "单步推进"
                 enabled: root.snap.game_state === "paused"
                 onClicked: viewModel.stepSimulation()
@@ -1964,7 +1801,8 @@ ApplicationWindow {
                 delegate: AppButton {
                     required property string modelData
                     required property int index
-                    Layout.preferredWidth: 52
+                    Layout.preferredWidth: 46
+                    tone: Theme.selectionText
                     text: modelData
                     selected: root.snap.speed_index === index
                     enabled: root.snap.game_state !== "finished"
@@ -1973,14 +1811,16 @@ ApplicationWindow {
             }
             Item { Layout.fillWidth: true }
             AppButton {
-                Layout.preferredWidth: 104
+                Layout.preferredWidth: 88
+                flat: true
                 text: "返回部署"
                 tone: root.redColor
                 enabled: !root.deploymentMode
                 onClicked: root.requestReset()
             }
             AppButton {
-                Layout.preferredWidth: 66
+                Layout.preferredWidth: 60
+                flat: true
                 text: "帮助"
                 onClicked: helpDialog.open()
             }
@@ -1995,14 +1835,14 @@ ApplicationWindow {
         width: Math.min(440, root.width - 40)
         modal: true
         title: root.pendingTitle
-        palette.window: "#14243a"
-        palette.windowText: "#eaf4ff"
-        palette.button: "#203653"
-        palette.buttonText: "#eaf4ff"
-        background: Rectangle { color: "#14243a"; radius: 12; border.color: "#3a526d" }
+        palette.window: Theme.surfaceRaised
+        palette.windowText: Theme.text
+        palette.button: Theme.surfaceRaised
+        palette.buttonText: Theme.text
+        background: Rectangle { color: Theme.surfaceRaised; radius: Theme.radius; border.color: Theme.border }
         header: Text {
             text: root.pendingTitle
-            color: "#eaf4ff"
+            color: Theme.text
             padding: 18
             bottomPadding: 8
             font.family: "Microsoft YaHei"
@@ -2011,7 +1851,7 @@ ApplicationWindow {
         }
         contentItem: Text {
             text: root.pendingMessage
-            color: "#dce8f6"
+            color: Theme.text
             font.family: "Microsoft YaHei"
             font.pixelSize: 13
             wrapMode: Text.Wrap
@@ -2086,16 +1926,16 @@ ApplicationWindow {
         modal: true
         title: "时间设置"
         property string validationError: ""
-        padding: 18
-        palette.windowText: "#eaf4ff"
-        palette.base: "#0d1a2a"
-        palette.text: "#eaf4ff"
-        palette.button: "#182a42"
-        palette.buttonText: "#eaf4ff"
-        background: Rectangle { radius: 12; color: "#14243a"; border.color: "#36516e" }
+        padding: 16
+        palette.windowText: Theme.text
+        palette.base: Theme.field
+        palette.text: Theme.text
+        palette.button: Theme.field
+        palette.buttonText: Theme.text
+        background: Rectangle { radius: Theme.radius; color: Theme.surfaceRaised; border.color: Theme.border }
         header: Text {
             text: timingDialog.title
-            color: "#eaf4ff"
+            color: Theme.text
             padding: 18
             bottomPadding: 8
             font.family: "Microsoft YaHei"
@@ -2118,29 +1958,53 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     text: root.timing.editable ? "部署或暂停时可修改；暂停修改后从下一步生效。"
                         : root.snap.game_state === "running" ? "当前正在运行，请先暂停再修改。" : "本局已结束，请返回部署后修改。"
-                    color: root.timing.editable ? root.mutedColor : "#ffca64"
+                    color: root.timing.editable ? root.mutedColor : Theme.warning
                     font.family: "Microsoft YaHei"
                     font.pixelSize: 12
                     wrapMode: Text.Wrap
                 }
-                Label { text: "单步时长（秒，0.01–60）"; color: "#dce8f6" }
+                Label { text: "单步时长（秒，0.01–60）"; color: Theme.text }
                 TextField {
                     id: stepDurationField
                     objectName: "stepDurationField"
                     Layout.fillWidth: true
                     enabled: root.timing.editable
                     selectByMouse: true
+                    implicitHeight: Theme.controlHeight
+                    color: Theme.text
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSize
+                    leftPadding: 10
+                    rightPadding: 10
+                    background: Rectangle {
+                        radius: Theme.radiusSmall
+                        color: Theme.field
+                        border.color: parent.activeFocus ? Theme.accent : Theme.border
+                        border.width: parent.activeFocus ? 2 : 1
+                    }
                     inputMethodHints: Qt.ImhFormattedNumbersOnly
                     validator: DoubleValidator { bottom: 0.01; top: 60; decimals: 6; notation: DoubleValidator.StandardNotation; locale: "C" }
                     Accessible.name: "单步时长（秒）"
                 }
-                Label { text: "最大运行步数（1–1,000,000）"; color: "#dce8f6" }
+                Label { text: "最大运行步数（1–1,000,000）"; color: Theme.text }
                 TextField {
                     id: maxStepsField
                     objectName: "maxStepsField"
                     Layout.fillWidth: true
                     enabled: root.timing.editable
                     selectByMouse: true
+                    implicitHeight: Theme.controlHeight
+                    color: Theme.text
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSize
+                    leftPadding: 10
+                    rightPadding: 10
+                    background: Rectangle {
+                        radius: Theme.radiusSmall
+                        color: Theme.field
+                        border.color: parent.activeFocus ? Theme.accent : Theme.border
+                        border.width: parent.activeFocus ? 2 : 1
+                    }
                     inputMethodHints: Qt.ImhDigitsOnly
                     validator: IntValidator { bottom: 1; top: 1000000 }
                     Accessible.name: "最大运行步数"
@@ -2166,7 +2030,7 @@ ApplicationWindow {
             }
         }
         footer: Item {
-            implicitHeight: 58
+            implicitHeight: 56
             RowLayout {
                 anchors.fill: parent
                 anchors.margins: 12
@@ -2208,16 +2072,16 @@ ApplicationWindow {
         height: Math.min(650, root.height - 40)
         modal: true
         title: "运行记录"
-        padding: 18
-        palette.windowText: "#eaf4ff"
-        palette.base: "#14243a"
-        palette.text: "#eaf4ff"
-        palette.button: "#182a42"
-        palette.buttonText: "#eaf4ff"
-        background: Rectangle { radius: 12; color: "#101d2e"; border.color: "#36516e" }
+        padding: 16
+        palette.windowText: Theme.text
+        palette.base: Theme.surfaceRaised
+        palette.text: Theme.text
+        palette.button: Theme.field
+        palette.buttonText: Theme.text
+        background: Rectangle { radius: Theme.radius; color: Theme.surface; border.color: Theme.border }
         header: Text {
             text: recordsDialog.title
-            color: "#eaf4ff"
+            color: Theme.text
             padding: 18
             bottomPadding: 8
             font.family: "Microsoft YaHei"
@@ -2225,7 +2089,7 @@ ApplicationWindow {
             font.bold: true
         }
         contentItem: ColumnLayout {
-            spacing: 9
+            spacing: 8
             RowLayout {
                 Layout.fillWidth: true
                 Text {
@@ -2237,7 +2101,7 @@ ApplicationWindow {
                     font.pixelSize: 12
                     wrapMode: Text.Wrap
                 }
-                ComboBox {
+                AppComboBox {
                     id: recordCategorySelector
                     objectName: "recordCategorySelector"
                     Layout.preferredWidth: 104
@@ -2258,9 +2122,9 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 Layout.minimumHeight: 130
-                color: "#0a1525"
-                radius: 8
-                border.color: "#263d5a"
+                color: Theme.field
+                radius: Theme.radiusSmall
+                border.color: Theme.divider
                 ListView {
                     id: recordsList
                     objectName: "recordsList"
@@ -2280,7 +2144,7 @@ ApplicationWindow {
                             text: "#" + recordRow.modelData.seq + " · 第 " + recordRow.modelData.step + " 步 · "
                                 + root.secondsLabel(recordRow.modelData.elapsed_seconds) + " · "
                                 + root.recordCategoryLabel(recordRow.modelData.category)
-                            color: recordRow.modelData.category === "destroyed" ? root.redColor : root.accentColor
+                            color: recordRow.modelData.category === "destroyed" ? root.redColor : Theme.muted
                             font.family: "Microsoft YaHei"
                             font.pixelSize: 11
                             wrapMode: Text.Wrap
@@ -2288,12 +2152,12 @@ ApplicationWindow {
                         Text {
                             width: parent.width
                             text: recordRow.modelData.message || ""
-                            color: "#dce8f6"
+                            color: Theme.text
                             font.family: "Microsoft YaHei"
                             font.pixelSize: 12
                             wrapMode: Text.Wrap
                         }
-                        Rectangle { width: parent.width; height: 1; color: "#1d3149" }
+                        Rectangle { width: parent.width; height: 1; color: Theme.divider }
                     }
                     Text {
                         anchors.centerIn: parent
@@ -2323,7 +2187,7 @@ ApplicationWindow {
             Text {
                 Layout.fillWidth: true
                 text: "历史运行（最近 " + Math.min(10, (root.recording.history || []).length) + " 局，可在记录目录中查看完整文件）"
-                color: "#dce8f6"
+                color: Theme.text
                 font.family: "Microsoft YaHei"
                 font.pixelSize: 11
                 wrapMode: Text.Wrap
@@ -2361,7 +2225,7 @@ ApplicationWindow {
             }
         }
         footer: Item {
-            implicitHeight: 58
+            implicitHeight: 56
             RowLayout {
                 anchors.fill: parent
                 anchors.margins: 12
@@ -2432,9 +2296,9 @@ ApplicationWindow {
     }
 
     Shortcut { sequence: "F1"; enabled: !root.dialogActive; onActivated: helpDialog.open() }
-    Shortcut { sequence: "Return"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.startSimulation() }
-    Shortcut { sequence: "Enter"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.startSimulation() }
-    Shortcut { sequence: "Space"; enabled: !root.deploymentMode && root.snap.game_state !== "finished" && !root.dialogActive; onActivated: viewModel.togglePause() }
+    Shortcut { sequence: "Return"; enabled: root.deploymentMode && !root.dialogActive && !root.controlHasFocus; onActivated: viewModel.startSimulation() }
+    Shortcut { sequence: "Enter"; enabled: root.deploymentMode && !root.dialogActive && !root.controlHasFocus; onActivated: viewModel.startSimulation() }
+    Shortcut { sequence: "Space"; enabled: !root.deploymentMode && root.snap.game_state !== "finished" && !root.dialogActive && !root.controlHasFocus; onActivated: viewModel.togglePause() }
     Shortcut { sequence: "S"; enabled: root.snap.game_state === "paused" && !root.dialogActive; onActivated: viewModel.stepSimulation() }
     Shortcut { sequence: "F"; enabled: root.snap.game_state !== "finished" && !root.dialogActive; onActivated: viewModel.cycleSpeed() }
     Shortcut { sequence: "K"; enabled: !root.deploymentMode && !root.dialogActive; onActivated: viewModel.toggleWrecks() }
