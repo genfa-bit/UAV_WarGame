@@ -104,8 +104,8 @@ Dialog {
                 Layout.fillWidth: true
                 spacing: 8
                 Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: resultRow.modelData.label; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
-                Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: String(resultRow.modelData.red ?? 0); color: Theme.text; font.family: "Consolas"; font.pixelSize: 15; horizontalAlignment: Text.AlignHCenter }
-                Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: String(resultRow.modelData.blue ?? 0); color: Theme.text; font.family: "Consolas"; font.pixelSize: 15; horizontalAlignment: Text.AlignHCenter }
+                Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: String(resultRow.modelData.red ?? 0); color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: 15; horizontalAlignment: Text.AlignHCenter }
+                Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: String(resultRow.modelData.blue ?? 0); color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: 15; horizontalAlignment: Text.AlignHCenter }
             }
         }
         Rectangle { Layout.fillWidth: true; Layout.topMargin: 4; implicitHeight: 1; color: Theme.divider }

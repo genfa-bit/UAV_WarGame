@@ -101,11 +101,11 @@ Rectangle {
             columnSpacing: 10
             rowSpacing: 5
             Text { text: "移动速度"; color: Theme.muted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
-            Text { text: Number(detail.unit.speed || 0).toFixed(1); color: Theme.text; font.family: "Consolas"; font.pixelSize: Theme.fontSize }
+            Text { text: Number(detail.unit.speed || 0).toFixed(1); color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
             Text { text: "侦察 / 攻击范围"; color: Theme.muted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
-            Text { text: (detail.unit.detect_range || 0) + " / " + (detail.unit.attack_range || 0); color: Theme.text; font.family: "Consolas"; font.pixelSize: Theme.fontSize }
+            Text { text: (detail.unit.detect_range || 0) + " / " + (detail.unit.attack_range || 0); color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
             Text { text: "当前位置"; color: Theme.muted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
-            Text { text: Math.round(detail.unit.x || 0) + ", " + Math.round(detail.unit.y || 0); color: Theme.text; font.family: "Consolas"; font.pixelSize: Theme.fontSize }
+            Text { text: Math.round(detail.unit.x || 0) + ", " + Math.round(detail.unit.y || 0); color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
         }
         Text {
             Layout.fillWidth: true

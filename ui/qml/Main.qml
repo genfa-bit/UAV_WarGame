@@ -255,7 +255,7 @@ ApplicationWindow {
                 Layout.preferredWidth: 82
                 text: redValue
                 color: root.redColor
-                font.family: "Consolas"
+                font.family: Theme.fontFamily
                 font.pixelSize: 13
                 minimumPixelSize: 11
                 fontSizeMode: Text.Fit
@@ -265,7 +265,7 @@ ApplicationWindow {
                 Layout.preferredWidth: 82
                 text: blueValue
                 color: root.blueColor
-                font.family: "Consolas"
+                font.family: Theme.fontFamily
                 font.pixelSize: 13
                 minimumPixelSize: 11
                 fontSizeMode: Text.Fit
@@ -400,7 +400,7 @@ ApplicationWindow {
                         Layout.preferredWidth: 38
                         text: Math.round(battlefieldViewport.zoomLevel * 100) + "%"
                         color: Theme.text
-                        font.family: "Consolas"
+                        font.family: Theme.fontFamily
                         font.pixelSize: 11
                         horizontalAlignment: Text.AlignHCenter
                     }
@@ -652,7 +652,7 @@ ApplicationWindow {
                                     anchors.centerIn: parent
                                     text: obstacleItem.modelData.name
                                     color: "#e3edf7"
-                                    font.family: "Microsoft YaHei"
+                                    font.family: Theme.fontFamily
                                     font.pixelSize: 10
                                     font.bold: true
                                 }
@@ -726,7 +726,7 @@ ApplicationWindow {
                                 width: parent.width
                                 text: baseItem.modelData.team === "red" ? "红方基地" : "蓝方基地"
                                 color: baseItem.teamColor
-                                font.family: "Microsoft YaHei"
+                                font.family: Theme.fontFamily
                                 font.pixelSize: 9
                                 horizontalAlignment: Text.AlignHCenter
                             }
@@ -1177,7 +1177,7 @@ ApplicationWindow {
                                 width: parent.width
                                 text: unitDelegate.unitName
                                 color: Theme.text
-                                font.family: "Microsoft YaHei"
+                                font.family: Theme.fontFamily
                                 font.pixelSize: 10
                                 elide: Text.ElideRight
                                 horizontalAlignment: Text.AlignHCenter
@@ -1190,7 +1190,7 @@ ApplicationWindow {
                                 width: parent.width
                                 text: root.unitStatusLabel(unitDelegate.status) + " · " + unitDelegate.engagement
                                 color: root.mutedColor
-                                font.family: "Microsoft YaHei"
+                                font.family: Theme.fontFamily
                                 font.pixelSize: 8
                                 horizontalAlignment: Text.AlignHCenter
                             }
@@ -1305,7 +1305,7 @@ ApplicationWindow {
                         anchors.centerIn: parent
                         text: "N\n↑"
                         color: "#d7eee6"
-                        font.family: "Consolas"
+                        font.family: Theme.fontFamily
                         font.pixelSize: 13
                         horizontalAlignment: Text.AlignHCenter
                     }
@@ -1351,7 +1351,7 @@ ApplicationWindow {
                     verticalAlignment: Text.AlignVCenter
                     text: root.snap.message
                     color: Theme.muted
-                    font.family: "Microsoft YaHei"
+                    font.family: Theme.fontFamily
                     font.pixelSize: 12
                     elide: Text.ElideRight
                 }
@@ -1430,28 +1430,28 @@ ApplicationWindow {
                             Text {
                                 text: "态势研判"
                                 color: root.mutedColor
-                                font.family: "Microsoft YaHei"
+                                font.family: Theme.fontFamily
                                 font.pixelSize: 11
                             }
                             Text {
                                 text: "红方  " + root.snap.statistics.red_situation
                                       + " · " + root.snap.statistics.red_tactics
                                 color: root.redColor
-                                font.family: "Microsoft YaHei"
+                                font.family: Theme.fontFamily
                                 font.pixelSize: 13
                             }
                             Text {
                                 text: "蓝方  " + root.snap.statistics.blue_situation
                                       + " · " + root.snap.statistics.blue_tactics
                                 color: root.blueColor
-                                font.family: "Microsoft YaHei"
+                                font.family: Theme.fontFamily
                                 font.pixelSize: 13
                             }
                             Text {
                                 text: "集火  " + root.snap.statistics.red_focus
                                       + " / " + root.snap.statistics.blue_focus
                                 color: Theme.text
-                                font.family: "Microsoft YaHei"
+                                font.family: Theme.fontFamily
                                 font.pixelSize: 11
                                 elide: Text.ElideRight
                                 width: parent.width
@@ -1505,7 +1505,7 @@ ApplicationWindow {
                                 visible: logView.count === 0
                                 text: root.deploymentMode ? "等待开始仿真" : "暂无此类事件"
                                 color: root.mutedColor
-                                font.family: "Microsoft YaHei"
+                                font.family: Theme.fontFamily
                                 font.pixelSize: 11
                             }
 
@@ -1515,7 +1515,7 @@ ApplicationWindow {
                                 text: modelData
                                 color: modelData.indexOf("[Attack]") === 0 ? "#ffd166"
                                     : modelData.indexOf("[Destroyed]") === 0 ? root.redColor : Theme.muted
-                                font.family: "Microsoft YaHei"
+                                font.family: Theme.fontFamily
                                 font.pixelSize: 11
                                 wrapMode: Text.Wrap
                             }
@@ -1526,7 +1526,7 @@ ApplicationWindow {
                         width: parent.width
                         text: "Enter 开始 · Space 暂停 · S 单步 · F 变速 · F1 帮助"
                         color: Theme.subtle
-                        font.family: "Microsoft YaHei"
+                        font.family: Theme.fontFamily
                         font.pixelSize: 10
                         wrapMode: Text.Wrap
                     }
@@ -1793,7 +1793,7 @@ ApplicationWindow {
             Text {
                 text: "速度"
                 color: root.mutedColor
-                font.family: "Microsoft YaHei"
+                font.family: Theme.fontFamily
                 font.pixelSize: 12
             }
             Repeater {
@@ -1845,14 +1845,14 @@ ApplicationWindow {
             color: Theme.text
             padding: 18
             bottomPadding: 8
-            font.family: "Microsoft YaHei"
+            font.family: Theme.fontFamily
             font.pixelSize: 16
             font.bold: true
         }
         contentItem: Text {
             text: root.pendingMessage
             color: Theme.text
-            font.family: "Microsoft YaHei"
+            font.family: Theme.fontFamily
             font.pixelSize: 13
             wrapMode: Text.Wrap
         }
@@ -1938,7 +1938,7 @@ ApplicationWindow {
             color: Theme.text
             padding: 18
             bottomPadding: 8
-            font.family: "Microsoft YaHei"
+            font.family: Theme.fontFamily
             font.pixelSize: 16
             font.bold: true
         }
@@ -1959,7 +1959,7 @@ ApplicationWindow {
                     text: root.timing.editable ? "部署或暂停时可修改；暂停修改后从下一步生效。"
                         : root.snap.game_state === "running" ? "当前正在运行，请先暂停再修改。" : "本局已结束，请返回部署后修改。"
                     color: root.timing.editable ? root.mutedColor : Theme.warning
-                    font.family: "Microsoft YaHei"
+                    font.family: Theme.fontFamily
                     font.pixelSize: 12
                     wrapMode: Text.Wrap
                 }
@@ -2013,7 +2013,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     text: "单步时长控制累计仿真时间与播放节奏；移动、侦察与攻击规则仍按步推进。速度倍率仅影响播放。"
                     color: root.mutedColor
-                    font.family: "Microsoft YaHei"
+                    font.family: Theme.fontFamily
                     font.pixelSize: 11
                     wrapMode: Text.Wrap
                 }
@@ -2023,7 +2023,7 @@ ApplicationWindow {
                     visible: text.length > 0
                     text: timingDialog.validationError
                     color: root.redColor
-                    font.family: "Microsoft YaHei"
+                    font.family: Theme.fontFamily
                     font.pixelSize: 12
                     wrapMode: Text.Wrap
                 }
@@ -2084,7 +2084,7 @@ ApplicationWindow {
             color: Theme.text
             padding: 18
             bottomPadding: 8
-            font.family: "Microsoft YaHei"
+            font.family: Theme.fontFamily
             font.pixelSize: 16
             font.bold: true
         }
@@ -2097,7 +2097,7 @@ ApplicationWindow {
                     text: root.recording.has_run ? "累计 " + root.recording.record_count + " 条 · 界面展示最近 200 条中的匹配记录"
                         : "开始仿真后，侦察、共享、摧毁、战术状态与结果将自动记录。"
                     color: root.mutedColor
-                    font.family: "Microsoft YaHei"
+                    font.family: Theme.fontFamily
                     font.pixelSize: 12
                     wrapMode: Text.Wrap
                 }
@@ -2145,7 +2145,7 @@ ApplicationWindow {
                                 + root.secondsLabel(recordRow.modelData.elapsed_seconds) + " · "
                                 + root.recordCategoryLabel(recordRow.modelData.category)
                             color: recordRow.modelData.category === "destroyed" ? root.redColor : Theme.muted
-                            font.family: "Microsoft YaHei"
+                            font.family: Theme.fontFamily
                             font.pixelSize: 11
                             wrapMode: Text.Wrap
                         }
@@ -2153,7 +2153,7 @@ ApplicationWindow {
                             width: parent.width
                             text: recordRow.modelData.message || ""
                             color: Theme.text
-                            font.family: "Microsoft YaHei"
+                            font.family: Theme.fontFamily
                             font.pixelSize: 12
                             wrapMode: Text.Wrap
                         }
@@ -2165,7 +2165,7 @@ ApplicationWindow {
                         visible: recordsList.count === 0
                         text: root.recording.has_run ? "此类别暂无记录。导出包含本局全部匹配记录。" : "当前还没有运行记录。"
                         color: root.mutedColor
-                        font.family: "Microsoft YaHei"
+                        font.family: Theme.fontFamily
                         font.pixelSize: 12
                         wrapMode: Text.Wrap
                         horizontalAlignment: Text.AlignHCenter
@@ -2178,7 +2178,7 @@ ApplicationWindow {
                     : root.recording.save_path ? "已自动保存：" + root.recording.save_path
                     : root.recording.directory ? "记录自动保存目录：" + root.recording.directory : "运行结束或返回部署时自动保存；手动导出可随时使用。"
                 color: root.recording.last_error ? root.redColor : root.mutedColor
-                font.family: "Microsoft YaHei"
+                font.family: Theme.fontFamily
                 font.pixelSize: 11
                 wrapMode: Text.WrapAnywhere
                 maximumLineCount: 3
@@ -2188,7 +2188,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 text: "历史运行（最近 " + Math.min(10, (root.recording.history || []).length) + " 局，可在记录目录中查看完整文件）"
                 color: Theme.text
-                font.family: "Microsoft YaHei"
+                font.family: Theme.fontFamily
                 font.pixelSize: 11
                 wrapMode: Text.Wrap
                 visible: (root.recording.history || []).length > 0
@@ -2216,7 +2216,7 @@ ApplicationWindow {
                                        : modelData.run_id === root.recording.run_id && root.snap.game_state === "running" ? "运行中" : "已中止")
                                     + "\n" + (modelData.save_path || "尚未保存")
                                 color: root.mutedColor
-                                font.family: "Microsoft YaHei"
+                                font.family: Theme.fontFamily
                                 font.pixelSize: 11
                                 wrapMode: Text.WrapAnywhere
                             }

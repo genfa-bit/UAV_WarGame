@@ -12,12 +12,13 @@ from pathlib import Path
 os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
 
 from PySide6.QtCore import QUrl, QObject, QCoreApplication, QEvent, QMetaObject
-from PySide6.QtGui import QGuiApplication, QFontDatabase, QFont
+from PySide6.QtGui import QGuiApplication, QFontDatabase, QFont, QFontInfo
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickWindow
 
 from core.controller import SimulationController
 from ui.qt_models import SimulationViewModel
+from ui.fonts import FONT_FAMILY, font_path
 
 
 QML_PATH = Path(__file__).resolve().parent / "qml" / "Main.qml"
@@ -30,12 +31,14 @@ def create_engine(
     app = QGuiApplication.instance() or QGuiApplication(sys.argv)
     app.setApplicationName("无人装备战争游戏仿真系统")
     app.setOrganizationName("UAV WarGame")
-    # The offscreen plugin has no system font database on Windows.
-    if os.name == "nt" and not QFontDatabase.families():
-        font_directory = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts"
-        for filename in ("msyh.ttc", "msyhbd.ttc", "consola.ttf", "segoeui.ttf"):
-            QFontDatabase.addApplicationFont(str(font_directory / filename))
-    app.setFont(QFont("Microsoft YaHei"))
+    if not app.property("uavFontsRegistered"):
+        for bold in (False, True):
+            path = font_path(bold=bold)
+            font_id = QFontDatabase.addApplicationFont(str(path))
+            if font_id < 0 or FONT_FAMILY not in QFontDatabase.applicationFontFamilies(font_id):
+                raise RuntimeError(f"无法加载随程序提供的思源宋体：{path.name}")
+        app.setProperty("uavFontsRegistered", True)
+    app.setFont(QFont(FONT_FAMILY))
 
     engine = QQmlApplicationEngine()
     view_model = SimulationViewModel(controller)
@@ -84,6 +87,7 @@ def _verify_delivery(app, engine, view_model) -> int:
             report_path = Path(sys.argv[index + 1])
     report = {"ok": False, "frozen": bool(getattr(sys, "frozen", False)),
               "checks": [], "scene_ids": []}
+    report["font_family"] = QFontInfo(app.font()).family()
     root = engine.rootObjects()[0]
 
     def render():
@@ -95,6 +99,7 @@ def _verify_delivery(app, engine, view_model) -> int:
         return frame
 
     try:
+        assert report["font_family"] == FONT_FAMILY, "Bundled UI font was not selected"
         with tempfile.TemporaryDirectory(prefix="uav-delivery-") as directory:
             temporary = Path(directory)
             controller = view_model.controller

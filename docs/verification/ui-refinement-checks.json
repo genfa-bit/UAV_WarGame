@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "verified_at": "2026-10-11T09:22:56.808440+08:00",
+  "verified_at": "2026-10-11T13:02:17.534510+08:00",
   "environment": "Real QML window with QtTest input on the offscreen Qt platform",
   "sizes": [
     [
@@ -59,7 +59,7 @@
           "item": "scenarioSelector",
           "rect": [
             636.0,
-            96.0,
+            97.0,
             254.0,
             32.0
           ]
@@ -230,7 +230,7 @@
           "item": "scenarioSelector",
           "rect": [
             972.0,
-            96.0,
+            97.0,
             278.0,
             32.0
           ]
@@ -401,7 +401,7 @@
           "item": "scenarioSelector",
           "rect": [
             1058.0,
-            96.0,
+            97.0,
             278.0,
             32.0
           ]
@@ -572,7 +572,7 @@
           "item": "scenarioSelector",
           "rect": [
             1612.0,
-            96.0,
+            97.0,
             278.0,
             32.0
           ]
@@ -1019,9 +1019,9 @@
           "item": "unitDetails",
           "rect": [
             636.0,
-            150.0,
+            152.0,
             254.0,
-            221.0
+            228.0
           ]
         }
       ]
@@ -1190,9 +1190,9 @@
           "item": "unitDetails",
           "rect": [
             972.0,
-            150.0,
+            152.0,
             278.0,
-            221.0
+            228.0
           ]
         }
       ]
@@ -1361,9 +1361,9 @@
           "item": "unitDetails",
           "rect": [
             1058.0,
-            150.0,
+            152.0,
             278.0,
-            221.0
+            228.0
           ]
         }
       ]
@@ -1532,9 +1532,9 @@
           "item": "unitDetails",
           "rect": [
             1612.0,
-            150.0,
+            152.0,
             278.0,
-            221.0
+            228.0
           ]
         }
       ]
@@ -2057,7 +2057,7 @@
   ],
   "qml_warnings": [],
   "environment_warnings": [
-    "Offscreen Qt reports a missing bundled font directory before the application's Windows font fallback registers local fonts."
+    "Offscreen Qt initially reports a missing platform font directory; the bundled application fonts register and resolve successfully."
   ],
   "limitations": "Offscreen rendering does not verify a separate computer or native display scaling.",
   "keyboard_tab_route": [
@@ -2243,47 +2243,33 @@
     }
   ],
   "contrast_scope": "Static opaque theme text/background pairs only; this is not a complete accessibility audit.",
+  "font_validation_summary": {
+    "font_family": "Source Han Serif CN",
+    "font_check_count": 8,
+    "visible_font_item_checks": 3584,
+    "unique_actual_text_font_pairs": 218,
+    "resolved_families": [
+      "Source Han Serif CN"
+    ],
+    "glyph_families": [
+      "Source Han Serif CN"
+    ],
+    "qml_warning_count": 0
+  },
+  "captured_screenshot_count": 25,
+  "published_screenshot_count": 9,
+  "screenshot_publication": "Nine representative captures are published; complete four-size geometry, interactions and font checks are retained. All 25 captures remain in the local ignored build directory.",
+  "font_validation": "font-ui-checks.json",
   "qml_regression_validation": {
     "passed": 35,
-    "seconds": 11.66,
+    "validation": "Included in the full 405-test run after the font change",
+    "full_suite_seconds": 16.17,
+    "new_keyboard_cases": 8,
     "files": [
       "tests/test_qml_workflow.py",
       "tests/test_map_view_qt.py",
       "tests/test_timing_records_qml.py",
       "tests/test_ui_keyboard_qml.py"
-    ],
-    "new_keyboard_cases": 8
-  },
-  "visual_review": {
-    "reviewed_sizes": [
-      [
-        920,
-        540
-      ],
-      [
-        1280,
-        720
-      ],
-      [
-        1366,
-        768
-      ],
-      [
-        1920,
-        1080
-      ]
-    ],
-    "method": "Fresh six-state contact sheet plus full-size compact dialogs and deployment/unit views",
-    "findings": [
-      "Main actions and map navigation remain inside the window at all four sizes.",
-      "Compact deployment exposes the unit and obstacle choices without oversized cards.",
-      "Dialogs preserve readable content and reachable footer actions; longer result/help content remains scrollable.",
-      "Final sidebar right padding separates the always-visible scrollbar from numeric statistics and controls; verified in 920 and 1920 captures.",
-      "No remaining blocking visual or keyboard findings in these verified states."
-    ],
-    "limitations": "Offscreen screenshots and static theme pairs do not constitute a native DPI or full accessibility audit."
-  },
-  "captured_screenshot_count": 25,
-  "published_screenshot_count": 9,
-  "screenshot_publication": "Representative captures are published; all four sizes retain full geometry and interaction results. Complete 25-image evidence is retained in the local ignored build directory."
+    ]
+  }
 }
