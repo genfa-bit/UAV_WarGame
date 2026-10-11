@@ -17,8 +17,7 @@ class TargetSighting:
 
 
 class TargetPool:
-    """Stores detected targets. values() only returns targets whose
-    availability delay has expired."""
+    """Stores detected targets; values_available() applies the delivery delay."""
 
     def __init__(self) -> None:
         self._records: dict[str, TargetSighting] = {}
@@ -61,9 +60,16 @@ class TargetPool:
         return self._records.values()
 
     def sight(self, target: Unit, step: int, available_step: int | None = None) -> bool:
-        """Add or refresh a target. available_step controls comm delay."""
+        """Refresh observation time without postponing a pending delivery.
+
+        A later observation may arrive earlier through a nearer observer, but
+        continuous observations must not reset the first broadcast's deadline.
+        """
         is_new = target.id not in self._records
         avail = available_step if available_step is not None else step
+        previous = self._records.get(target.id)
+        if previous is not None:
+            avail = min(previous.available_step, avail)
         self._records[target.id] = TargetSighting(
             target=target, last_seen_step=step, available_step=avail)
         return is_new

@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "import_date": "2026-10-09",
+  "reference_project_relative_to_desktop": "应用综合实验/Exp",
+  "copy_method": "byte_for_byte_copy",
+  "pixel_edits": false,
+  "new_images_generated": false,
+  "runtime_display_scaling_only": true,
+  "maps_are_fictional": true,
+  "images_define_elevation_or_collision": false,
+  "assets": [
+    {
+      "id": "valley",
+      "project_relative_path": "ui/assets/maps/terrain_valley.png",
+      "source_relative_path": "sim_app/assets/terrain_astra/terrain_astra.png",
+      "sha256": "5adfe363247ce6a1fc09c2f46b17e57663f65200d392da7afc8efc81a1715df7",
+      "source_sha256": "5adfe363247ce6a1fc09c2f46b17e57663f65200d392da7afc8efc81a1715df7",
+      "source_dimensions_px": [1536, 1024],
+      "copied_dimensions_px": [1536, 1024],
+      "source_bytes": 4239699,
+      "copied_bytes": 4239699,
+      "intended_map_style": "valley",
+      "intended_map_dimensions": [1200, 800],
+      "purpose": "山区河谷场景的完整二维视觉底图；地形、道路、桥梁及城镇细节用于展示，碰撞和通行约束仍由场景矩形区域及现有单位规则决定。",
+      "provenance_references": [
+        "sim_app/assets/terrain_astra/README.md",
+        "sim_app/assets/terrain_astra/landmarks.json"
+      ],
+      "reference_generation_metadata": {
+        "method": "built-in image_gen",
+        "date": "2026-10-06",
+        "native_generated_resolution": true,
+        "interpolated": false
+      },
+      "source_notes": [
+        "参考项目 README 将图像与标注定义为二维视觉背景，不承担高程、道路通行或碰撞计算，没有真实经纬度绑定。",
+        "参考项目 landmarks.json 说明此图为虚构区域，未使用或冒充真实地理数据；地标及道路点线为人工视觉近似。",
+        "本项目保留完整原图，不复制参考项目的运行瓦片、12000×8000 世界配置或程序代码。"
+      ]
+    },
+    {
+      "id": "river",
+      "project_relative_path": "ui/assets/maps/terrain_river.png",
+      "source_relative_path": "sim_app/assets/illustrated/terrain.png",
+      "sha256": "319ee7624734e906e104e4306338450cae0367839abcdf723957b1e9fc66efc5",
+      "source_sha256": "319ee7624734e906e104e4306338450cae0367839abcdf723957b1e9fc66efc5",
+      "source_dimensions_px": [1536, 1024],
+      "copied_dimensions_px": [1536, 1024],
+      "source_bytes": 4123235,
+      "copied_bytes": 4123235,
+      "intended_map_style": "river",
+      "intended_map_dimensions": [1200, 800],
+      "purpose": "河谷城镇场景的完整二维视觉底图；河流、山坡、道路及建筑轮廓仅提供环境视觉信息，实际通行由矩形区域及现有单位规则决定。",
+      "provenance_references": [
+        "sim_app/assets/illustrated/README.md",
+        "sim_app/assets/illustrated/asset_sources.json"
+      ],
+      "reference_generation_metadata": {
+        "method": "Built-in ImageGen, reference-guided reconstruction",
+        "date": "2026-10-04",
+        "asset_entry": "terrain.png"
+      },
+      "source_notes": [
+        "参考项目 README 将 terrain.png 定义为小范围虚拟山谷底图，图片不提供真实装备性能、地理坐标或通行规则。",
+        "参考项目 asset_sources.json 记录此图为虚构地形的视觉背景，作为独立绘制仿真单位之下的图层。",
+        "本项目仅原样复制 terrain.png，没有重新生成、裁剪、重采样或像素编辑。"
+      ]
+    }
+  ]
+}

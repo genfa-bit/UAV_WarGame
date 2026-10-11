@@ -28,6 +28,7 @@ from config import (
 from core.battlefield import obstacle_display_name
 from core.units import CommandNode, Unit
 from ui.panel import InfoPanel
+from ui.fonts import pygame_font
 
 
 class Renderer:
@@ -36,8 +37,8 @@ class Renderer:
     def __init__(self, screen: pygame.Surface):
         self.screen = screen
         self.panel = InfoPanel()
-        self.font = pygame.font.SysFont("Microsoft YaHei", 13)
-        self.small_font = pygame.font.SysFont("Microsoft YaHei", 11)
+        self.font = pygame_font(13)
+        self.small_font = pygame_font(11)
 
     # ── 运行阶段 ──────────────────────────────────────────────
 

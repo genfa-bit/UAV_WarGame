@@ -1,0 +1,148 @@
+{
+  "ok": true,
+  "baseline_commit": "19cead4",
+  "scene": "standard",
+  "input": "QML viewport geometry on the offscreen Qt platform",
+  "comparisons": [
+    {
+      "window": [
+        920,
+        540
+      ],
+      "before": {
+        "window": [
+          920,
+          540
+        ],
+        "viewport": [
+          536.0,
+          234.0
+        ],
+        "fitted_map": [
+          312.0,
+          234.0
+        ]
+      },
+      "after": {
+        "window": [
+          920,
+          540
+        ],
+        "viewport": [
+          592.0,
+          330.0
+        ],
+        "fitted_map": [
+          440.00000000000006,
+          330.0
+        ]
+      },
+      "viewport_area_increase_percent": 55.76
+    },
+    {
+      "window": [
+        1280,
+        720
+      ],
+      "before": {
+        "window": [
+          1280,
+          720
+        ],
+        "viewport": [
+          896.0,
+          404.0
+        ],
+        "fitted_map": [
+          538.6666666666666,
+          404.0
+        ]
+      },
+      "after": {
+        "window": [
+          1280,
+          720
+        ],
+        "viewport": [
+          928.0,
+          510.0
+        ],
+        "fitted_map": [
+          680.0,
+          510.0
+        ]
+      },
+      "viewport_area_increase_percent": 30.75
+    },
+    {
+      "window": [
+        1366,
+        768
+      ],
+      "before": {
+        "window": [
+          1366,
+          768
+        ],
+        "viewport": [
+          932.0,
+          452.0
+        ],
+        "fitted_map": [
+          602.6666666666666,
+          452.0
+        ]
+      },
+      "after": {
+        "window": [
+          1366,
+          768
+        ],
+        "viewport": [
+          1014.0,
+          558.0
+        ],
+        "fitted_map": [
+          744.0,
+          558.0
+        ]
+      },
+      "viewport_area_increase_percent": 34.31
+    },
+    {
+      "window": [
+        1920,
+        1080
+      ],
+      "before": {
+        "window": [
+          1920,
+          1080
+        ],
+        "viewport": [
+          1486.0,
+          764.0
+        ],
+        "fitted_map": [
+          1018.6666666666667,
+          764.0
+        ]
+      },
+      "after": {
+        "window": [
+          1920,
+          1080
+        ],
+        "viewport": [
+          1568.0,
+          870.0
+        ],
+        "fitted_map": [
+          1160.0,
+          870.0
+        ]
+      },
+      "viewport_area_increase_percent": 20.16
+    }
+  ]
+}

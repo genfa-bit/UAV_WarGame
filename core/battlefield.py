@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Iterable, Tuple
 
 from config import BASE_MAX_HP, BASE_REPAIR_PER_STEP
+from core.terrain_catalog import MAP_STYLES
 
 
 OBSTACLE_DISPLAY_NAMES = {
@@ -55,11 +56,15 @@ class Battlefield:
         terrain: str = "plain",
         red_base: tuple[float, float] = (80, 300),
         blue_base: tuple[float, float] = (720, 300),
+        map_style: str = "tactical",
     ):
+        if not isinstance(map_style, str) or map_style not in MAP_STYLES:
+            raise ValueError("地图样式必须为 tactical、valley 或 river")
         self.width = width
         self.height = height
         self.obstacles = list(obstacles or [])
         self.terrain = terrain
+        self.map_style = map_style
         from core.units import BaseUnit  # 延迟导入避免循环依赖
         self.red_base_obj = BaseUnit(id="red_base", name="红基地", team="red",
                                       x=red_base[0], y=red_base[1])

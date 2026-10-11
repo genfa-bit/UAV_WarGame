@@ -1,0 +1,2275 @@
+{
+  "ok": true,
+  "verified_at": "2026-10-11T13:02:17.534510+08:00",
+  "environment": "Real QML window with QtTest input on the offscreen Qt platform",
+  "sizes": [
+    [
+      920,
+      540
+    ],
+    [
+      1280,
+      720
+    ],
+    [
+      1366,
+      768
+    ],
+    [
+      1920,
+      1080
+    ]
+  ],
+  "checks": [
+    "Deployment and all primary actions fit all four requested sizes",
+    "Tab reaches a visibly focused primary action; Space activates it",
+    "timingDialog: main shortcuts remain isolated while modal is open",
+    "An actually focused numeric field accepts typed input while global shortcuts remain isolated",
+    "Time settings are keyboard-isolated, readable, and apply to the real controller",
+    "Enter starts, Space pauses, and S advances one timed step through real keyboard shortcuts",
+    "Focused step and pause buttons respond to Space/Enter without duplicate global shortcut activation",
+    "After a real map selection, Space still controls the simulation without activating stale control focus",
+    "Clicking the map after a focused sidebar action restores map keyboard shortcuts",
+    "A real map click selects live unit details without obscuring the primary controls",
+    "recordsDialog: main shortcuts remain isolated while modal is open",
+    "Records remain complete in isolated real files; only screenshot display paths are portable",
+    "resultsDialog: main shortcuts remain isolated while modal is open",
+    "Real destruction events produce a readable, keyboard-isolated result with all actions inside the window",
+    "helpDialog: main shortcuts remain isolated while modal is open",
+    "F1 opens a readable scrollable help dialog at every requested size"
+  ],
+  "geometry": [
+    {
+      "page": "deployment",
+      "size": [
+        920,
+        540
+      ],
+      "items": [
+        {
+          "item": "workflowControls",
+          "rect": [
+            0.0,
+            488.0,
+            920.0,
+            52.0
+          ]
+        },
+        {
+          "item": "scenarioSelector",
+          "rect": [
+            636.0,
+            97.0,
+            254.0,
+            32.0
+          ]
+        },
+        {
+          "item": "mapViewport",
+          "rect": [
+            16.0,
+            108.0,
+            592.0,
+            330.0
+          ]
+        },
+        {
+          "item": "mapOverview",
+          "rect": [
+            485.0,
+            332.0,
+            116.0,
+            99.0
+          ]
+        },
+        {
+          "item": "mapZoomIn",
+          "rect": [
+            320.0,
+            66.0,
+            28.0,
+            28.0
+          ]
+        },
+        {
+          "item": "mapZoomOut",
+          "rect": [
+            242.0,
+            66.0,
+            28.0,
+            28.0
+          ]
+        },
+        {
+          "item": "mapFit",
+          "rect": [
+            354.0,
+            66.0,
+            70.0,
+            28.0
+          ]
+        },
+        {
+          "item": "timingButton",
+          "rect": [
+            732.0,
+            10.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "recordsButton",
+          "rect": [
+            824.0,
+            10.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "startSimulationButton",
+          "rect": [
+            10.0,
+            498.0,
+            104.0,
+            32.0
+          ]
+        },
+        {
+          "item": "pauseSimulationButton",
+          "rect": [
+            122.0,
+            498.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "stepSimulationButton",
+          "rect": [
+            210.0,
+            498.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "1×",
+          "rect": [
+            330.0,
+            498.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "2×",
+          "rect": [
+            384.0,
+            498.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "4×",
+          "rect": [
+            438.0,
+            498.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "快速",
+          "rect": [
+            492.0,
+            498.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "返回部署",
+          "rect": [
+            754.0,
+            498.0,
+            88.0,
+            32.0
+          ]
+        },
+        {
+          "item": "帮助",
+          "rect": [
+            850.0,
+            498.0,
+            60.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "deployment",
+      "size": [
+        1280,
+        720
+      ],
+      "items": [
+        {
+          "item": "workflowControls",
+          "rect": [
+            0.0,
+            668.0,
+            1280.0,
+            52.0
+          ]
+        },
+        {
+          "item": "scenarioSelector",
+          "rect": [
+            972.0,
+            97.0,
+            278.0,
+            32.0
+          ]
+        },
+        {
+          "item": "mapViewport",
+          "rect": [
+            16.0,
+            108.0,
+            928.0,
+            510.0
+          ]
+        },
+        {
+          "item": "mapOverview",
+          "rect": [
+            789.0,
+            490.0,
+            148.0,
+            121.0
+          ]
+        },
+        {
+          "item": "mapZoomIn",
+          "rect": [
+            656.0,
+            66.0,
+            28.0,
+            28.0
+          ]
+        },
+        {
+          "item": "mapZoomOut",
+          "rect": [
+            578.0,
+            66.0,
+            28.0,
+            28.0
+          ]
+        },
+        {
+          "item": "mapFit",
+          "rect": [
+            690.0,
+            66.0,
+            70.0,
+            28.0
+          ]
+        },
+        {
+          "item": "timingButton",
+          "rect": [
+            1092.0,
+            10.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "recordsButton",
+          "rect": [
+            1184.0,
+            10.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "startSimulationButton",
+          "rect": [
+            10.0,
+            678.0,
+            104.0,
+            32.0
+          ]
+        },
+        {
+          "item": "pauseSimulationButton",
+          "rect": [
+            122.0,
+            678.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "stepSimulationButton",
+          "rect": [
+            210.0,
+            678.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "1×",
+          "rect": [
+            330.0,
+            678.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "2×",
+          "rect": [
+            384.0,
+            678.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "4×",
+          "rect": [
+            438.0,
+            678.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "快速",
+          "rect": [
+            492.0,
+            678.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "返回部署",
+          "rect": [
+            1114.0,
+            678.0,
+            88.0,
+            32.0
+          ]
+        },
+        {
+          "item": "帮助",
+          "rect": [
+            1210.0,
+            678.0,
+            60.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "deployment",
+      "size": [
+        1366,
+        768
+      ],
+      "items": [
+        {
+          "item": "workflowControls",
+          "rect": [
+            0.0,
+            716.0,
+            1366.0,
+            52.0
+          ]
+        },
+        {
+          "item": "scenarioSelector",
+          "rect": [
+            1058.0,
+            97.0,
+            278.0,
+            32.0
+          ]
+        },
+        {
+          "item": "mapViewport",
+          "rect": [
+            16.0,
+            108.0,
+            1014.0,
+            558.0
+          ]
+        },
+        {
+          "item": "mapOverview",
+          "rect": [
+            875.0,
+            538.0,
+            148.0,
+            121.0
+          ]
+        },
+        {
+          "item": "mapZoomIn",
+          "rect": [
+            742.0,
+            66.0,
+            28.0,
+            28.0
+          ]
+        },
+        {
+          "item": "mapZoomOut",
+          "rect": [
+            664.0,
+            66.0,
+            28.0,
+            28.0
+          ]
+        },
+        {
+          "item": "mapFit",
+          "rect": [
+            776.0,
+            66.0,
+            70.0,
+            28.0
+          ]
+        },
+        {
+          "item": "timingButton",
+          "rect": [
+            1178.0,
+            10.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "recordsButton",
+          "rect": [
+            1270.0,
+            10.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "startSimulationButton",
+          "rect": [
+            10.0,
+            726.0,
+            104.0,
+            32.0
+          ]
+        },
+        {
+          "item": "pauseSimulationButton",
+          "rect": [
+            122.0,
+            726.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "stepSimulationButton",
+          "rect": [
+            210.0,
+            726.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "1×",
+          "rect": [
+            330.0,
+            726.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "2×",
+          "rect": [
+            384.0,
+            726.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "4×",
+          "rect": [
+            438.0,
+            726.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "快速",
+          "rect": [
+            492.0,
+            726.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "返回部署",
+          "rect": [
+            1200.0,
+            726.0,
+            88.0,
+            32.0
+          ]
+        },
+        {
+          "item": "帮助",
+          "rect": [
+            1296.0,
+            726.0,
+            60.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "deployment",
+      "size": [
+        1920,
+        1080
+      ],
+      "items": [
+        {
+          "item": "workflowControls",
+          "rect": [
+            0.0,
+            1028.0,
+            1920.0,
+            52.0
+          ]
+        },
+        {
+          "item": "scenarioSelector",
+          "rect": [
+            1612.0,
+            97.0,
+            278.0,
+            32.0
+          ]
+        },
+        {
+          "item": "mapViewport",
+          "rect": [
+            16.0,
+            108.0,
+            1568.0,
+            870.0
+          ]
+        },
+        {
+          "item": "mapOverview",
+          "rect": [
+            1429.0,
+            850.0,
+            148.0,
+            121.0
+          ]
+        },
+        {
+          "item": "mapZoomIn",
+          "rect": [
+            1296.0,
+            66.0,
+            28.0,
+            28.0
+          ]
+        },
+        {
+          "item": "mapZoomOut",
+          "rect": [
+            1218.0,
+            66.0,
+            28.0,
+            28.0
+          ]
+        },
+        {
+          "item": "mapFit",
+          "rect": [
+            1330.0,
+            66.0,
+            70.0,
+            28.0
+          ]
+        },
+        {
+          "item": "timingButton",
+          "rect": [
+            1732.0,
+            10.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "recordsButton",
+          "rect": [
+            1824.0,
+            10.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "startSimulationButton",
+          "rect": [
+            10.0,
+            1038.0,
+            104.0,
+            32.0
+          ]
+        },
+        {
+          "item": "pauseSimulationButton",
+          "rect": [
+            122.0,
+            1038.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "stepSimulationButton",
+          "rect": [
+            210.0,
+            1038.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "1×",
+          "rect": [
+            330.0,
+            1038.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "2×",
+          "rect": [
+            384.0,
+            1038.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "4×",
+          "rect": [
+            438.0,
+            1038.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "快速",
+          "rect": [
+            492.0,
+            1038.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "返回部署",
+          "rect": [
+            1754.0,
+            1038.0,
+            88.0,
+            32.0
+          ]
+        },
+        {
+          "item": "帮助",
+          "rect": [
+            1850.0,
+            1038.0,
+            60.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "timingDialog",
+      "size": [
+        920,
+        540
+      ],
+      "dialog_rect": [
+        220.0,
+        75.0,
+        480.0,
+        390.0
+      ],
+      "actions": [
+        {
+          "item": "关闭",
+          "rect": [
+            232.0,
+            421.0,
+            226.0,
+            32.0
+          ]
+        },
+        {
+          "item": "applyTimingButton",
+          "rect": [
+            463.0,
+            421.0,
+            225.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "timingDialog",
+      "size": [
+        1280,
+        720
+      ],
+      "dialog_rect": [
+        400.0,
+        165.0,
+        480.0,
+        390.0
+      ],
+      "actions": [
+        {
+          "item": "关闭",
+          "rect": [
+            412.0,
+            511.0,
+            226.0,
+            32.0
+          ]
+        },
+        {
+          "item": "applyTimingButton",
+          "rect": [
+            643.0,
+            511.0,
+            225.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "timingDialog",
+      "size": [
+        1366,
+        768
+      ],
+      "dialog_rect": [
+        443.0,
+        189.0,
+        480.0,
+        390.0
+      ],
+      "actions": [
+        {
+          "item": "关闭",
+          "rect": [
+            455.0,
+            535.0,
+            226.0,
+            32.0
+          ]
+        },
+        {
+          "item": "applyTimingButton",
+          "rect": [
+            686.0,
+            535.0,
+            225.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "timingDialog",
+      "size": [
+        1920,
+        1080
+      ],
+      "dialog_rect": [
+        720.0,
+        345.0,
+        480.0,
+        390.0
+      ],
+      "actions": [
+        {
+          "item": "关闭",
+          "rect": [
+            732.0,
+            691.0,
+            226.0,
+            32.0
+          ]
+        },
+        {
+          "item": "applyTimingButton",
+          "rect": [
+            963.0,
+            691.0,
+            225.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "unit-selection",
+      "size": [
+        920,
+        540
+      ],
+      "items": [
+        {
+          "item": "workflowControls",
+          "rect": [
+            0.0,
+            488.0,
+            920.0,
+            52.0
+          ]
+        },
+        {
+          "item": "mapViewport",
+          "rect": [
+            16.0,
+            108.0,
+            592.0,
+            330.0
+          ]
+        },
+        {
+          "item": "mapOverview",
+          "rect": [
+            485.0,
+            332.0,
+            116.0,
+            99.0
+          ]
+        },
+        {
+          "item": "mapZoomIn",
+          "rect": [
+            320.0,
+            66.0,
+            28.0,
+            28.0
+          ]
+        },
+        {
+          "item": "mapZoomOut",
+          "rect": [
+            242.0,
+            66.0,
+            28.0,
+            28.0
+          ]
+        },
+        {
+          "item": "mapFit",
+          "rect": [
+            354.0,
+            66.0,
+            70.0,
+            28.0
+          ]
+        },
+        {
+          "item": "timingButton",
+          "rect": [
+            732.0,
+            10.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "recordsButton",
+          "rect": [
+            824.0,
+            10.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "startSimulationButton",
+          "rect": [
+            10.0,
+            498.0,
+            104.0,
+            32.0
+          ]
+        },
+        {
+          "item": "pauseSimulationButton",
+          "rect": [
+            122.0,
+            498.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "stepSimulationButton",
+          "rect": [
+            210.0,
+            498.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "1×",
+          "rect": [
+            330.0,
+            498.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "2×",
+          "rect": [
+            384.0,
+            498.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "4×",
+          "rect": [
+            438.0,
+            498.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "快速",
+          "rect": [
+            492.0,
+            498.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "返回部署",
+          "rect": [
+            754.0,
+            498.0,
+            88.0,
+            32.0
+          ]
+        },
+        {
+          "item": "帮助",
+          "rect": [
+            850.0,
+            498.0,
+            60.0,
+            32.0
+          ]
+        },
+        {
+          "item": "unitDetails",
+          "rect": [
+            636.0,
+            152.0,
+            254.0,
+            228.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "unit-selection",
+      "size": [
+        1280,
+        720
+      ],
+      "items": [
+        {
+          "item": "workflowControls",
+          "rect": [
+            0.0,
+            668.0,
+            1280.0,
+            52.0
+          ]
+        },
+        {
+          "item": "mapViewport",
+          "rect": [
+            16.0,
+            108.0,
+            928.0,
+            510.0
+          ]
+        },
+        {
+          "item": "mapOverview",
+          "rect": [
+            789.0,
+            490.0,
+            148.0,
+            121.0
+          ]
+        },
+        {
+          "item": "mapZoomIn",
+          "rect": [
+            656.0,
+            66.0,
+            28.0,
+            28.0
+          ]
+        },
+        {
+          "item": "mapZoomOut",
+          "rect": [
+            578.0,
+            66.0,
+            28.0,
+            28.0
+          ]
+        },
+        {
+          "item": "mapFit",
+          "rect": [
+            690.0,
+            66.0,
+            70.0,
+            28.0
+          ]
+        },
+        {
+          "item": "timingButton",
+          "rect": [
+            1092.0,
+            10.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "recordsButton",
+          "rect": [
+            1184.0,
+            10.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "startSimulationButton",
+          "rect": [
+            10.0,
+            678.0,
+            104.0,
+            32.0
+          ]
+        },
+        {
+          "item": "pauseSimulationButton",
+          "rect": [
+            122.0,
+            678.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "stepSimulationButton",
+          "rect": [
+            210.0,
+            678.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "1×",
+          "rect": [
+            330.0,
+            678.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "2×",
+          "rect": [
+            384.0,
+            678.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "4×",
+          "rect": [
+            438.0,
+            678.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "快速",
+          "rect": [
+            492.0,
+            678.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "返回部署",
+          "rect": [
+            1114.0,
+            678.0,
+            88.0,
+            32.0
+          ]
+        },
+        {
+          "item": "帮助",
+          "rect": [
+            1210.0,
+            678.0,
+            60.0,
+            32.0
+          ]
+        },
+        {
+          "item": "unitDetails",
+          "rect": [
+            972.0,
+            152.0,
+            278.0,
+            228.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "unit-selection",
+      "size": [
+        1366,
+        768
+      ],
+      "items": [
+        {
+          "item": "workflowControls",
+          "rect": [
+            0.0,
+            716.0,
+            1366.0,
+            52.0
+          ]
+        },
+        {
+          "item": "mapViewport",
+          "rect": [
+            16.0,
+            108.0,
+            1014.0,
+            558.0
+          ]
+        },
+        {
+          "item": "mapOverview",
+          "rect": [
+            875.0,
+            538.0,
+            148.0,
+            121.0
+          ]
+        },
+        {
+          "item": "mapZoomIn",
+          "rect": [
+            742.0,
+            66.0,
+            28.0,
+            28.0
+          ]
+        },
+        {
+          "item": "mapZoomOut",
+          "rect": [
+            664.0,
+            66.0,
+            28.0,
+            28.0
+          ]
+        },
+        {
+          "item": "mapFit",
+          "rect": [
+            776.0,
+            66.0,
+            70.0,
+            28.0
+          ]
+        },
+        {
+          "item": "timingButton",
+          "rect": [
+            1178.0,
+            10.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "recordsButton",
+          "rect": [
+            1270.0,
+            10.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "startSimulationButton",
+          "rect": [
+            10.0,
+            726.0,
+            104.0,
+            32.0
+          ]
+        },
+        {
+          "item": "pauseSimulationButton",
+          "rect": [
+            122.0,
+            726.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "stepSimulationButton",
+          "rect": [
+            210.0,
+            726.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "1×",
+          "rect": [
+            330.0,
+            726.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "2×",
+          "rect": [
+            384.0,
+            726.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "4×",
+          "rect": [
+            438.0,
+            726.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "快速",
+          "rect": [
+            492.0,
+            726.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "返回部署",
+          "rect": [
+            1200.0,
+            726.0,
+            88.0,
+            32.0
+          ]
+        },
+        {
+          "item": "帮助",
+          "rect": [
+            1296.0,
+            726.0,
+            60.0,
+            32.0
+          ]
+        },
+        {
+          "item": "unitDetails",
+          "rect": [
+            1058.0,
+            152.0,
+            278.0,
+            228.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "unit-selection",
+      "size": [
+        1920,
+        1080
+      ],
+      "items": [
+        {
+          "item": "workflowControls",
+          "rect": [
+            0.0,
+            1028.0,
+            1920.0,
+            52.0
+          ]
+        },
+        {
+          "item": "mapViewport",
+          "rect": [
+            16.0,
+            108.0,
+            1568.0,
+            870.0
+          ]
+        },
+        {
+          "item": "mapOverview",
+          "rect": [
+            1429.0,
+            850.0,
+            148.0,
+            121.0
+          ]
+        },
+        {
+          "item": "mapZoomIn",
+          "rect": [
+            1296.0,
+            66.0,
+            28.0,
+            28.0
+          ]
+        },
+        {
+          "item": "mapZoomOut",
+          "rect": [
+            1218.0,
+            66.0,
+            28.0,
+            28.0
+          ]
+        },
+        {
+          "item": "mapFit",
+          "rect": [
+            1330.0,
+            66.0,
+            70.0,
+            28.0
+          ]
+        },
+        {
+          "item": "timingButton",
+          "rect": [
+            1732.0,
+            10.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "recordsButton",
+          "rect": [
+            1824.0,
+            10.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "startSimulationButton",
+          "rect": [
+            10.0,
+            1038.0,
+            104.0,
+            32.0
+          ]
+        },
+        {
+          "item": "pauseSimulationButton",
+          "rect": [
+            122.0,
+            1038.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "stepSimulationButton",
+          "rect": [
+            210.0,
+            1038.0,
+            80.0,
+            32.0
+          ]
+        },
+        {
+          "item": "1×",
+          "rect": [
+            330.0,
+            1038.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "2×",
+          "rect": [
+            384.0,
+            1038.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "4×",
+          "rect": [
+            438.0,
+            1038.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "快速",
+          "rect": [
+            492.0,
+            1038.0,
+            46.0,
+            32.0
+          ]
+        },
+        {
+          "item": "返回部署",
+          "rect": [
+            1754.0,
+            1038.0,
+            88.0,
+            32.0
+          ]
+        },
+        {
+          "item": "帮助",
+          "rect": [
+            1850.0,
+            1038.0,
+            60.0,
+            32.0
+          ]
+        },
+        {
+          "item": "unitDetails",
+          "rect": [
+            1612.0,
+            152.0,
+            278.0,
+            228.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "recordsDialog",
+      "size": [
+        920,
+        540
+      ],
+      "dialog_rect": [
+        70.0,
+        20.0,
+        780.0,
+        500.0
+      ],
+      "actions": [
+        {
+          "item": "关闭",
+          "rect": [
+            82.0,
+            476.0,
+            249.0,
+            32.0
+          ]
+        },
+        {
+          "item": "openRecordsDirectoryButton",
+          "rect": [
+            336.0,
+            476.0,
+            248.0,
+            32.0
+          ]
+        },
+        {
+          "item": "exportRecordsButton",
+          "rect": [
+            589.0,
+            476.0,
+            249.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "recordsDialog",
+      "size": [
+        1280,
+        720
+      ],
+      "dialog_rect": [
+        250.0,
+        35.0,
+        780.0,
+        650.0
+      ],
+      "actions": [
+        {
+          "item": "关闭",
+          "rect": [
+            262.0,
+            641.0,
+            249.0,
+            32.0
+          ]
+        },
+        {
+          "item": "openRecordsDirectoryButton",
+          "rect": [
+            516.0,
+            641.0,
+            248.0,
+            32.0
+          ]
+        },
+        {
+          "item": "exportRecordsButton",
+          "rect": [
+            769.0,
+            641.0,
+            249.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "recordsDialog",
+      "size": [
+        1366,
+        768
+      ],
+      "dialog_rect": [
+        293.0,
+        59.0,
+        780.0,
+        650.0
+      ],
+      "actions": [
+        {
+          "item": "关闭",
+          "rect": [
+            305.0,
+            665.0,
+            249.0,
+            32.0
+          ]
+        },
+        {
+          "item": "openRecordsDirectoryButton",
+          "rect": [
+            559.0,
+            665.0,
+            248.0,
+            32.0
+          ]
+        },
+        {
+          "item": "exportRecordsButton",
+          "rect": [
+            812.0,
+            665.0,
+            249.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "recordsDialog",
+      "size": [
+        1920,
+        1080
+      ],
+      "dialog_rect": [
+        570.0,
+        215.0,
+        780.0,
+        650.0
+      ],
+      "actions": [
+        {
+          "item": "关闭",
+          "rect": [
+            582.0,
+            821.0,
+            249.0,
+            32.0
+          ]
+        },
+        {
+          "item": "openRecordsDirectoryButton",
+          "rect": [
+            836.0,
+            821.0,
+            248.0,
+            32.0
+          ]
+        },
+        {
+          "item": "exportRecordsButton",
+          "rect": [
+            1089.0,
+            821.0,
+            249.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "resultsDialog",
+      "size": [
+        920,
+        540
+      ],
+      "dialog_rect": [
+        135.0,
+        20.0,
+        650.0,
+        500.0
+      ],
+      "actions": [
+        {
+          "item": "返回地图",
+          "rect": [
+            151.0,
+            396.0,
+            305.0,
+            32.0
+          ]
+        },
+        {
+          "item": "再来一局",
+          "rect": [
+            464.0,
+            396.0,
+            305.0,
+            32.0
+          ]
+        },
+        {
+          "item": "调整部署",
+          "rect": [
+            151.0,
+            434.0,
+            305.0,
+            32.0
+          ]
+        },
+        {
+          "item": "导出战报…",
+          "rect": [
+            464.0,
+            434.0,
+            305.0,
+            32.0
+          ]
+        },
+        {
+          "item": "resultRecordsButton",
+          "rect": [
+            151.0,
+            472.0,
+            618.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "resultsDialog",
+      "size": [
+        1280,
+        720
+      ],
+      "dialog_rect": [
+        315.0,
+        110.0,
+        650.0,
+        500.0
+      ],
+      "actions": [
+        {
+          "item": "返回地图",
+          "rect": [
+            331.0,
+            486.0,
+            305.0,
+            32.0
+          ]
+        },
+        {
+          "item": "再来一局",
+          "rect": [
+            644.0,
+            486.0,
+            305.0,
+            32.0
+          ]
+        },
+        {
+          "item": "调整部署",
+          "rect": [
+            331.0,
+            524.0,
+            305.0,
+            32.0
+          ]
+        },
+        {
+          "item": "导出战报…",
+          "rect": [
+            644.0,
+            524.0,
+            305.0,
+            32.0
+          ]
+        },
+        {
+          "item": "resultRecordsButton",
+          "rect": [
+            331.0,
+            562.0,
+            618.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "resultsDialog",
+      "size": [
+        1366,
+        768
+      ],
+      "dialog_rect": [
+        358.0,
+        134.0,
+        650.0,
+        500.0
+      ],
+      "actions": [
+        {
+          "item": "返回地图",
+          "rect": [
+            374.0,
+            510.0,
+            305.0,
+            32.0
+          ]
+        },
+        {
+          "item": "再来一局",
+          "rect": [
+            687.0,
+            510.0,
+            305.0,
+            32.0
+          ]
+        },
+        {
+          "item": "调整部署",
+          "rect": [
+            374.0,
+            548.0,
+            305.0,
+            32.0
+          ]
+        },
+        {
+          "item": "导出战报…",
+          "rect": [
+            687.0,
+            548.0,
+            305.0,
+            32.0
+          ]
+        },
+        {
+          "item": "resultRecordsButton",
+          "rect": [
+            374.0,
+            586.0,
+            618.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "resultsDialog",
+      "size": [
+        1920,
+        1080
+      ],
+      "dialog_rect": [
+        635.0,
+        290.0,
+        650.0,
+        500.0
+      ],
+      "actions": [
+        {
+          "item": "返回地图",
+          "rect": [
+            651.0,
+            666.0,
+            305.0,
+            32.0
+          ]
+        },
+        {
+          "item": "再来一局",
+          "rect": [
+            964.0,
+            666.0,
+            305.0,
+            32.0
+          ]
+        },
+        {
+          "item": "调整部署",
+          "rect": [
+            651.0,
+            704.0,
+            305.0,
+            32.0
+          ]
+        },
+        {
+          "item": "导出战报…",
+          "rect": [
+            964.0,
+            704.0,
+            305.0,
+            32.0
+          ]
+        },
+        {
+          "item": "resultRecordsButton",
+          "rect": [
+            651.0,
+            742.0,
+            618.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "helpDialog",
+      "size": [
+        920,
+        540
+      ],
+      "dialog_rect": [
+        120.0,
+        20.0,
+        680.0,
+        500.0
+      ],
+      "actions": [
+        {
+          "item": "关闭帮助",
+          "rect": [
+            136.0,
+            472.0,
+            648.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "helpDialog",
+      "size": [
+        1280,
+        720
+      ],
+      "dialog_rect": [
+        300.0,
+        70.0,
+        680.0,
+        580.0
+      ],
+      "actions": [
+        {
+          "item": "关闭帮助",
+          "rect": [
+            316.0,
+            602.0,
+            648.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "helpDialog",
+      "size": [
+        1366,
+        768
+      ],
+      "dialog_rect": [
+        343.0,
+        94.0,
+        680.0,
+        580.0
+      ],
+      "actions": [
+        {
+          "item": "关闭帮助",
+          "rect": [
+            359.0,
+            626.0,
+            648.0,
+            32.0
+          ]
+        }
+      ]
+    },
+    {
+      "page": "helpDialog",
+      "size": [
+        1920,
+        1080
+      ],
+      "dialog_rect": [
+        620.0,
+        250.0,
+        680.0,
+        580.0
+      ],
+      "actions": [
+        {
+          "item": "关闭帮助",
+          "rect": [
+            636.0,
+            782.0,
+            648.0,
+            32.0
+          ]
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    "ui-deployment-920x540.png",
+    "ui-deployment-1280x720.png",
+    "ui-deployment-1920x1080.png",
+    "ui-unit-selection-1280x720.png",
+    "ui-timing-920x540.png",
+    "ui-records-920x540.png",
+    "ui-results-920x540.png",
+    "ui-help-920x540.png",
+    "ui-keyboard-focus-1280x720.png"
+  ],
+  "qml_warnings": [],
+  "environment_warnings": [
+    "Offscreen Qt initially reports a missing platform font directory; the bundled application fonts register and resolve successfully."
+  ],
+  "limitations": "Offscreen rendering does not verify a separate computer or native display scaling.",
+  "keyboard_tab_route": [
+    "timingButton"
+  ],
+  "focused_step_control": {
+    "object": "stepSimulationButton",
+    "qml_control_has_focus": true,
+    "has_active_focus": true
+  },
+  "focus_after_map_click": "mapViewport",
+  "record_count": 23,
+  "static_theme_contrast": [
+    {
+      "foreground": "text",
+      "background": "canvas",
+      "colors": [
+        "#e5ebee",
+        "#141a20"
+      ],
+      "ratio": 14.56,
+      "meets_4_5": true
+    },
+    {
+      "foreground": "text",
+      "background": "surface",
+      "colors": [
+        "#e5ebee",
+        "#1b232b"
+      ],
+      "ratio": 13.2,
+      "meets_4_5": true
+    },
+    {
+      "foreground": "text",
+      "background": "surfaceRaised",
+      "colors": [
+        "#e5ebee",
+        "#222d37"
+      ],
+      "ratio": 11.64,
+      "meets_4_5": true
+    },
+    {
+      "foreground": "text",
+      "background": "field",
+      "colors": [
+        "#e5ebee",
+        "#18212a"
+      ],
+      "ratio": 13.53,
+      "meets_4_5": true
+    },
+    {
+      "foreground": "muted",
+      "background": "canvas",
+      "colors": [
+        "#a0aeb8",
+        "#141a20"
+      ],
+      "ratio": 7.71,
+      "meets_4_5": true
+    },
+    {
+      "foreground": "muted",
+      "background": "surface",
+      "colors": [
+        "#a0aeb8",
+        "#1b232b"
+      ],
+      "ratio": 6.99,
+      "meets_4_5": true
+    },
+    {
+      "foreground": "muted",
+      "background": "surfaceRaised",
+      "colors": [
+        "#a0aeb8",
+        "#222d37"
+      ],
+      "ratio": 6.17,
+      "meets_4_5": true
+    },
+    {
+      "foreground": "muted",
+      "background": "field",
+      "colors": [
+        "#a0aeb8",
+        "#18212a"
+      ],
+      "ratio": 7.16,
+      "meets_4_5": true
+    },
+    {
+      "foreground": "subtle",
+      "background": "canvas",
+      "colors": [
+        "#8b9aa5",
+        "#141a20"
+      ],
+      "ratio": 6.06,
+      "meets_4_5": true
+    },
+    {
+      "foreground": "subtle",
+      "background": "surface",
+      "colors": [
+        "#8b9aa5",
+        "#1b232b"
+      ],
+      "ratio": 5.49,
+      "meets_4_5": true
+    },
+    {
+      "foreground": "subtle",
+      "background": "surfaceRaised",
+      "colors": [
+        "#8b9aa5",
+        "#222d37"
+      ],
+      "ratio": 4.85,
+      "meets_4_5": true
+    },
+    {
+      "foreground": "subtle",
+      "background": "field",
+      "colors": [
+        "#8b9aa5",
+        "#18212a"
+      ],
+      "ratio": 5.63,
+      "meets_4_5": true
+    },
+    {
+      "foreground": "accent",
+      "background": "field",
+      "colors": [
+        "#82b7af",
+        "#18212a"
+      ],
+      "ratio": 7.24,
+      "meets_4_5": true
+    },
+    {
+      "foreground": "red",
+      "background": "field",
+      "colors": [
+        "#e78489",
+        "#18212a"
+      ],
+      "ratio": 6.25,
+      "meets_4_5": true
+    },
+    {
+      "foreground": "blue",
+      "background": "field",
+      "colors": [
+        "#80b5e0",
+        "#18212a"
+      ],
+      "ratio": 7.45,
+      "meets_4_5": true
+    },
+    {
+      "foreground": "warning",
+      "background": "field",
+      "colors": [
+        "#d6b678",
+        "#18212a"
+      ],
+      "ratio": 8.39,
+      "meets_4_5": true
+    },
+    {
+      "foreground": "onAccent",
+      "background": "accent",
+      "colors": [
+        "#102b28",
+        "#82b7af"
+      ],
+      "ratio": 6.68,
+      "meets_4_5": true
+    }
+  ],
+  "contrast_scope": "Static opaque theme text/background pairs only; this is not a complete accessibility audit.",
+  "font_validation_summary": {
+    "font_family": "Source Han Serif CN",
+    "font_check_count": 8,
+    "visible_font_item_checks": 3584,
+    "unique_actual_text_font_pairs": 218,
+    "resolved_families": [
+      "Source Han Serif CN"
+    ],
+    "glyph_families": [
+      "Source Han Serif CN"
+    ],
+    "qml_warning_count": 0
+  },
+  "captured_screenshot_count": 25,
+  "published_screenshot_count": 9,
+  "screenshot_publication": "Nine representative captures are published; complete four-size geometry, interactions and font checks are retained. All 25 captures remain in the local ignored build directory.",
+  "font_validation": "font-ui-checks.json",
+  "qml_regression_validation": {
+    "passed": 35,
+    "validation": "Included in the full 405-test run after the font change",
+    "full_suite_seconds": 16.17,
+    "new_keyboard_cases": 8,
+    "files": [
+      "tests/test_qml_workflow.py",
+      "tests/test_map_view_qt.py",
+      "tests/test_timing_records_qml.py",
+      "tests/test_ui_keyboard_qml.py"
+    ]
+  }
+}

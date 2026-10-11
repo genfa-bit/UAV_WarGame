@@ -1,0 +1,8 @@
+{
+  "map": {"width": 800, "height": 600, "style": "tactical"},
+  "terrain": "plain",
+  "red_base": [80, 300],
+  "blue_base": [720, 300],
+  "obstacles": [],
+  "units": []
+}

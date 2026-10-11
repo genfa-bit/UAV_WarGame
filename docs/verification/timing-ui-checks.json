@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "verified_at": "2026-10-11T13:00:07.963442+08:00",
+  "input": "QtTest mouse clicks and real controller events on an offscreen QML window",
+  "clock_after_duration_change": 11.0,
+  "final_step": 22,
+  "final_elapsed_seconds": 12.0,
+  "full_record_count": 31,
+  "destroyed_count": 5,
+  "result_events": 1,
+  "screenshots": [
+    "timing-settings-1280x720.png",
+    "timing-settings-920x540.png",
+    "timing-results-1280x720.png",
+    "records-1280x720.png",
+    "records-920x540.png",
+    "destruction-records-920x540.png"
+  ],
+  "note": "Artificial terminal state validates the result UI; screenshot paths are portable display labels."
+}
