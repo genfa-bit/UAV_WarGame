@@ -1,0 +1,502 @@
+{
+  "ok": true,
+  "verified_at": "2026-10-11T05:35:24.852395+00:00",
+  "sizes": [
+    [
+      920,
+      540
+    ],
+    [
+      1280,
+      720
+    ]
+  ],
+  "display_checks": [
+    {
+      "size": [
+        920,
+        540
+      ],
+      "label": "侦察无人机",
+      "no_number_prefix": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "label": "打击无人机",
+      "no_number_prefix": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "label": "无人战车",
+      "no_number_prefix": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "label": "导弹发射车",
+      "no_number_prefix": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "label": "指挥节点",
+      "no_number_prefix": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "label": "山地",
+      "no_number_prefix": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "label": "建筑",
+      "no_number_prefix": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "label": "禁行区",
+      "no_number_prefix": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "label": "侦察无人机",
+      "no_number_prefix": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "label": "打击无人机",
+      "no_number_prefix": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "label": "无人战车",
+      "no_number_prefix": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "label": "导弹发射车",
+      "no_number_prefix": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "label": "指挥节点",
+      "no_number_prefix": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "label": "山地",
+      "no_number_prefix": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "label": "建筑",
+      "no_number_prefix": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "label": "禁行区",
+      "no_number_prefix": true
+    }
+  ],
+  "click_checks": [
+    {
+      "size": [
+        920,
+        540
+      ],
+      "label": "侦察无人机",
+      "field": "selected_unit_type",
+      "selected_type": "scout_drone",
+      "highlighted": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "label": "打击无人机",
+      "field": "selected_unit_type",
+      "selected_type": "strike_drone",
+      "highlighted": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "label": "无人战车",
+      "field": "selected_unit_type",
+      "selected_type": "ground_vehicle",
+      "highlighted": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "label": "导弹发射车",
+      "field": "selected_unit_type",
+      "selected_type": "missile_vehicle",
+      "highlighted": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "label": "指挥节点",
+      "field": "selected_unit_type",
+      "selected_type": "command_node",
+      "highlighted": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "label": "山地",
+      "field": "selected_obstacle_type",
+      "selected_type": "mountain",
+      "highlighted": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "label": "建筑",
+      "field": "selected_obstacle_type",
+      "selected_type": "building",
+      "highlighted": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "label": "禁行区",
+      "field": "selected_obstacle_type",
+      "selected_type": "restricted",
+      "highlighted": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "label": "侦察无人机",
+      "field": "selected_unit_type",
+      "selected_type": "scout_drone",
+      "highlighted": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "label": "打击无人机",
+      "field": "selected_unit_type",
+      "selected_type": "strike_drone",
+      "highlighted": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "label": "无人战车",
+      "field": "selected_unit_type",
+      "selected_type": "ground_vehicle",
+      "highlighted": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "label": "导弹发射车",
+      "field": "selected_unit_type",
+      "selected_type": "missile_vehicle",
+      "highlighted": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "label": "指挥节点",
+      "field": "selected_unit_type",
+      "selected_type": "command_node",
+      "highlighted": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "label": "山地",
+      "field": "selected_obstacle_type",
+      "selected_type": "mountain",
+      "highlighted": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "label": "建筑",
+      "field": "selected_obstacle_type",
+      "selected_type": "building",
+      "highlighted": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "label": "禁行区",
+      "field": "selected_obstacle_type",
+      "selected_type": "restricted",
+      "highlighted": true
+    }
+  ],
+  "shortcut_checks": [
+    {
+      "size": [
+        920,
+        540
+      ],
+      "key": "1",
+      "label": "侦察无人机",
+      "field": "selected_unit_type",
+      "selected_type": "scout_drone",
+      "highlighted": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "key": "2",
+      "label": "打击无人机",
+      "field": "selected_unit_type",
+      "selected_type": "strike_drone",
+      "highlighted": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "key": "3",
+      "label": "无人战车",
+      "field": "selected_unit_type",
+      "selected_type": "ground_vehicle",
+      "highlighted": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "key": "4",
+      "label": "导弹发射车",
+      "field": "selected_unit_type",
+      "selected_type": "missile_vehicle",
+      "highlighted": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "key": "5",
+      "label": "指挥节点",
+      "field": "selected_unit_type",
+      "selected_type": "command_node",
+      "highlighted": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "key": "6",
+      "label": "山地",
+      "field": "selected_obstacle_type",
+      "selected_type": "mountain",
+      "highlighted": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "key": "7",
+      "label": "建筑",
+      "field": "selected_obstacle_type",
+      "selected_type": "building",
+      "highlighted": true
+    },
+    {
+      "size": [
+        920,
+        540
+      ],
+      "key": "8",
+      "label": "禁行区",
+      "field": "selected_obstacle_type",
+      "selected_type": "restricted",
+      "highlighted": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "key": "1",
+      "label": "侦察无人机",
+      "field": "selected_unit_type",
+      "selected_type": "scout_drone",
+      "highlighted": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "key": "2",
+      "label": "打击无人机",
+      "field": "selected_unit_type",
+      "selected_type": "strike_drone",
+      "highlighted": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "key": "3",
+      "label": "无人战车",
+      "field": "selected_unit_type",
+      "selected_type": "ground_vehicle",
+      "highlighted": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "key": "4",
+      "label": "导弹发射车",
+      "field": "selected_unit_type",
+      "selected_type": "missile_vehicle",
+      "highlighted": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "key": "5",
+      "label": "指挥节点",
+      "field": "selected_unit_type",
+      "selected_type": "command_node",
+      "highlighted": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "key": "6",
+      "label": "山地",
+      "field": "selected_obstacle_type",
+      "selected_type": "mountain",
+      "highlighted": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "key": "7",
+      "label": "建筑",
+      "field": "selected_obstacle_type",
+      "selected_type": "building",
+      "highlighted": true
+    },
+    {
+      "size": [
+        1280,
+        720
+      ],
+      "key": "8",
+      "label": "禁行区",
+      "field": "selected_obstacle_type",
+      "selected_type": "restricted",
+      "highlighted": true
+    }
+  ],
+  "screenshots": [
+    "ui-deployment-920x540.png",
+    "ui-deployment-1280x720.png"
+  ],
+  "qml_warnings": [],
+  "environment_warnings": [
+    "Offscreen Qt reports its missing bundled font directory before the application registers its bundled fonts."
+  ],
+  "limitations": "Offscreen real QML and QtTest input; native display scaling and the separately packaged EXE were not checked by this script.",
+  "qml_regression": {
+    "passed": 35,
+    "seconds": 10.56
+  },
+  "package_verification": {
+    "checks": 9,
+    "resources": 20,
+    "font_family": "Source Han Serif CN"
+  }
+}

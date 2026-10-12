@@ -4,25 +4,120 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
+import QtQuick.Dialogs
+import "Theme.js" as Theme
 
 ApplicationWindow {
     id: root
-    width: 1440
-    height: 900
-    minimumWidth: 1180
-    minimumHeight: 720
+    width: Math.min(1440, Screen.desktopAvailableWidth)
+    height: Math.min(900, Screen.desktopAvailableHeight)
+    minimumWidth: 920
+    minimumHeight: 540
     visible: true
-    color: "#08111f"
+    color: Theme.canvas
+    font.family: Theme.fontFamily
+    font.pixelSize: Theme.fontSize
+    palette.window: Theme.surface
+    palette.base: Theme.field
+    palette.button: Theme.field
+    palette.buttonText: Theme.text
+    palette.text: Theme.text
+    palette.windowText: Theme.text
+    palette.highlight: Theme.selection
+    palette.highlightedText: Theme.text
+    palette.mid: Theme.border
     title: "无人装备战争游戏仿真系统"
 
     property var snap: viewModel.snapshot
     readonly property bool deploymentMode: snap.game_state === "deployment"
-    readonly property color redColor: "#ff5d73"
-    readonly property color blueColor: "#4ca6ff"
-    readonly property color accentColor: "#54e1c2"
-    readonly property color panelColor: "#101d2e"
-    readonly property color cardColor: "#14243a"
-    readonly property color mutedColor: "#8da2ba"
+    readonly property color redColor: Theme.red
+    readonly property color blueColor: Theme.blue
+    readonly property color accentColor: Theme.accent
+    readonly property color panelColor: Theme.surface
+    readonly property color cardColor: Theme.surfaceRaised
+    readonly property color mutedColor: Theme.muted
+    readonly property string selectedUnitId: viewModel.selectedUnitId
+    property bool resultPresented: false
+    property string logFilter: "all"
+    property string recordFilter: "all"
+    readonly property var timing: root.snap.timing || ({step_duration_seconds: 0.22, max_steps: 2000, editable: root.deploymentMode || root.snap.game_state === "paused"})
+    readonly property var recording: root.snap.recording || ({records: [], history: [], record_count: 0, has_run: false})
+    property bool showAllRanges: false
+    property bool showMapGrid: true
+    property bool showMapLandmarks: true
+    readonly property var mapVisual: root.snap.map.visual || ({})
+    readonly property string mapStyle: root.snap.map.style || "tactical"
+    property var pendingAction: null
+    property string pendingTitle: "确认操作"
+    property string pendingMessage: ""
+    readonly property bool dialogActive: confirmationDialog.visible || resultsDialog.visible
+        || helpDialog.visible || loadMapDialog.visible || saveMapDialog.visible || exportDialog.visible
+        || timingDialog.visible || recordsDialog.visible || exportRecordsDialog.visible
+    readonly property bool controlHasFocus: !!root.activeFocusControl
+
+    function secondsLabel(value) {
+        return Number(value || 0).toFixed(2) + " 秒"
+    }
+
+    function filteredRecords() {
+        const records = root.recording.records || []
+        if (root.recordFilter === "all") return records
+        return records.filter(function(record) { return record.category === root.recordFilter })
+    }
+
+    function recordCategoryLabel(category) {
+        const labels = { scout: "侦察", sharing: "共享", destroyed: "摧毁",
+            tactical: "战术", result: "结果", settings: "设置", lifecycle: "运行", combat: "交战" }
+        return labels[category] || category
+    }
+
+    function confirmAction(title, message, action) {
+        pendingTitle = title
+        pendingMessage = message
+        pendingAction = action
+        confirmationDialog.open()
+    }
+
+    function selectScenario(index) {
+        const scenarios = root.snap.scenarios || []
+        if (index < 0 || index >= scenarios.length) return
+        const scenario = scenarios[index]
+        if (scenario.id === root.snap.scene_id) return
+        confirmAction("切换场景", "切换到“" + scenario.name
+                      + "”会替换当前地图和部署。未保存的编辑将丢失。", function() {
+            viewModel.loadScenario(scenario.id)
+        })
+    }
+
+    function scenarioIndex() {
+        const scenarios = root.snap.scenarios || []
+        for (let i = 0; i < scenarios.length; ++i)
+            if (scenarios[i].id === root.snap.scene_id) return i
+        return -1
+    }
+
+    function requestLoadMap() {
+        confirmAction("载入地图", "载入文件会替换当前地图和部署。请先保存需要保留的编辑。",
+                      function() { loadMapDialog.open() })
+    }
+
+    function requestReset() {
+        confirmAction("返回部署", "结束本局并返回部署编辑？本局运行结果会被重置。",
+                      function() { viewModel.resetSimulation() })
+    }
+
+    function filteredLogs() {
+        const logs = root.snap.logs || []
+        if (logFilter === "all") return logs
+        return logs.filter(function(line) {
+            if (root.logFilter === "scout")
+                return line.indexOf("[Scout]") === 0 || line.indexOf("[TargetPool]") === 0
+            if (root.logFilter === "attack") return line.indexOf("[Attack]") === 0
+            if (root.logFilter === "destroyed") return line.indexOf("[Destroyed]") === 0
+            return line.indexOf("[Attack]") !== 0 && line.indexOf("[Destroyed]") !== 0
+                && line.indexOf("[Scout]") !== 0 && line.indexOf("[TargetPool]") !== 0
+        })
+    }
 
     function unitShortName(unitType) {
         if (unitType === "scout_drone") return "侦"
@@ -32,9 +127,18 @@ ApplicationWindow {
         return "指"
     }
 
+    function unitStatusLabel(status) {
+        const labels = {
+            "Idle": "待命", "Move": "机动", "Patrol": "巡逻", "Attack": "攻击",
+            "Evade": "规避", "Destroyed": "已摧毁", "Scout": "侦察",
+            "Retreat": "撤退", "Resupply": "补给", "Support": "支援"
+        }
+        return labels[status] || status
+    }
+
     function stateColor(state) {
         if (state === "running") return accentColor
-        if (state === "paused") return "#ffca64"
+        if (state === "paused") return Theme.warning
         if (state === "finished") return redColor
         return blueColor
     }
@@ -63,277 +167,368 @@ ApplicationWindow {
         return null
     }
 
-    component AppButton: Rectangle {
-        id: button
-        property string text: ""
-        property color tone: root.accentColor
-        property bool selected: false
-        signal clicked()
+    function revealSideControl(control) {
+        let ancestor = control.parent
+        while (ancestor && ancestor !== sidePanel) ancestor = ancestor.parent
+        if (!ancestor) return
+        const flick = sideScroll.contentItem
+        const point = control.mapToItem(flick.contentItem, 0, 0)
+        if (point.y < flick.contentY)
+            flick.contentY = Math.max(0, point.y - 4)
+        else if (point.y + control.height > flick.contentY + flick.height)
+            flick.contentY = Math.min(Math.max(0, flick.contentHeight - flick.height), point.y + control.height - flick.height + 4)
+    }
 
-        implicitHeight: 38
-        implicitWidth: 110
-        radius: 8
-        opacity: enabled ? 1 : 0.42
-        color: selected ? root.alphaColor(tone, 0.24)
-                        : mouseArea.containsMouse ? "#203653" : "#182a42"
-        border.width: selected ? 1.5 : 1
-        border.color: selected ? tone : "#2b4260"
+    component AppButton: ActionButton {
+        onActiveFocusChanged: if (activeFocus) root.revealSideControl(this)
+    }
 
-        Text {
-            anchors.centerIn: parent
-            text: button.text
-            color: button.selected ? button.tone : "#dce8f6"
-            font.family: "Microsoft YaHei"
-            font.pixelSize: 13
-            font.bold: button.selected
+    component AppComboBox: ComboBox {
+        id: combo
+        implicitHeight: Theme.controlHeight
+        font.family: Theme.fontFamily
+        font.pixelSize: Theme.fontSize
+        leftPadding: 10
+        rightPadding: 28
+        onActiveFocusChanged: if (activeFocus) root.revealSideControl(this)
+        palette.button: Theme.field
+        palette.buttonText: Theme.text
+        palette.base: Theme.surfaceRaised
+        palette.text: Theme.text
+        palette.highlight: Theme.selection
+        palette.highlightedText: Theme.text
+        background: Rectangle {
+            radius: Theme.radiusSmall
+            color: combo.hovered ? Theme.surfaceRaised : Theme.field
+            border.color: combo.activeFocus ? Theme.accent : Theme.border
+            border.width: combo.activeFocus ? 2 : 1
         }
-
-        MouseArea {
-            id: mouseArea
-            anchors.fill: parent
-            hoverEnabled: true
-            enabled: button.enabled
-            cursorShape: Qt.PointingHandCursor
-            onClicked: button.clicked()
+        contentItem: Text {
+            text: combo.displayText
+            color: Theme.text
+            font: combo.font
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+        indicator: Canvas {
+            x: combo.width - width - 10
+            y: (combo.height - height) / 2
+            width: 10
+            height: 6
+            onPaint: {
+                const ctx = getContext("2d")
+                ctx.clearRect(0, 0, width, height)
+                ctx.strokeStyle = Theme.muted
+                ctx.lineWidth = 1.5
+                ctx.beginPath()
+                ctx.moveTo(1, 1)
+                ctx.lineTo(5, 5)
+                ctx.lineTo(9, 1)
+                ctx.stroke()
+            }
         }
     }
 
     component SectionTitle: Text {
-        color: "#ecf5ff"
-        font.family: "Microsoft YaHei"
-        font.pixelSize: 13
+        color: Theme.text
+        font.family: Theme.fontFamily
+        font.pixelSize: Theme.fontSection
         font.bold: true
-        font.letterSpacing: 1
     }
 
-    component StatPair: Rectangle {
+    component StatPair: Item {
         property string label: ""
         property string redValue: "0"
         property string blueValue: "0"
-
-        implicitHeight: 72
-        radius: 10
-        color: "#13243a"
-        border.color: "#263d5a"
-
-        Column {
-            anchors.fill: parent
-            anchors.margins: 9
-            spacing: 5
-
-            Text {
-                width: parent.width
-                text: label
-                color: root.mutedColor
-                font.family: "Microsoft YaHei"
-                font.pixelSize: 11
-                horizontalAlignment: Text.AlignHCenter
-            }
-
-            Row {
-                width: parent.width
-                height: 31
-
-                Text {
-                    width: parent.width / 2
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: redValue
-                    color: root.redColor
-                    font.family: "Microsoft YaHei"
-                    font.pixelSize: 17
-                    font.bold: true
-                    minimumPixelSize: 10
-                    fontSizeMode: Text.Fit
-                    horizontalAlignment: Text.AlignHCenter
-                }
-
-                Text {
-                    width: parent.width / 2
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: blueValue
-                    color: root.blueColor
-                    font.family: "Microsoft YaHei"
-                    font.pixelSize: 17
-                    font.bold: true
-                    minimumPixelSize: 10
-                    fontSizeMode: Text.Fit
-                    horizontalAlignment: Text.AlignHCenter
-                }
-            }
-        }
-    }
-
-    background: Rectangle {
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: "#0b1728" }
-            GradientStop { position: 1.0; color: "#07101c" }
-        }
-    }
-
-    header: Rectangle {
-        height: 72
-        color: "#0c192a"
-        border.color: "#1d334e"
-
+        implicitHeight: 28
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: 24
-            anchors.rightMargin: 24
-            spacing: 18
-
-            Column {
-                Layout.alignment: Qt.AlignVCenter
-                spacing: 2
-
-                Text {
-                    text: "UAV WARGAME"
-                    color: root.accentColor
-                    font.family: "Segoe UI"
-                    font.pixelSize: 11
-                    font.bold: true
-                    font.letterSpacing: 3
-                }
-
-                Text {
-                    text: "无人装备战争游戏仿真系统"
-                    color: "#f1f7ff"
-                    font.family: "Microsoft YaHei"
-                    font.pixelSize: 22
-                    font.bold: true
-                }
+            spacing: 8
+            Text {
+                Layout.fillWidth: true
+                text: label
+                color: root.mutedColor
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSize
             }
+            Text {
+                Layout.preferredWidth: 82
+                text: redValue
+                color: root.redColor
+                font.family: Theme.fontFamily
+                font.pixelSize: 13
+                minimumPixelSize: 11
+                fontSizeMode: Text.Fit
+                horizontalAlignment: Text.AlignRight
+            }
+            Text {
+                Layout.preferredWidth: 82
+                text: blueValue
+                color: root.blueColor
+                font.family: Theme.fontFamily
+                font.pixelSize: 13
+                minimumPixelSize: 11
+                fontSizeMode: Text.Fit
+                horizontalAlignment: Text.AlignRight
+            }
+        }
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: 1
+            color: Theme.divider
+        }
+    }
 
+    background: Rectangle { color: Theme.canvas }
+
+    header: Rectangle {
+        height: 52
+        color: Theme.surface
+        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.divider }
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 16
+            anchors.rightMargin: 16
+            spacing: 12
+            Text {
+                text: "无人装备战争游戏仿真系统"
+                color: Theme.text
+                font.family: Theme.fontFamily
+                font.pixelSize: root.width < 1100 ? 15 : 17
+                font.bold: true
+            }
             Item { Layout.fillWidth: true }
-
-            Rectangle {
-                implicitWidth: 114
-                implicitHeight: 36
-                radius: 18
-                color: root.alphaColor(root.stateColor(root.snap.game_state), 0.15)
-                border.color: root.stateColor(root.snap.game_state)
-
-                Row {
-                    anchors.centerIn: parent
-                    spacing: 8
-
-                    Rectangle {
-                        width: 8
-                        height: 8
-                        radius: 4
-                        color: root.stateColor(root.snap.game_state)
-                    }
-
-                    Text {
-                        text: root.snap.state_label
-                        color: "#eaf4ff"
-                        font.family: "Microsoft YaHei"
-                        font.pixelSize: 13
-                        font.bold: true
-                    }
+            Row {
+                spacing: 6
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 6; height: 6; radius: 3
+                    color: root.stateColor(root.snap.game_state)
+                }
+                Text {
+                    text: root.snap.state_label
+                    color: Theme.text
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
                 }
             }
-
-            Rectangle {
-                implicitWidth: 118
-                implicitHeight: 44
-                radius: 8
-                color: "#13243a"
-                border.color: "#263f5e"
-
-                Column {
-                    anchors.centerIn: parent
-                    spacing: 1
-
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: "时间步"
-                        color: root.mutedColor
-                        font.family: "Microsoft YaHei"
-                        font.pixelSize: 10
-                    }
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: root.snap.statistics.time_step
-                        color: "#ffffff"
-                        font.family: "Consolas"
-                        font.pixelSize: 20
-                        font.bold: true
-                    }
+            Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 20; color: Theme.divider }
+            Column {
+                Layout.preferredWidth: root.width < 1100 ? 132 : 150
+                spacing: 0
+                Text {
+                    text: "累计 " + root.secondsLabel(root.snap.statistics.elapsed_seconds)
+                    color: Theme.muted
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 11
                 }
+                Text {
+                    text: root.snap.statistics.time_step + " / " + (root.snap.statistics.max_steps || 2000) + " 步"
+                    color: Theme.text
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                }
+            }
+            AppButton {
+                objectName: "timingButton"
+                Layout.preferredWidth: 80
+                flat: true
+                text: "时间设置"
+                onClicked: timingDialog.open()
+            }
+            AppButton {
+                objectName: "recordsButton"
+                Layout.preferredWidth: 80
+                flat: true
+                text: "运行记录"
+                onClicked: recordsDialog.open()
             }
         }
     }
 
     RowLayout {
         anchors.fill: parent
-        anchors.margins: 16
-        spacing: 14
+        anchors.margins: 8
+        spacing: 8
 
         Rectangle {
             id: battlefieldCard
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.minimumWidth: 720
-            radius: 14
-            color: "#0d1a2a"
-            border.color: "#203955"
+            Layout.minimumWidth: 500
+            radius: Theme.radius
+            color: Theme.canvas
+            border.color: Theme.divider
             clip: true
 
             Rectangle {
+                id: mapToolbar
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                height: 42
-                color: "#112238"
-
+                height: 40
+                color: Theme.surface
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 14
-                    anchors.rightMargin: 14
-
+                    anchors.leftMargin: 10
+                    anchors.rightMargin: 10
+                    spacing: 6
                     Text {
-                        text: "战场态势  /  " + root.snap.map.terrain
-                        color: "#cfe0f2"
-                        font.family: "Microsoft YaHei"
-                        font.pixelSize: 13
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 72
+                        text: root.snap.scene_name || root.snap.current_scenario || root.mapVisual.title || "战术地图"
+                        color: Theme.text
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSize
                         font.bold: true
+                        elide: Text.ElideRight
                     }
-                    Item { Layout.fillWidth: true }
+                    AppButton {
+                        objectName: "mapZoomOut"
+                        Layout.preferredWidth: 28
+                        leftPadding: 0
+                        rightPadding: 0
+                        Layout.preferredHeight: 28
+                        text: "−"
+                        enabled: battlefieldViewport.zoomLevel > 1.001
+                        onClicked: battlefieldViewport.zoomAt(battlefieldViewport.zoomLevel / 1.25,
+                                                              battlefieldViewport.width / 2, battlefieldViewport.height / 2)
+                    }
                     Text {
-                        text: root.deploymentMode
-                              ? root.snap.deployment.selected_label + " · "
-                                + (root.snap.deployment.selected_team === "red" ? "红方" : "蓝方")
-                              : "速度 " + root.snap.speed_label
-                        color: root.deploymentMode
-                               ? (root.snap.deployment.selected_team === "red"
-                                  ? root.redColor : root.blueColor)
-                               : root.accentColor
-                        font.family: "Microsoft YaHei"
-                        font.pixelSize: 12
+                        Layout.preferredWidth: 38
+                        text: Math.round(battlefieldViewport.zoomLevel * 100) + "%"
+                        color: Theme.text
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 11
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                    AppButton {
+                        objectName: "mapZoomIn"
+                        Layout.preferredWidth: 28
+                        leftPadding: 0
+                        rightPadding: 0
+                        Layout.preferredHeight: 28
+                        text: "+"
+                        enabled: battlefieldViewport.zoomLevel < 3.999
+                        onClicked: battlefieldViewport.zoomAt(battlefieldViewport.zoomLevel * 1.25,
+                                                              battlefieldViewport.width / 2, battlefieldViewport.height / 2)
+                    }
+                    AppButton {
+                        objectName: "mapFit"
+                        Layout.preferredWidth: 70
+                        Layout.preferredHeight: 28
+                        text: "适应地图"
+                        onClicked: battlefieldViewport.resetView()
+                    }
+                    AppButton {
+                        Layout.preferredWidth: 72
+                        Layout.preferredHeight: 28
+                        text: "全部范围"
+                        tone: Theme.selectionText
+                        selected: root.showAllRanges
+                        onClicked: { root.showAllRanges = !root.showAllRanges; battleCanvas.requestPaint() }
+                    }
+                    AppButton {
+                        Layout.preferredWidth: 46
+                        Layout.preferredHeight: 28
+                        text: "网格"
+                        tone: Theme.selectionText
+                        selected: root.showMapGrid
+                        onClicked: root.showMapGrid = !root.showMapGrid
+                    }
+                    AppButton {
+                        Layout.preferredWidth: 46
+                        Layout.preferredHeight: 28
+                        text: "地标"
+                        tone: Theme.selectionText
+                        selected: root.showMapLandmarks
+                        onClicked: root.showMapLandmarks = !root.showMapLandmarks
                     }
                 }
             }
 
             Item {
                 id: battlefieldViewport
+                objectName: "mapViewport"
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.top: parent.top
+                anchors.top: mapToolbar.bottom
                 anchors.bottom: messageBar.top
-                anchors.topMargin: 42
-                anchors.margins: 14
-
-                readonly property real scaleFactor: Math.min(
+                anchors.margins: 8
+                clip: true
+                property real zoomLevel: 1
+                property real panX: 0
+                property real panY: 0
+                readonly property real fitScale: Math.min(
                     width / root.snap.map.width,
                     height / root.snap.map.height
                 )
+                readonly property real scaleFactor: fitScale * zoomLevel
+                readonly property real offsetX: (width - root.snap.map.width * scaleFactor) / 2 + panX
+                readonly property real offsetY: (height - root.snap.map.height * scaleFactor) / 2 + panY
+                readonly property string sceneKey: root.snap.scene_id + ":" + root.snap.map.width + ":" + root.snap.map.height
+                readonly property real visibleWorldX: root.clamp(-offsetX / scaleFactor, 0, root.snap.map.width)
+                readonly property real visibleWorldY: root.clamp(-offsetY / scaleFactor, 0, root.snap.map.height)
+                readonly property real visibleWorldWidth: root.clamp((width - offsetX) / scaleFactor, 0, root.snap.map.width) - visibleWorldX
+                readonly property real visibleWorldHeight: root.clamp((height - offsetY) / scaleFactor, 0, root.snap.map.height) - visibleWorldY
+
+                function constrainPan() {
+                    const xLimit = Math.max(0, (root.snap.map.width * scaleFactor - width) / 2)
+                    const yLimit = Math.max(0, (root.snap.map.height * scaleFactor - height) / 2)
+                    panX = root.clamp(panX, -xLimit, xLimit)
+                    panY = root.clamp(panY, -yLimit, yLimit)
+                }
+                function resetView() {
+                    zoomLevel = 1
+                    panX = 0
+                    panY = 0
+                }
+                function zoomAt(factor, anchorX, anchorY) {
+                    const worldX = (anchorX - offsetX) / scaleFactor
+                    const worldY = (anchorY - offsetY) / scaleFactor
+                    zoomLevel = root.clamp(factor, 1, 4)
+                    panX = anchorX - worldX * scaleFactor - (width - root.snap.map.width * scaleFactor) / 2
+                    panY = anchorY - worldY * scaleFactor - (height - root.snap.map.height * scaleFactor) / 2
+                    constrainPan()
+                }
+                function centerOn(worldX, worldY) {
+                    panX = (root.snap.map.width / 2 - worldX) * scaleFactor
+                    panY = (root.snap.map.height / 2 - worldY) * scaleFactor
+                    constrainPan()
+                }
+                onSceneKeyChanged: resetView()
+                onWidthChanged: constrainPan()
+                onHeightChanged: constrainPan()
+
+                MouseArea {
+                    anchors.fill: parent
+                    z: -1
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    onPressed: battlefieldViewport.forceActiveFocus(Qt.MouseFocusReason)
+                }
 
                 Item {
                     id: battlefield
+                    objectName: "battlefieldLayer"
                     width: root.snap.map.width * battlefieldViewport.scaleFactor
                     height: root.snap.map.height * battlefieldViewport.scaleFactor
-                    anchors.centerIn: parent
+                    x: battlefieldViewport.offsetX
+                    y: battlefieldViewport.offsetY
                     clip: true
+
+                    TerrainLayer {
+                        objectName: "terrainLayer"
+                        anchors.fill: parent
+                        worldWidth: root.snap.map.width
+                        worldHeight: root.snap.map.height
+                        mapStyle: root.mapStyle
+                        visual: root.mapVisual
+                        showGrid: root.showMapGrid
+                        showLandmarks: root.showMapLandmarks
+                        z: 0
+                    }
 
                     Canvas {
                         id: battleCanvas
@@ -345,35 +540,29 @@ ApplicationWindow {
                             const sx = width / root.snap.map.width
                             const sy = height / root.snap.map.height
                             ctx.clearRect(0, 0, width, height)
-                            ctx.fillStyle = "#0a1828"
-                            ctx.fillRect(0, 0, width, height)
-
-                            ctx.lineWidth = 1
-                            ctx.strokeStyle = "#17314a"
-                            for (let x = 0; x <= root.snap.map.width; x += 40) {
-                                ctx.beginPath()
-                                ctx.moveTo(x * sx, 0)
-                                ctx.lineTo(x * sx, height)
-                                ctx.stroke()
-                            }
-                            for (let y = 0; y <= root.snap.map.height; y += 40) {
-                                ctx.beginPath()
-                                ctx.moveTo(0, y * sy)
-                                ctx.lineTo(width, y * sy)
-                                ctx.stroke()
-                            }
 
                             for (let i = 0; i < root.snap.units.length; ++i) {
                                 const unit = root.snap.units[i]
                                 if (unit.destroyed) continue
+                                if (!root.showAllRanges && unit.id !== root.selectedUnitId) continue
                                 ctx.beginPath()
                                 ctx.arc(unit.x * sx, unit.y * sy,
                                         unit.detect_range * sx, 0, Math.PI * 2)
                                 ctx.strokeStyle = unit.team === "red"
-                                                  ? "rgba(255,93,115,0.16)"
-                                                  : "rgba(76,166,255,0.16)"
+                                                  ? "rgba(255,93,115,0.42)"
+                                                  : "rgba(76,166,255,0.42)"
                                 ctx.lineWidth = 1
                                 ctx.stroke()
+                                if (unit.id === root.selectedUnitId) {
+                                    ctx.beginPath()
+                                    ctx.arc(unit.x * sx, unit.y * sy,
+                                            unit.attack_range * sx, 0, Math.PI * 2)
+                                    ctx.strokeStyle = "#ffd166"
+                                    ctx.lineWidth = 2
+                                    ctx.setLineDash([6, 5])
+                                    ctx.stroke()
+                                    ctx.setLineDash([])
+                                }
                             }
 
                             const preview = root.snap.map.preview
@@ -418,6 +607,7 @@ ApplicationWindow {
                             Image {
                                 anchors.fill: parent
                                 source: obstacleItem.panelSource
+                                visible: root.mapStyle === "tactical"
                                 fillMode: Image.Stretch
                                 opacity: 0.5
                                 smooth: true
@@ -425,7 +615,8 @@ ApplicationWindow {
 
                             Rectangle {
                                 anchors.fill: parent
-                                color: "transparent"
+                                color: root.mapStyle === "tactical" ? "transparent"
+                                    : root.alphaColor(obstacleItem.accentColor, 0.13)
                                 border.width: obstacleItem.modelData.selected ? 3 : 1
                                 border.color: obstacleItem.modelData.selected
                                               ? "#ffd166" : obstacleItem.accentColor
@@ -440,6 +631,7 @@ ApplicationWindow {
                                 height: obstacleItem.obstacleType === "restricted"
                                         ? parent.height * 0.88 : parent.height * 1.22
                                 source: obstacleItem.iconSource
+                                visible: root.mapStyle === "tactical"
                                 fillMode: Image.PreserveAspectFit
                                 smooth: true
                                 mipmap: true
@@ -460,7 +652,7 @@ ApplicationWindow {
                                     anchors.centerIn: parent
                                     text: obstacleItem.modelData.name
                                     color: "#e3edf7"
-                                    font.family: "Microsoft YaHei"
+                                    font.family: Theme.fontFamily
                                     font.pixelSize: 10
                                     font.bold: true
                                 }
@@ -478,9 +670,11 @@ ApplicationWindow {
                             required property var modelData
                             readonly property color teamColor:
                                 modelData.team === "red" ? root.redColor : root.blueColor
+                            readonly property real glyphSize: root.mapStyle === "tactical"
+                                ? 62 : root.clamp(72 * battlefieldViewport.scaleFactor, 30, 62)
 
                             x: modelData.x * battlefieldViewport.scaleFactor - width / 2
-                            y: modelData.y * battlefieldViewport.scaleFactor - 34
+                            y: modelData.y * battlefieldViewport.scaleFactor - glyphSize / 2
                             width: 76
                             height: 82
                             z: 3
@@ -490,9 +684,9 @@ ApplicationWindow {
                                 objectName: "baseBackdrop-" + baseItem.modelData.team
                                 property real outlineWidth: 0
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                width: 62
-                                height: 62
-                                radius: 31
+                                width: baseItem.glyphSize
+                                height: width
+                                radius: width / 2
                                 color: root.alphaColor(baseItem.teamColor, 0.18)
                                 border.width: outlineWidth
                             }
@@ -500,9 +694,9 @@ ApplicationWindow {
                             Image {
                                 objectName: "baseIcon-" + baseItem.modelData.team
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                y: 4
-                                width: 54
-                                height: 54
+                                y: (baseItem.glyphSize - height) / 2
+                                width: baseItem.glyphSize * 0.87
+                                height: width
                                 source: "../assets/unit_icons/base_station.png"
                                 fillMode: Image.PreserveAspectFit
                                 smooth: true
@@ -511,8 +705,8 @@ ApplicationWindow {
 
                             Rectangle {
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                y: 63
-                                width: 58
+                                y: baseItem.glyphSize + 1
+                                width: Math.max(30, baseItem.glyphSize * 0.94)
                                 height: 5
                                 radius: 2
                                 color: "#263348"
@@ -528,11 +722,11 @@ ApplicationWindow {
 
                             Text {
                                 anchors.top: parent.top
-                                anchors.topMargin: 70
+                                anchors.topMargin: baseItem.glyphSize + 8
                                 width: parent.width
                                 text: baseItem.modelData.team === "red" ? "红方基地" : "蓝方基地"
                                 color: baseItem.teamColor
-                                font.family: "Microsoft YaHei"
+                                font.family: Theme.fontFamily
                                 font.pixelSize: 9
                                 horizontalAlignment: Text.AlignHCenter
                             }
@@ -907,41 +1101,49 @@ ApplicationWindow {
                             required property real attackRange
                             required property bool destroyed
                             required property string engagement
+                            readonly property real glyphSize: root.mapStyle === "tactical"
+                                ? 52 : root.clamp(52 * battlefieldViewport.scaleFactor, 24, 52)
+                            readonly property bool showDetails: root.mapStyle === "tactical"
+                                || battlefieldViewport.zoomLevel >= 1.7
+                                || root.selectedUnitId === unitId || unitHitTarget.containsMouse
+                            property real displayedWorldX: worldX
+                            property real displayedWorldY: worldY
 
                             width: 88
                             height: 88
-                            x: worldX * battlefieldViewport.scaleFactor - width / 2
-                            y: worldY * battlefieldViewport.scaleFactor - 27
+                            x: displayedWorldX * battlefieldViewport.scaleFactor - width / 2
+                            y: displayedWorldY * battlefieldViewport.scaleFactor - glyphSize / 2
                             visible: root.snap.show_wrecks || !destroyed
                             opacity: destroyed ? 0.42 : 1
-                            z: 5
+                            z: root.selectedUnitId === unitId || unitHitTarget.containsMouse ? 6 : 5
 
-                            Behavior on x {
+                            Behavior on displayedWorldX {
                                 enabled: !root.deploymentMode
                                 NumberAnimation { duration: 170; easing.type: Easing.OutCubic }
                             }
-                            Behavior on y {
+                            Behavior on displayedWorldY {
                                 enabled: !root.deploymentMode
                                 NumberAnimation { duration: 170; easing.type: Easing.OutCubic }
                             }
 
                             Rectangle {
                                 id: unitShape
-                                width: 52
+                                width: unitDelegate.glyphSize
                                 height: width
                                 radius: width / 2
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 color: root.alphaColor(
                                     unitDelegate.team === "red" ? root.redColor : root.blueColor,
                                     unitDelegate.destroyed ? 0.08 : 0.18)
-                                border.width: 0
+                                border.width: root.selectedUnitId === unitDelegate.unitId ? 2 : 0
+                                border.color: "#ffd166"
 
                                 Image {
                                     id: unitIcon
                                     objectName: "unitIcon-" + unitDelegate.unitId
                                     anchors.centerIn: parent
-                                    width: 44
-                                    height: 44
+                                    width: parent.width * 0.85
+                                    height: width
                                     source: "../assets/unit_icons/"
                                             + unitDelegate.unitType + ".png"
                                     fillMode: Image.PreserveAspectFit
@@ -954,7 +1156,7 @@ ApplicationWindow {
                                 anchors.top: unitShape.bottom
                                 anchors.topMargin: 4
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                width: 56
+                                width: unitDelegate.glyphSize + 4
                                 height: 4
                                 radius: 2
                                 color: "#3a1e29"
@@ -971,10 +1173,11 @@ ApplicationWindow {
                             Text {
                                 anchors.top: unitShape.bottom
                                 anchors.topMargin: 11
+                                visible: unitDelegate.showDetails
                                 width: parent.width
                                 text: unitDelegate.unitName
-                                color: "#dce8f6"
-                                font.family: "Microsoft YaHei"
+                                color: Theme.text
+                                font.family: Theme.fontFamily
                                 font.pixelSize: 10
                                 elide: Text.ElideRight
                                 horizontalAlignment: Text.AlignHCenter
@@ -983,13 +1186,39 @@ ApplicationWindow {
                             Text {
                                 anchors.top: unitShape.bottom
                                 anchors.topMargin: 27
+                                visible: unitDelegate.showDetails
                                 width: parent.width
-                                text: unitDelegate.status + " · " + unitDelegate.engagement
+                                text: root.unitStatusLabel(unitDelegate.status) + " · " + unitDelegate.engagement
                                 color: root.mutedColor
-                                font.family: "Microsoft YaHei"
+                                font.family: Theme.fontFamily
                                 font.pixelSize: 8
                                 horizontalAlignment: Text.AlignHCenter
                             }
+
+                            MouseArea {
+                                id: unitHitTarget
+                                objectName: "selectUnit-" + unitDelegate.unitId
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                y: -4
+                                width: Math.max(32, unitDelegate.glyphSize + 8)
+                                height: width
+                                hoverEnabled: true
+                                enabled: !root.deploymentMode
+                                cursorShape: Qt.PointingHandCursor
+                                onPressed: battlefieldViewport.forceActiveFocus(Qt.MouseFocusReason)
+                                onClicked: viewModel.selectUnit(unitDelegate.unitId)
+                            }
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        z: 4.5
+                        enabled: !root.deploymentMode
+                        onPressed: battlefieldViewport.forceActiveFocus(Qt.MouseFocusReason)
+                        onClicked: function(mouse) {
+                            viewModel.pointerPress(1, mouse.x / battlefieldViewport.scaleFactor,
+                                                   mouse.y / battlefieldViewport.scaleFactor)
                         }
                     }
 
@@ -1002,6 +1231,7 @@ ApplicationWindow {
                         cursorShape: root.deploymentMode ? Qt.CrossCursor : Qt.ArrowCursor
 
                         onPressed: function(mouse) {
+                            battlefieldViewport.forceActiveFocus(Qt.MouseFocusReason)
                             const button = mouse.button === Qt.RightButton ? 3 : 1
                             viewModel.pointerPress(
                                 button,
@@ -1027,6 +1257,81 @@ ApplicationWindow {
                         }
                     }
                 }
+
+                MouseArea {
+                    id: mapNavigation
+                    objectName: "mapNavigation"
+                    anchors.fill: parent
+                    z: 20
+                    acceptedButtons: Qt.MiddleButton
+                    preventStealing: true
+                    hoverEnabled: true
+                    property real lastX: 0
+                    property real lastY: 0
+                    cursorShape: pressed ? Qt.ClosedHandCursor
+                        : root.deploymentMode ? Qt.CrossCursor : Qt.ArrowCursor
+                    onPressed: function(mouse) {
+                        battlefieldViewport.forceActiveFocus(Qt.MouseFocusReason)
+                        lastX = mouse.x
+                        lastY = mouse.y
+                    }
+                    onPositionChanged: function(mouse) {
+                        if (!pressed) return
+                        battlefieldViewport.panX += mouse.x - lastX
+                        battlefieldViewport.panY += mouse.y - lastY
+                        lastX = mouse.x
+                        lastY = mouse.y
+                        battlefieldViewport.constrainPan()
+                    }
+                    onWheel: function(wheel) {
+                        const delta = wheel.angleDelta.y || wheel.pixelDelta.y
+                        if (delta !== 0) battlefieldViewport.zoomAt(
+                            battlefieldViewport.zoomLevel * Math.pow(1.15, delta / 120), wheel.x, wheel.y)
+                        wheel.accepted = true
+                    }
+                }
+
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.margins: 7
+                    width: 34
+                    height: 42
+                    radius: 6
+                    color: "#b8091924"
+                    border.color: "#507185"
+                    z: 30
+                    Text {
+                        anchors.centerIn: parent
+                        text: "N\n↑"
+                        color: "#d7eee6"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 13
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                }
+
+                MapOverview {
+                    objectName: "mapOverview"
+                    anchors.bottom: parent.bottom
+                    anchors.right: parent.right
+                    anchors.margins: 7
+                    width: root.width < 1100 ? 116 : 148
+                    height: root.width < 1100 ? 99 : 121
+                    z: 30
+                    worldWidth: root.snap.map.width
+                    worldHeight: root.snap.map.height
+                    visual: root.mapVisual
+                    units: root.snap.units || []
+                    visibleX: battlefieldViewport.visibleWorldX
+                    visibleY: battlefieldViewport.visibleWorldY
+                    visibleWidth: battlefieldViewport.visibleWorldWidth
+                    visibleHeight: battlefieldViewport.visibleWorldHeight
+                    onCenterRequested: function(worldX, worldY) {
+                        battlefieldViewport.forceActiveFocus(Qt.MouseFocusReason)
+                        battlefieldViewport.centerOn(worldX, worldY)
+                    }
+                }
             }
 
             Rectangle {
@@ -1034,20 +1339,19 @@ ApplicationWindow {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
-                anchors.margins: 12
-                height: 38
-                radius: 8
-                color: "#13243a"
-                border.color: "#294461"
+                anchors.margins: 8
+                height: 26
+                radius: Theme.radiusSmall
+                color: Theme.surface
 
                 Text {
                     anchors.fill: parent
-                    anchors.leftMargin: 12
-                    anchors.rightMargin: 12
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
                     verticalAlignment: Text.AlignVCenter
                     text: root.snap.message
-                    color: "#b9cadc"
-                    font.family: "Microsoft YaHei"
+                    color: Theme.muted
+                    font.family: Theme.fontFamily
                     font.pixelSize: 12
                     elide: Text.ElideRight
                 }
@@ -1056,21 +1360,25 @@ ApplicationWindow {
 
         Rectangle {
             id: sidePanel
-            Layout.preferredWidth: 370
-            Layout.minimumWidth: 340
+            Layout.preferredWidth: root.width < 1100 ? 288 : 312
+            Layout.minimumWidth: 288
             Layout.fillHeight: true
-            radius: 14
+            radius: Theme.radius
             color: root.panelColor
-            border.color: "#203955"
+            border.color: Theme.divider
 
             ScrollView {
+                id: sideScroll
                 anchors.fill: parent
                 anchors.margins: 12
                 clip: true
+                rightPadding: 10
                 contentWidth: availableWidth
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                ScrollBar.vertical.policy: ScrollBar.AlwaysOn
 
                 Column {
-                    width: sidePanel.width - 42
+                    width: sideScroll.availableWidth
                     spacing: 12
 
                     Loader {
@@ -1078,179 +1386,72 @@ ApplicationWindow {
                         sourceComponent: root.deploymentMode ? deploymentControls : runtimeControls
                     }
 
+                    UnitDetails {
+                        objectName: "unitDetails"
+                        width: parent.width
+                        visible: !root.deploymentMode
+                        unit: viewModel.selectedUnit
+                        onClearSelection: viewModel.selectUnit("")
+                    }
+
                     Rectangle {
                         width: parent.width
                         height: 1
-                        color: "#263d5a"
+                        color: Theme.divider
                     }
 
-                    SectionTitle {
-                        text: "战场统计"
-                    }
-
-                    GridLayout {
+                    RowLayout {
                         width: parent.width
-                        columns: 2
-                        columnSpacing: 8
-                        rowSpacing: 8
-
-                        StatPair {
-                            Layout.fillWidth: true
-                            label: "剩余单位"
-                            redValue: String(root.snap.statistics.red_remaining)
-                            blueValue: String(root.snap.statistics.blue_remaining)
-                        }
-                        StatPair {
-                            Layout.fillWidth: true
-                            label: "战斗力"
-                            redValue: String(root.snap.statistics.red_strength)
-                            blueValue: String(root.snap.statistics.blue_strength)
-                        }
-                        StatPair {
-                            Layout.fillWidth: true
-                            label: "击毁"
-                            redValue: String(root.snap.statistics.red_kills)
-                            blueValue: String(root.snap.statistics.blue_kills)
-                        }
-                        StatPair {
-                            Layout.fillWidth: true
-                            label: "累计伤害"
-                            redValue: String(root.snap.statistics.red_damage)
-                            blueValue: String(root.snap.statistics.blue_damage)
-                        }
-                        StatPair {
-                            Layout.fillWidth: true
-                            label: "发现目标"
-                            redValue: String(root.snap.statistics.red_detected)
-                            blueValue: String(root.snap.statistics.blue_detected)
-                        }
-                        Rectangle {
-                            Layout.columnSpan: 2
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 86
-                            radius: 10
-                            color: "#13243a"
-                            border.color: "#263d5a"
-
-                            Column {
-                                anchors.fill: parent
-                                anchors.margins: 10
-                                spacing: 7
-
-                                Text {
-                                    width: parent.width
-                                    text: "基地耐久"
-                                    color: root.mutedColor
-                                    font.family: "Microsoft YaHei"
-                                    font.pixelSize: 11
-                                    horizontalAlignment: Text.AlignHCenter
-                                }
-
-                                Row {
-                                    width: parent.width
-                                    height: 42
-                                    spacing: 10
-
-                                    Column {
-                                        width: (parent.width - parent.spacing * 2 - 1) / 2
-                                        spacing: 2
-
-                                        Text {
-                                            width: parent.width
-                                            text: "红方基地"
-                                            color: root.redColor
-                                            font.family: "Microsoft YaHei"
-                                            font.pixelSize: 10
-                                            horizontalAlignment: Text.AlignHCenter
-                                        }
-                                        Text {
-                                            width: parent.width
-                                            text: root.snap.statistics.red_base_hp
-                                                  + " / " + root.snap.statistics.red_base_max
-                                            color: root.redColor
-                                            font.family: "Consolas"
-                                            font.pixelSize: 19
-                                            font.bold: true
-                                            minimumPixelSize: 12
-                                            fontSizeMode: Text.Fit
-                                            horizontalAlignment: Text.AlignHCenter
-                                        }
-                                    }
-
-                                    Rectangle {
-                                        width: 1
-                                        height: 36
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        color: "#314964"
-                                    }
-
-                                    Column {
-                                        width: (parent.width - parent.spacing * 2 - 1) / 2
-                                        spacing: 2
-
-                                        Text {
-                                            width: parent.width
-                                            text: "蓝方基地"
-                                            color: root.blueColor
-                                            font.family: "Microsoft YaHei"
-                                            font.pixelSize: 10
-                                            horizontalAlignment: Text.AlignHCenter
-                                        }
-                                        Text {
-                                            width: parent.width
-                                            text: root.snap.statistics.blue_base_hp
-                                                  + " / " + root.snap.statistics.blue_base_max
-                                            color: root.blueColor
-                                            font.family: "Consolas"
-                                            font.pixelSize: 19
-                                            font.bold: true
-                                            minimumPixelSize: 12
-                                            fontSizeMode: Text.Fit
-                                            horizontalAlignment: Text.AlignHCenter
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        SectionTitle { Layout.fillWidth: true; text: "战场统计" }
+                        Text { Layout.preferredWidth: 82; text: "红方"; color: root.redColor; font.pixelSize: 11; horizontalAlignment: Text.AlignRight }
+                        Text { Layout.preferredWidth: 82; text: "蓝方"; color: root.blueColor; font.pixelSize: 11; horizontalAlignment: Text.AlignRight }
+                    }
+                    Column {
+                        width: parent.width
+                        StatPair { width: parent.width; label: "剩余单位"; redValue: String(root.snap.statistics.red_remaining); blueValue: String(root.snap.statistics.blue_remaining) }
+                        StatPair { width: parent.width; label: "战斗力"; redValue: String(root.snap.statistics.red_strength); blueValue: String(root.snap.statistics.blue_strength) }
+                        StatPair { width: parent.width; label: "击毁"; redValue: String(root.snap.statistics.red_kills); blueValue: String(root.snap.statistics.blue_kills) }
+                        StatPair { width: parent.width; label: "累计伤害"; redValue: String(root.snap.statistics.red_damage); blueValue: String(root.snap.statistics.blue_damage) }
+                        StatPair { width: parent.width; label: "发现目标"; redValue: String(root.snap.statistics.red_detected); blueValue: String(root.snap.statistics.blue_detected) }
+                        StatPair { width: parent.width; label: "命中次数"; redValue: String(root.snap.statistics.red_hits); blueValue: String(root.snap.statistics.blue_hits) }
+                        StatPair { width: parent.width; label: "基地耐久"; redValue: root.snap.statistics.red_base_hp + " / " + root.snap.statistics.red_base_max; blueValue: root.snap.statistics.blue_base_hp + " / " + root.snap.statistics.blue_base_max }
                     }
 
                     Rectangle {
                         width: parent.width
-                        height: 108
-                        radius: 10
-                        color: root.cardColor
-                        border.color: "#263d5a"
+                        height: 96
+                        color: "transparent"
 
                         Column {
                             anchors.fill: parent
-                            anchors.margins: 10
+                            anchors.margins: 0
                             spacing: 6
 
                             Text {
                                 text: "态势研判"
                                 color: root.mutedColor
-                                font.family: "Microsoft YaHei"
+                                font.family: Theme.fontFamily
                                 font.pixelSize: 11
                             }
                             Text {
                                 text: "红方  " + root.snap.statistics.red_situation
                                       + " · " + root.snap.statistics.red_tactics
                                 color: root.redColor
-                                font.family: "Microsoft YaHei"
+                                font.family: Theme.fontFamily
                                 font.pixelSize: 13
                             }
                             Text {
                                 text: "蓝方  " + root.snap.statistics.blue_situation
                                       + " · " + root.snap.statistics.blue_tactics
                                 color: root.blueColor
-                                font.family: "Microsoft YaHei"
+                                font.family: Theme.fontFamily
                                 font.pixelSize: 13
                             }
                             Text {
                                 text: "集火  " + root.snap.statistics.red_focus
                                       + " / " + root.snap.statistics.blue_focus
-                                color: "#c7d6e6"
-                                font.family: "Microsoft YaHei"
+                                color: Theme.text
+                                font.family: Theme.fontFamily
                                 font.pixelSize: 11
                                 elide: Text.ElideRight
                                 width: parent.width
@@ -1262,48 +1463,70 @@ ApplicationWindow {
                         text: "实时日志"
                     }
 
+                    AppComboBox {
+                        id: logCategory
+                        objectName: "logCategorySelector"
+                        width: parent.width
+                        textRole: "label"
+                        model: [
+                            { label: "全部事件", value: "all" },
+                            { label: "侦察与目标共享", value: "scout" },
+                            { label: "攻击与命中", value: "attack" },
+                            { label: "摧毁事件", value: "destroyed" },
+                            { label: "战术、状态与结果", value: "state" }
+                        ]
+                        onActivated: root.logFilter = model[currentIndex].value
+                        palette.button: Theme.field
+                        palette.buttonText: Theme.text
+                        palette.base: Theme.field
+                        palette.text: Theme.text
+                    }
+
                     Rectangle {
                         width: parent.width
-                        height: 176
-                        radius: 10
-                        color: "#0b1726"
-                        border.color: "#263d5a"
+                        height: 200
+                        radius: Theme.radiusSmall
+                        color: Theme.field
+                        border.color: Theme.divider
                         clip: true
 
-                        Column {
+                        ListView {
+                            id: logView
                             anchors.fill: parent
                             anchors.margins: 9
-                            spacing: 3
+                            spacing: 6
+                            clip: true
+                            model: root.filteredLogs()
+                            ScrollBar.vertical: ScrollBar { }
+                            onCountChanged: positionViewAtEnd()
 
                             Text {
-                                visible: root.snap.logs.length === 0
-                                text: root.deploymentMode ? "等待开始仿真" : "暂无战斗日志"
+                                width: parent.width
+                                visible: logView.count === 0
+                                text: root.deploymentMode ? "等待开始仿真" : "暂无此类事件"
                                 color: root.mutedColor
-                                font.family: "Microsoft YaHei"
+                                font.family: Theme.fontFamily
                                 font.pixelSize: 11
                             }
 
-                            Repeater {
-                                model: root.snap.logs.slice(-8)
-                                delegate: Text {
-                                    required property string modelData
-                                    width: parent.width
-                                    text: modelData
-                                    color: modelData.indexOf("[Attack]") === 0
-                                           ? "#ffd166" : "#9fb4c9"
-                                    font.family: "Consolas"
-                                    font.pixelSize: 10
-                                    elide: Text.ElideRight
-                                }
+                            delegate: Text {
+                                required property string modelData
+                                width: logView.width - 12
+                                text: modelData
+                                color: modelData.indexOf("[Attack]") === 0 ? "#ffd166"
+                                    : modelData.indexOf("[Destroyed]") === 0 ? root.redColor : Theme.muted
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 11
+                                wrapMode: Text.Wrap
                             }
                         }
                     }
 
                     Text {
                         width: parent.width
-                        text: "快捷键  Enter 开始 · Space 暂停 · S 单步 · F 变速 · R 重置"
-                        color: "#71879e"
-                        font.family: "Microsoft YaHei"
+                        text: "Enter 开始 · Space 暂停 · S 单步 · F 变速 · F1 帮助"
+                        color: Theme.subtle
+                        font.family: Theme.fontFamily
                         font.pixelSize: 10
                         wrapMode: Text.Wrap
                     }
@@ -1314,220 +1537,743 @@ ApplicationWindow {
 
     Component {
         id: deploymentControls
-
         Column {
-            width: parent ? parent.width : 320
-            spacing: 10
-
-            SectionTitle { text: "部署控制" }
-
+            width: parent ? parent.width : 288
+            spacing: 8
+            SectionTitle { text: "场景与地图" }
+            AppComboBox {
+                id: scenarioSelector
+                objectName: "scenarioSelector"
+                width: parent.width
+                model: root.snap.scenarios || []
+                textRole: "name"
+                displayText: root.snap.scene_name || root.snap.current_scenario || "选择场景"
+                currentIndex: root.scenarioIndex()
+                Accessible.name: "选择场景"
+                onActivated: {
+                    root.selectScenario(currentIndex)
+                    currentIndex = Qt.binding(function() { return root.scenarioIndex() })
+                }
+            }
             Row {
                 width: parent.width
-                spacing: 8
-
-                AppButton {
-                    width: (parent.width - 8) / 2
-                    text: "当前：红方"
-                    tone: root.redColor
-                    selected: root.snap.deployment.selected_team === "red"
-                    onClicked: {
-                        if (root.snap.deployment.selected_team !== "red")
-                            viewModel.toggleTeam()
-                    }
-                }
-                AppButton {
-                    width: (parent.width - 8) / 2
-                    text: "当前：蓝方"
-                    tone: root.blueColor
-                    selected: root.snap.deployment.selected_team === "blue"
-                    onClicked: {
-                        if (root.snap.deployment.selected_team !== "blue")
-                            viewModel.toggleTeam()
+                spacing: 6
+                AppButton { width: (parent.width - 12) / 3; implicitHeight: 28; text: "载入地图…"; onClicked: root.requestLoadMap() }
+                AppButton { width: (parent.width - 12) / 3; implicitHeight: 28; text: "保存地图"; onClicked: viewModel.saveMap() }
+                AppButton { width: (parent.width - 12) / 3; implicitHeight: 28; text: "另存为…"; Accessible.name: "地图另存为"; onClicked: saveMapDialog.open() }
+            }
+            Row {
+                width: parent.width
+                spacing: 6
+                Repeater {
+                    model: [
+                        { style: "tactical", label: "战术" },
+                        { style: "valley", label: "山谷" },
+                        { style: "river", label: "河谷" }
+                    ]
+                    delegate: AppButton {
+                        required property var modelData
+                        width: (parent.width - 12) / 3
+                        implicitHeight: 28
+                        text: modelData.label
+                        tone: Theme.selectionText
+                        selected: root.mapStyle === modelData.style
+                        onClicked: viewModel.setMapStyle(modelData.style)
                     }
                 }
             }
-
-            SectionTitle { text: "作战单位" }
-
+            Rectangle { width: parent.width; height: 1; color: Theme.divider }
+            RowLayout {
+                width: parent.width
+                spacing: 6
+                SectionTitle { Layout.fillWidth: true; text: "部署" }
+                AppButton {
+                    Layout.preferredWidth: 82
+                    text: "红方"
+                    tone: root.redColor
+                    selected: root.snap.deployment.selected_team === "red"
+                    onClicked: {
+                        if (root.snap.deployment.selected_team !== "red") viewModel.toggleTeam()
+                    }
+                }
+                AppButton {
+                    Layout.preferredWidth: 82
+                    text: "蓝方"
+                    tone: root.blueColor
+                    selected: root.snap.deployment.selected_team === "blue"
+                    onClicked: {
+                        if (root.snap.deployment.selected_team !== "blue") viewModel.toggleTeam()
+                    }
+                }
+            }
+            Text {
+                width: parent.width
+                text: "选择兵种后左键放置 · 右键删除"
+                color: root.mutedColor
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSmall
+            }
             Grid {
                 width: parent.width
                 columns: 2
-                spacing: 8
-
+                spacing: 6
                 AppButton {
-                    width: (parent.width - 8) / 2
-                    text: "1  侦察无人机"
+                    width: (parent.width - 6) / 2
+                    text: "侦察无人机"
+                    tone: Theme.selectionText
                     selected: root.snap.deployment.selected_unit_type === "scout_drone"
                     onClicked: viewModel.selectUnitType("scout_drone")
                 }
                 AppButton {
-                    width: (parent.width - 8) / 2
-                    text: "2  打击无人机"
+                    width: (parent.width - 6) / 2
+                    text: "打击无人机"
+                    tone: Theme.selectionText
                     selected: root.snap.deployment.selected_unit_type === "strike_drone"
                     onClicked: viewModel.selectUnitType("strike_drone")
                 }
                 AppButton {
-                    width: (parent.width - 8) / 2
-                    text: "3  无人战车"
+                    width: (parent.width - 6) / 2
+                    text: "无人战车"
+                    tone: Theme.selectionText
                     selected: root.snap.deployment.selected_unit_type === "ground_vehicle"
                     onClicked: viewModel.selectUnitType("ground_vehicle")
                 }
                 AppButton {
-                    width: (parent.width - 8) / 2
-                    text: "4  导弹发射车"
+                    width: (parent.width - 6) / 2
+                    text: "导弹发射车"
+                    tone: Theme.selectionText
                     selected: root.snap.deployment.selected_unit_type === "missile_vehicle"
                     onClicked: viewModel.selectUnitType("missile_vehicle")
                 }
                 AppButton {
-                    width: (parent.width - 8) / 2
-                    text: "5  指挥节点"
+                    width: (parent.width - 6) / 2
+                    text: "指挥节点"
+                    tone: Theme.selectionText
                     selected: root.snap.deployment.selected_unit_type === "command_node"
                     onClicked: viewModel.selectUnitType("command_node")
                 }
+                AppButton {
+                    width: (parent.width - 6) / 2
+                    text: "撤销放置"
+                    flat: true
+                    onClicked: viewModel.undoDeployment()
+                }
             }
-
-            AppButton {
-                width: parent.width
-                text: "撤销上次兵种放置"
-                onClicked: viewModel.undoDeployment()
-            }
-
             SectionTitle { text: "地图障碍" }
-
             Row {
                 width: parent.width
-                spacing: 7
-
+                spacing: 6
                 AppButton {
-                    width: (parent.width - 14) / 3
-                    text: "1 山地"
-                    tone: "#7db08b"
+                    width: (parent.width - 12) / 3
+                    text: "山地"
+                    tone: Theme.selectionText
                     selected: root.snap.deployment.selected_obstacle_type === "mountain"
                     onClicked: viewModel.selectObstacleType("mountain")
                 }
                 AppButton {
-                    width: (parent.width - 14) / 3
-                    text: "2 建筑"
-                    tone: "#8da8cc"
+                    width: (parent.width - 12) / 3
+                    text: "建筑"
+                    tone: Theme.selectionText
                     selected: root.snap.deployment.selected_obstacle_type === "building"
                     onClicked: viewModel.selectObstacleType("building")
                 }
                 AppButton {
-                    width: (parent.width - 14) / 3
-                    text: "3 禁行区"
-                    tone: root.redColor
+                    width: (parent.width - 12) / 3
+                    text: "禁行区"
+                    tone: Theme.selectionText
                     selected: root.snap.deployment.selected_obstacle_type === "restricted"
                     onClicked: viewModel.selectObstacleType("restricted")
                 }
             }
-
-            AppButton {
+            Text {
                 width: parent.width
-                text: "删除选中障碍"
-                tone: "#ffca64"
-                onClicked: viewModel.deleteSelected()
+                text: "左键拖拽绘制 · 选中后 Delete 删除"
+                color: root.mutedColor
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSmall
             }
-
-            SectionTitle { text: "全局地图操作" }
-
-            AppButton {
-                width: parent.width
-                text: "清空全部兵种与障碍"
-                tone: root.redColor
-                onClicked: viewModel.clearDeployment()
-            }
-
             Row {
                 width: parent.width
-                spacing: 8
-
-                AppButton { width: (parent.width - 8) / 2; text: "保存地图"; onClicked: viewModel.saveMap() }
-                AppButton { width: (parent.width - 8) / 2; text: "加载地图"; onClicked: viewModel.loadMap() }
-            }
-
-            AppButton {
-                width: parent.width
-                height: 46
-                text: "开始仿真"
-                tone: root.accentColor
-                selected: true
-                onClicked: viewModel.startSimulation()
+                spacing: 6
+                AppButton {
+                    width: (parent.width - 6) / 2
+                    implicitHeight: 28
+                    text: "删除选中障碍"
+                    flat: true
+                    onClicked: viewModel.deleteSelected()
+                }
+                AppButton {
+                    width: (parent.width - 6) / 2
+                    implicitHeight: 28
+                    text: "清空部署…"
+                    flat: true
+                    tone: root.redColor
+                    onClicked: root.confirmAction("清空部署", "清空全部兵种和障碍？基地与地图尺寸会保留。",
+                                                 function() { viewModel.clearDeployment() })
+                }
             }
         }
     }
 
     Component {
         id: runtimeControls
-
         Column {
-            width: parent ? parent.width : 320
-            spacing: 10
-
-            SectionTitle { text: "仿真控制" }
-
-            Row {
+            width: parent ? parent.width : 288
+            spacing: 8
+            RowLayout {
                 width: parent.width
-                spacing: 8
-
+                SectionTitle { Layout.fillWidth: true; text: "运行观察" }
                 AppButton {
-                    width: (parent.width - 8) / 2
-                    text: root.snap.game_state === "running" ? "暂停" : "继续"
-                    tone: "#ffca64"
-                    selected: root.snap.game_state === "paused"
-                    enabled: root.snap.game_state !== "finished"
-                    onClicked: viewModel.togglePause()
-                }
-                AppButton {
-                    width: (parent.width - 8) / 2
-                    text: "单步推进"
-                    onClicked: viewModel.stepSimulation()
-                }
-            }
-
-            Row {
-                width: parent.width
-                spacing: 8
-
-                AppButton {
-                    width: (parent.width - 8) / 2
-                    text: "速度 " + root.snap.speed_label
-                    tone: root.accentColor
-                    onClicked: viewModel.cycleSpeed()
-                }
-                AppButton {
-                    width: (parent.width - 8) / 2
+                    Layout.preferredWidth: 88
+                    implicitHeight: 28
+                    flat: true
                     text: root.snap.show_wrecks ? "隐藏残骸" : "显示残骸"
                     onClicked: viewModel.toggleWrecks()
                 }
             }
-
+            Text {
+                width: parent.width
+                text: "点击单位查看详情与范围 · 滚轮缩放
+中键拖动地图 · 总览点击定位"
+                color: root.mutedColor
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSmall
+                wrapMode: Text.Wrap
+            }
             AppButton {
                 width: parent.width
-                text: "返回部署并重置"
-                tone: root.redColor
-                onClicked: viewModel.resetSimulation()
+                visible: root.snap.game_state === "finished"
+                text: (root.snap.statistics.winner === "red" ? "红方获胜"
+                    : root.snap.statistics.winner === "blue" ? "蓝方获胜"
+                    : "双方平局") + " · 查看结算"
+                tone: root.snap.statistics.winner === "red" ? root.redColor
+                    : root.snap.statistics.winner === "blue" ? root.blueColor : Theme.muted
+                selected: true
+                onClicked: resultsDialog.open()
             }
+        }
+    }
 
-            Rectangle {
-                width: parent.width
-                height: 56
-                radius: 10
-                color: root.snap.statistics.winner ? root.alphaColor(root.redColor, 0.14) : root.cardColor
-                border.color: root.snap.statistics.winner ? root.redColor : "#263d5a"
+    footer: Rectangle {
+        objectName: "workflowControls"
+        height: 52
+        color: Theme.surface
+        Rectangle { width: parent.width; height: 1; color: Theme.divider }
 
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: 10
+            spacing: 8
+
+            AppButton {
+                objectName: "startSimulationButton"
+                Layout.preferredWidth: 104
+                text: root.snap.game_state === "finished" ? "再来一局" : "开始仿真"
+                tone: root.accentColor
+                highlighted: root.deploymentMode || root.snap.game_state === "finished"
+                enabled: root.deploymentMode || root.snap.game_state === "finished"
+                onClicked: root.deploymentMode ? viewModel.startSimulation() : viewModel.restartSimulation()
+            }
+            AppButton {
+                objectName: "pauseSimulationButton"
+                Layout.preferredWidth: 80
+                text: root.snap.game_state === "paused" ? "继续" : "暂停"
+                tone: Theme.warning
+                selected: root.snap.game_state === "paused"
+                enabled: root.snap.game_state === "running" || root.snap.game_state === "paused"
+                onClicked: viewModel.togglePause()
+            }
+            AppButton {
+                objectName: "stepSimulationButton"
+                Layout.preferredWidth: 80
+                text: "单步推进"
+                enabled: root.snap.game_state === "paused"
+                onClicked: viewModel.stepSimulation()
+            }
+            Text {
+                text: "速度"
+                color: root.mutedColor
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+            }
+            Repeater {
+                model: ["1×", "2×", "4×", "快速"]
+                delegate: AppButton {
+                    required property string modelData
+                    required property int index
+                    Layout.preferredWidth: 46
+                    tone: Theme.selectionText
+                    text: modelData
+                    selected: root.snap.speed_index === index
+                    enabled: root.snap.game_state !== "finished"
+                    onClicked: viewModel.setSpeed(index)
+                }
+            }
+            Item { Layout.fillWidth: true }
+            AppButton {
+                Layout.preferredWidth: 88
+                flat: true
+                text: "返回部署"
+                tone: root.redColor
+                enabled: !root.deploymentMode
+                onClicked: root.requestReset()
+            }
+            AppButton {
+                Layout.preferredWidth: 60
+                flat: true
+                text: "帮助"
+                onClicked: helpDialog.open()
+            }
+        }
+    }
+
+    Dialog {
+        id: confirmationDialog
+        objectName: "clearConfirmation"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(440, root.width - 40)
+        modal: true
+        title: root.pendingTitle
+        palette.window: Theme.surfaceRaised
+        palette.windowText: Theme.text
+        palette.button: Theme.surfaceRaised
+        palette.buttonText: Theme.text
+        background: Rectangle { color: Theme.surfaceRaised; radius: Theme.radius; border.color: Theme.border }
+        header: Text {
+            text: root.pendingTitle
+            color: Theme.text
+            padding: 18
+            bottomPadding: 8
+            font.family: Theme.fontFamily
+            font.pixelSize: 16
+            font.bold: true
+        }
+        contentItem: Text {
+            text: root.pendingMessage
+            color: Theme.text
+            font.family: Theme.fontFamily
+            font.pixelSize: 13
+            wrapMode: Text.Wrap
+        }
+        footer: Item {
+            implicitHeight: 56
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 18
+                anchors.rightMargin: 18
+                anchors.bottomMargin: 18
+                spacing: 8
+                ActionButton { Layout.fillWidth: true; text: "取消"; onClicked: confirmationDialog.reject() }
+                ActionButton { Layout.fillWidth: true; text: "确认"; highlighted: true; onClicked: confirmationDialog.accept() }
+            }
+        }
+        onAccepted: {
+            const action = root.pendingAction
+            root.pendingAction = null
+            if (action) action()
+        }
+        onRejected: root.pendingAction = null
+    }
+
+    FileDialog {
+        id: loadMapDialog
+        objectName: "loadMapDialog"
+        title: "载入战场地图"
+        currentFolder: viewModel.userScenarioUrl
+        nameFilters: ["战场地图 (*.json)"]
+        onAccepted: viewModel.loadMapFromUrl(selectedFile)
+    }
+    FileDialog {
+        id: saveMapDialog
+        objectName: "saveMapDialog"
+        title: "地图另存为"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "json"
+        currentFolder: viewModel.userScenarioUrl
+        nameFilters: ["战场地图 (*.json)"]
+        onAccepted: viewModel.saveMapToUrl(selectedFile)
+    }
+    FileDialog {
+        id: exportDialog
+        objectName: "exportDialog"
+        title: "导出本局战报"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "json"
+        currentFolder: viewModel.userScenarioUrl
+        nameFilters: ["战报数据 (*.json)"]
+        onAccepted: viewModel.exportResultToUrl(selectedFile)
+    }
+
+    FileDialog {
+        id: exportRecordsDialog
+        objectName: "exportRecordsDialog"
+        title: "导出运行记录（" + root.recordCategoryLabel(root.recordFilter === "all" ? "全部" : root.recordFilter) + "）"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "json"
+        currentFolder: viewModel.userScenarioUrl
+        nameFilters: ["运行记录 (*.json)"]
+        onAccepted: viewModel.exportRecordsToUrl(selectedFile, root.recordFilter)
+    }
+
+    Dialog {
+        id: timingDialog
+        objectName: "timingDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(480, root.width - 40)
+        height: Math.min(390, root.height - 40)
+        modal: true
+        title: "时间设置"
+        property string validationError: ""
+        padding: 16
+        palette.windowText: Theme.text
+        palette.base: Theme.field
+        palette.text: Theme.text
+        palette.button: Theme.field
+        palette.buttonText: Theme.text
+        background: Rectangle { radius: Theme.radius; color: Theme.surfaceRaised; border.color: Theme.border }
+        header: Text {
+            text: timingDialog.title
+            color: Theme.text
+            padding: 18
+            bottomPadding: 8
+            font.family: Theme.fontFamily
+            font.pixelSize: 16
+            font.bold: true
+        }
+        onOpened: {
+            stepDurationField.text = String(root.timing.step_duration_seconds)
+            maxStepsField.text = String(root.timing.max_steps)
+            validationError = ""
+        }
+        contentItem: ScrollView {
+            id: timingScroll
+            clip: true
+            contentWidth: availableWidth
+            ColumnLayout {
+                width: timingScroll.availableWidth
+                spacing: 12
                 Text {
-                    anchors.centerIn: parent
-                    text: root.snap.statistics.winner === "red" ? "红方获胜"
-                          : root.snap.statistics.winner === "blue" ? "蓝方获胜"
-                          : root.snap.statistics.winner === "draw" ? "双方平局"
-                          : "交战进行中"
-                    color: root.snap.statistics.winner ? "#ffffff" : root.accentColor
-                    font.family: "Microsoft YaHei"
-                    font.pixelSize: 17
-                    font.bold: true
+                    Layout.fillWidth: true
+                    text: root.timing.editable ? "部署或暂停时可修改；暂停修改后从下一步生效。"
+                        : root.snap.game_state === "running" ? "当前正在运行，请先暂停再修改。" : "本局已结束，请返回部署后修改。"
+                    color: root.timing.editable ? root.mutedColor : Theme.warning
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                    wrapMode: Text.Wrap
+                }
+                Label { text: "单步时长（秒，0.01–60）"; color: Theme.text }
+                TextField {
+                    id: stepDurationField
+                    objectName: "stepDurationField"
+                    Layout.fillWidth: true
+                    enabled: root.timing.editable
+                    selectByMouse: true
+                    implicitHeight: Theme.controlHeight
+                    color: Theme.text
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSize
+                    leftPadding: 10
+                    rightPadding: 10
+                    background: Rectangle {
+                        radius: Theme.radiusSmall
+                        color: Theme.field
+                        border.color: parent.activeFocus ? Theme.accent : Theme.border
+                        border.width: parent.activeFocus ? 2 : 1
+                    }
+                    inputMethodHints: Qt.ImhFormattedNumbersOnly
+                    validator: DoubleValidator { bottom: 0.01; top: 60; decimals: 6; notation: DoubleValidator.StandardNotation; locale: "C" }
+                    Accessible.name: "单步时长（秒）"
+                }
+                Label { text: "最大运行步数（1–10,000）"; color: Theme.text }
+                TextField {
+                    id: maxStepsField
+                    objectName: "maxStepsField"
+                    Layout.fillWidth: true
+                    enabled: root.timing.editable
+                    selectByMouse: true
+                    implicitHeight: Theme.controlHeight
+                    color: Theme.text
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSize
+                    leftPadding: 10
+                    rightPadding: 10
+                    background: Rectangle {
+                        radius: Theme.radiusSmall
+                        color: Theme.field
+                        border.color: parent.activeFocus ? Theme.accent : Theme.border
+                        border.width: parent.activeFocus ? 2 : 1
+                    }
+                    inputMethodHints: Qt.ImhDigitsOnly
+                    validator: IntValidator { bottom: 1; top: 10000 }
+                    Accessible.name: "最大运行步数"
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: "单步时长控制累计仿真时间与播放节奏；移动、侦察与攻击规则仍按步推进。速度倍率仅影响播放。"
+                    color: root.mutedColor
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 11
+                    wrapMode: Text.Wrap
+                }
+                Text {
+                    objectName: "timingValidationError"
+                    Layout.fillWidth: true
+                    visible: text.length > 0
+                    text: timingDialog.validationError
+                    color: root.redColor
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                    wrapMode: Text.Wrap
                 }
             }
         }
+        footer: Item {
+            implicitHeight: 56
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 12
+                ActionButton { Layout.fillWidth: true; text: "关闭"; onClicked: timingDialog.close() }
+                ActionButton {
+                    objectName: "applyTimingButton"
+                    Layout.fillWidth: true
+                    text: "应用设置"
+                    highlighted: true
+                    enabled: root.timing.editable
+                    onClicked: {
+                        const duration = Number(stepDurationField.text)
+                        const limit = Number(maxStepsField.text)
+                        if (!stepDurationField.acceptableInput || !maxStepsField.acceptableInput
+                            || !isFinite(duration) || !isFinite(limit)) {
+                            timingDialog.validationError = "请填写范围内的单步时长和整数步数。"
+                            return
+                        }
+                        if (limit < Number(root.snap.statistics.time_step || 0)) {
+                            timingDialog.validationError = "最大运行步数不能小于已经运行的步数。"
+                            return
+                        }
+                        viewModel.setTiming(duration, limit)
+                        if (Number(root.timing.step_duration_seconds) === duration && Number(root.timing.max_steps) === limit)
+                            timingDialog.close()
+                        else timingDialog.validationError = root.snap.message || "设置未生效，请检查当前状态。"
+                    }
+                }
+            }
+        }
+    }
+
+    Dialog {
+        id: recordsDialog
+        objectName: "recordsDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(780, root.width - 40)
+        height: Math.min(650, root.height - 40)
+        modal: true
+        title: "运行记录"
+        padding: 16
+        palette.windowText: Theme.text
+        palette.base: Theme.surfaceRaised
+        palette.text: Theme.text
+        palette.button: Theme.field
+        palette.buttonText: Theme.text
+        background: Rectangle { radius: Theme.radius; color: Theme.surface; border.color: Theme.border }
+        header: Text {
+            text: recordsDialog.title
+            color: Theme.text
+            padding: 18
+            bottomPadding: 8
+            font.family: Theme.fontFamily
+            font.pixelSize: 16
+            font.bold: true
+        }
+        contentItem: ColumnLayout {
+            spacing: 8
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    Layout.fillWidth: true
+                    text: root.recording.has_run ? "累计 " + root.recording.record_count + " 条 · 界面展示最近 200 条中的匹配记录"
+                        : "开始仿真后，侦察、共享、摧毁、战术状态与结果将自动记录。"
+                    color: root.mutedColor
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                    wrapMode: Text.Wrap
+                }
+                AppComboBox {
+                    id: recordCategorySelector
+                    objectName: "recordCategorySelector"
+                    Layout.preferredWidth: 104
+                    textRole: "label"
+                    valueRole: "key"
+                    model: [
+                        {label: "全部", key: "all"}, {label: "侦察", key: "scout"},
+                        {label: "共享", key: "sharing"}, {label: "摧毁", key: "destroyed"},
+                        {label: "战术", key: "tactical"}, {label: "结果", key: "result"},
+                        {label: "设置", key: "settings"}, {label: "运行", key: "lifecycle"},
+                        {label: "交战", key: "combat"}
+                    ]
+                    Accessible.name: "运行记录类别"
+                    onActivated: root.recordFilter = currentValue
+                }
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.minimumHeight: 130
+                color: Theme.field
+                radius: Theme.radiusSmall
+                border.color: Theme.divider
+                ListView {
+                    id: recordsList
+                    objectName: "recordsList"
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    clip: true
+                    spacing: 5
+                    model: root.filteredRecords()
+                    ScrollBar.vertical: ScrollBar {}
+                    delegate: Column {
+                        id: recordRow
+                        required property var modelData
+                        width: recordsList.width
+                        spacing: 3
+                        Text {
+                            width: parent.width
+                            text: "#" + recordRow.modelData.seq + " · 第 " + recordRow.modelData.step + " 步 · "
+                                + root.secondsLabel(recordRow.modelData.elapsed_seconds) + " · "
+                                + root.recordCategoryLabel(recordRow.modelData.category)
+                            color: recordRow.modelData.category === "destroyed" ? root.redColor : Theme.muted
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 11
+                            wrapMode: Text.Wrap
+                        }
+                        Text {
+                            width: parent.width
+                            text: recordRow.modelData.message || ""
+                            color: Theme.text
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 12
+                            wrapMode: Text.Wrap
+                        }
+                        Rectangle { width: parent.width; height: 1; color: Theme.divider }
+                    }
+                    Text {
+                        anchors.centerIn: parent
+                        width: parent.width - 16
+                        visible: recordsList.count === 0
+                        text: root.recording.has_run ? "此类别暂无记录。导出包含本局全部匹配记录。" : "当前还没有运行记录。"
+                        color: root.mutedColor
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 12
+                        wrapMode: Text.Wrap
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                }
+            }
+            Text {
+                Layout.fillWidth: true
+                text: root.recording.last_error ? "自动保存失败：" + root.recording.last_error + "。可手动导出保留记录。"
+                    : root.recording.save_path ? "已自动保存：" + root.recording.save_path
+                    : root.recording.directory ? "记录自动保存目录：" + root.recording.directory : "运行结束或返回部署时自动保存；手动导出可随时使用。"
+                color: root.recording.last_error ? root.redColor : root.mutedColor
+                font.family: Theme.fontFamily
+                font.pixelSize: 11
+                wrapMode: Text.WrapAnywhere
+                maximumLineCount: 3
+                elide: Text.ElideRight
+            }
+            Text {
+                Layout.fillWidth: true
+                text: "历史运行（最近 " + Math.min(10, (root.recording.history || []).length) + " 局，可在记录目录中查看完整文件）"
+                color: Theme.text
+                font.family: Theme.fontFamily
+                font.pixelSize: 11
+                wrapMode: Text.Wrap
+                visible: (root.recording.history || []).length > 0
+            }
+            ScrollView {
+                    id: historyScroll
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.min(82, historyColumn.implicitHeight)
+                    visible: (root.recording.history || []).length > 0
+                    clip: true
+                    contentWidth: availableWidth
+                    Column {
+                        id: historyColumn
+                        width: historyScroll.availableWidth
+                        spacing: 5
+                        Repeater {
+                            model: (root.recording.history || []).slice(0, 10)
+                            delegate: Text {
+                                required property var modelData
+                                width: historyColumn.width
+                                text: (modelData.scene_name || "当前场景") + " · " + modelData.steps + " 步 · "
+                                    + root.secondsLabel(modelData.elapsed_seconds) + " · " + modelData.record_count + " 条 · "
+                                    + (modelData.finished ? (modelData.winner === "red" ? "红方胜" : modelData.winner === "blue" ? "蓝方胜" : "平局")
+                                       : modelData.run_id === root.recording.run_id && root.snap.game_state === "paused" ? "已暂停"
+                                       : modelData.run_id === root.recording.run_id && root.snap.game_state === "running" ? "运行中" : "已中止")
+                                    + "\n" + (modelData.save_path || "尚未保存")
+                                color: root.mutedColor
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 11
+                                wrapMode: Text.WrapAnywhere
+                            }
+                        }
+                    }
+            }
+        }
+        footer: Item {
+            implicitHeight: 56
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 12
+                ActionButton { Layout.fillWidth: true; text: "关闭"; onClicked: recordsDialog.close() }
+                ActionButton {
+                    objectName: "openRecordsDirectoryButton"
+                    Layout.fillWidth: true
+                    text: "打开记录目录"
+                    enabled: !!root.recording.has_run || (root.recording.history || []).length > 0
+                    onClicked: Qt.openUrlExternally(viewModel.recordingDirectoryUrl)
+                }
+                ActionButton {
+                    objectName: "exportRecordsButton"
+                    Layout.fillWidth: true
+                    text: "导出此类别全部记录…"
+                    highlighted: true
+                    enabled: !!root.recording.has_run
+                    onClicked: exportRecordsDialog.open()
+                }
+            }
+        }
+    }
+
+    ResultsDialog {
+        id: resultsDialog
+        objectName: "resultsDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(650, root.width - 40)
+        height: Math.min(500, root.height - 40)
+        stats: root.snap.statistics
+        destroyedUnits: root.recording.destroyed_units || []
+        sceneName: root.snap.scene_name || root.snap.current_scenario || "当前场景"
+        onReturnToMap: close()
+        onRestart: { close(); viewModel.restartSimulation() }
+        onEditDeployment: { close(); viewModel.resetSimulation() }
+        onExportResult: exportDialog.open()
+        onViewRecords: { close(); recordsDialog.open() }
+    }
+
+    HelpDialog {
+        id: helpDialog
+        objectName: "helpDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(680, root.width - 40)
+        height: Math.min(580, root.height - 40)
+        onClosed: viewModel.dismissHelp()
     }
 
     Connections {
@@ -1535,62 +2281,41 @@ ApplicationWindow {
         function onSnapshotChanged() {
             battleCanvas.requestPaint()
             attackCanvas.syncEvents(root.snap.attack_events || [])
+            if (root.snap.game_state === "finished" && !root.resultPresented) {
+                root.resultPresented = true
+                resultsDialog.open()
+            } else if (root.snap.game_state !== "finished") {
+                root.resultPresented = false
+                if (resultsDialog.visible) resultsDialog.close()
+            }
         }
     }
 
-    Item {
-        anchors.fill: parent
-        focus: true
-        Component.onCompleted: forceActiveFocus()
-
-        Keys.onPressed: function(event) {
-            if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_S) {
-                if (root.deploymentMode) viewModel.saveMap()
-                event.accepted = true
-                return
-            }
-            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                if (root.deploymentMode) viewModel.startSimulation()
-            } else if (event.key === Qt.Key_Space) {
-                viewModel.togglePause()
-            } else if (event.key === Qt.Key_S) {
-                viewModel.stepSimulation()
-            } else if (event.key === Qt.Key_F) {
-                viewModel.cycleSpeed()
-            } else if (event.key === Qt.Key_K) {
-                viewModel.toggleWrecks()
-            } else if (event.key === Qt.Key_R) {
-                viewModel.resetSimulation()
-            } else if (event.key === Qt.Key_T && root.deploymentMode) {
-                viewModel.toggleTeam()
-            } else if (event.key === Qt.Key_C && root.deploymentMode) {
-                viewModel.clearDeployment()
-            } else if (event.key === Qt.Key_L && root.deploymentMode) {
-                viewModel.loadMap()
-            } else if (event.key === Qt.Key_Backspace && root.deploymentMode) {
-                viewModel.undoDeployment()
-            } else if (event.key === Qt.Key_Delete && root.deploymentMode) {
-                viewModel.deleteSelected()
-            } else if (event.key === Qt.Key_1 && root.deploymentMode) {
-                viewModel.selectUnitType("scout_drone")
-            } else if (event.key === Qt.Key_2 && root.deploymentMode) {
-                viewModel.selectUnitType("strike_drone")
-            } else if (event.key === Qt.Key_3 && root.deploymentMode) {
-                viewModel.selectUnitType("ground_vehicle")
-            } else if (event.key === Qt.Key_4 && root.deploymentMode) {
-                viewModel.selectUnitType("missile_vehicle")
-            } else if (event.key === Qt.Key_5 && root.deploymentMode) {
-                viewModel.selectUnitType("command_node")
-            } else if (event.key === Qt.Key_6 && root.deploymentMode) {
-                viewModel.selectObstacleType("mountain")
-            } else if (event.key === Qt.Key_7 && root.deploymentMode) {
-                viewModel.selectObstacleType("building")
-            } else if (event.key === Qt.Key_8 && root.deploymentMode) {
-                viewModel.selectObstacleType("restricted")
-            } else {
-                return
-            }
-            event.accepted = true
-        }
+    Component.onCompleted: {
+        if (viewModel.firstRun) Qt.callLater(function() { helpDialog.open() })
     }
+
+    Shortcut { sequence: "F1"; enabled: !root.dialogActive; onActivated: helpDialog.open() }
+    Shortcut { sequence: "Return"; enabled: root.deploymentMode && !root.dialogActive && !root.controlHasFocus; onActivated: viewModel.startSimulation() }
+    Shortcut { sequence: "Enter"; enabled: root.deploymentMode && !root.dialogActive && !root.controlHasFocus; onActivated: viewModel.startSimulation() }
+    Shortcut { sequence: "Space"; enabled: !root.deploymentMode && root.snap.game_state !== "finished" && !root.dialogActive && !root.controlHasFocus; onActivated: viewModel.togglePause() }
+    Shortcut { sequence: "S"; enabled: root.snap.game_state === "paused" && !root.dialogActive; onActivated: viewModel.stepSimulation() }
+    Shortcut { sequence: "F"; enabled: root.snap.game_state !== "finished" && !root.dialogActive; onActivated: viewModel.cycleSpeed() }
+    Shortcut { sequence: "K"; enabled: !root.deploymentMode && !root.dialogActive; onActivated: viewModel.toggleWrecks() }
+    Shortcut { sequence: "R"; enabled: !root.deploymentMode && !root.dialogActive; onActivated: root.requestReset() }
+    Shortcut { sequence: "Ctrl+S"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.saveMap() }
+    Shortcut { sequence: "Ctrl+Shift+S"; enabled: root.deploymentMode && !root.dialogActive; onActivated: saveMapDialog.open() }
+    Shortcut { sequence: "L"; enabled: root.deploymentMode && !root.dialogActive; onActivated: root.requestLoadMap() }
+    Shortcut { sequence: "T"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.toggleTeam() }
+    Shortcut { sequence: "C"; enabled: root.deploymentMode && !root.dialogActive; onActivated: root.confirmAction("清空部署", "清空全部兵种和障碍？基地与地图尺寸会保留。", function() { viewModel.clearDeployment() }) }
+    Shortcut { sequence: "Backspace"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.undoDeployment() }
+    Shortcut { sequence: "Delete"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.deleteSelected() }
+    Shortcut { sequence: "1"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.selectUnitType("scout_drone") }
+    Shortcut { sequence: "2"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.selectUnitType("strike_drone") }
+    Shortcut { sequence: "3"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.selectUnitType("ground_vehicle") }
+    Shortcut { sequence: "4"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.selectUnitType("missile_vehicle") }
+    Shortcut { sequence: "5"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.selectUnitType("command_node") }
+    Shortcut { sequence: "6"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.selectObstacleType("mountain") }
+    Shortcut { sequence: "7"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.selectObstacleType("building") }
+    Shortcut { sequence: "8"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.selectObstacleType("restricted") }
 }

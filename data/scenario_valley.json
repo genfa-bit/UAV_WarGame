@@ -1,0 +1,40 @@
+{
+  "map": {"width": 1200, "height": 800, "style": "valley"},
+  "terrain": "mountain_valley",
+  "red_base": [120, 420],
+  "blue_base": [1080, 420],
+  "obstacles": [
+    {"name": "西北山脊", "type": "mountain", "x": 0, "y": 0, "width": 240, "height": 220},
+    {"name": "北部山地", "type": "mountain", "x": 270, "y": 0, "width": 300, "height": 130},
+    {"name": "东北山脊", "type": "mountain", "x": 930, "y": 0, "width": 270, "height": 190},
+    {"name": "西南山地", "type": "mountain", "x": 0, "y": 630, "width": 260, "height": 170},
+    {"name": "东南山地", "type": "mountain", "x": 930, "y": 615, "width": 270, "height": 185},
+    {"name": "青岚湖水域", "type": "restricted", "x": 600, "y": 65, "width": 180, "height": 95},
+    {"name": "湖东山地", "type": "mountain", "x": 790, "y": 80, "width": 90, "height": 140},
+    {"name": "河谷镇建筑群", "type": "building", "x": 370, "y": 345, "width": 80, "height": 65},
+    {"name": "东岸镇建筑群", "type": "building", "x": 800, "y": 345, "width": 105, "height": 80},
+    {"name": "北段河道", "type": "restricted", "x": 540, "y": 180, "width": 80, "height": 100},
+    {"name": "中段河道", "type": "restricted", "x": 510, "y": 345, "width": 70, "height": 155},
+    {"name": "南段河道", "type": "restricted", "x": 450, "y": 570, "width": 70, "height": 150},
+    {"name": "机场机库", "type": "building", "x": 980, "y": 535, "width": 130, "height": 80},
+    {"name": "西岸林地", "type": "mountain", "x": 275, "y": 535, "width": 100, "height": 65},
+    {"name": "东岸林地", "type": "mountain", "x": 750, "y": 530, "width": 115, "height": 90},
+    {"name": "南部山脊", "type": "mountain", "x": 620, "y": 700, "width": 200, "height": 100}
+  ],
+  "units": [
+    {"id": "R-SD-1", "name": "红-侦察无人机", "team": "red", "unit_type": "scout_drone", "x": 140, "y": 260},
+    {"id": "R-AD-1", "name": "红-打击无人机", "team": "red", "unit_type": "strike_drone", "x": 155, "y": 330},
+    {"id": "R-GV-1", "name": "红-无人战车一队", "team": "red", "unit_type": "ground_vehicle", "x": 170, "y": 390},
+    {"id": "R-GV-2", "name": "红-无人战车二队", "team": "red", "unit_type": "ground_vehicle", "x": 190, "y": 440},
+    {"id": "R-MV-1", "name": "红-导弹发射车", "team": "red", "unit_type": "missile_vehicle", "x": 155, "y": 500},
+    {"id": "R-AD-2", "name": "红-南线打击无人机", "team": "red", "unit_type": "strike_drone", "x": 180, "y": 560},
+    {"id": "R-CMD-1", "name": "红-指挥节点", "team": "red", "unit_type": "command_node", "x": 70, "y": 480},
+    {"id": "B-SD-1", "name": "蓝-侦察无人机", "team": "blue", "unit_type": "scout_drone", "x": 1060, "y": 250},
+    {"id": "B-AD-1", "name": "蓝-打击无人机", "team": "blue", "unit_type": "strike_drone", "x": 1040, "y": 310},
+    {"id": "B-GV-1", "name": "蓝-无人战车一队", "team": "blue", "unit_type": "ground_vehicle", "x": 1030, "y": 380},
+    {"id": "B-GV-2", "name": "蓝-无人战车二队", "team": "blue", "unit_type": "ground_vehicle", "x": 1010, "y": 440},
+    {"id": "B-MV-1", "name": "蓝-导弹发射车", "team": "blue", "unit_type": "missile_vehicle", "x": 1040, "y": 490},
+    {"id": "B-AD-2", "name": "蓝-南线打击无人机", "team": "blue", "unit_type": "strike_drone", "x": 1010, "y": 560},
+    {"id": "B-CMD-1", "name": "蓝-指挥节点", "team": "blue", "unit_type": "command_node", "x": 1130, "y": 480}
+  ]
+}

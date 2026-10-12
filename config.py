@@ -10,6 +10,12 @@ PANEL_WIDTH = SCREEN_WIDTH - MAP_WIDTH
 # ── 仿真参数 ──────────────────────────────────────────────────
 FPS = 60
 SIMULATION_INTERVAL_MS = 220
+MAX_SIMULATION_STEPS = 2000  # 教学演示上限，持续僵持时以平局结束
+MIN_STEP_DURATION_SECONDS = 0.01
+MAX_STEP_DURATION_SECONDS = 60.0
+# Complete journals are retained in memory and atomically rewritten.  Keep the
+# public limit bounded until the journal is migrated to incremental storage.
+MAX_CONFIGURABLE_STEPS = 10_000
 SIM_SPEED_LEVELS = [
     ("1x", 220),
     ("2x", 110),

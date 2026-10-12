@@ -1,0 +1,52 @@
+name: Verify desktop application
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+      QT_QUICK_CONTROLS_STYLE: Basic
+      UAV_WARGAME_DATA_DIR: ${{ github.workspace }}/.test-user-data
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - run: python -m pytest -q --junitxml=test-results.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: test-results.xml
+
+  package:
+    needs: tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements.txt pyinstaller
+      - run: python -m PyInstaller --noconfirm --clean UAV_WarGame.spec
+      - name: Verify packaged QML and file round trip
+        shell: pwsh
+        run: |
+          $packageProcess = Start-Process -FilePath .\dist\UAV_WarGame.exe -ArgumentList '--smoke-test', '--smoke-report', 'package-smoke.json' -WindowStyle Hidden -PassThru
+          if (-not $packageProcess.WaitForExit(120000)) {
+            Stop-Process -Id $packageProcess.Id -Force -ErrorAction SilentlyContinue
+            throw 'Packaged smoke test timed out.'
+          }
+          if ($packageProcess.ExitCode -ne 0) { throw "Packaged smoke test failed: $($packageProcess.ExitCode)" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UAV_WarGame-Windows
+          path: |
+            dist/UAV_WarGame.exe
+            package-smoke.json

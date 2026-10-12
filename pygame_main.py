@@ -1,6 +1,7 @@
 """无人装备战争游戏仿真系统入口。"""
 
 import sys
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -54,7 +55,7 @@ from config import (
     SIMULATION_INTERVAL_MS,
 )
 from core.deployment import DeploymentManager
-from core.map_persistence import list_scenarios, load_scenario_file, save_scenario
+from core.map_persistence import save_scenario, user_scenario_dir
 from core.scenario_loader import load_scenario
 from core.simulator import Simulator
 
@@ -63,9 +64,37 @@ BASE_DIR = Path(__file__).resolve().parent
 SCENARIO_PATH = BASE_DIR / "data" / "scenario_1.json"
 
 
-def create_deployment() -> tuple[DeploymentManager, object]:
-    battlefield, preset_units = load_scenario(SCENARIO_PATH)
-    return DeploymentManager(battlefield, preset_units), battlefield
+def create_deployment(filepath=None) -> tuple[DeploymentManager, object]:
+    path = Path(filepath) if filepath is not None else SCENARIO_PATH
+    battlefield, preset_units = load_scenario(path)
+    deployment = DeploymentManager(battlefield, preset_units)
+    deployment._workflow_initial = deepcopy((battlefield, preset_units))
+    deployment._workflow_save_path = None if filepath is None else path
+    return deployment, battlefield
+
+
+def _load_user_deployment(deployment, battlefield):
+    path = getattr(deployment, "_workflow_save_path", None) or user_scenario_dir() / "saved_map.json"
+    try:
+        loaded_deployment, loaded_battlefield = create_deployment(path)
+    except Exception as exc:
+        deployment.last_message = f"加载失败：{exc}"
+        return deployment, battlefield, False
+    loaded_deployment.last_message = f"地图已加载：{path.name}"
+    return loaded_deployment, loaded_battlefield, True
+
+
+def _reset_deployment(deployment, battlefield, *, runtime=False):
+    baseline = getattr(deployment, "_workflow_run", None) if runtime else None
+    baseline = baseline or getattr(deployment, "_workflow_initial", None)
+    if baseline is None:
+        return create_deployment()
+    restored_battlefield, units = deepcopy(baseline)
+    restored = DeploymentManager(restored_battlefield, units)
+    restored._workflow_initial = deepcopy(getattr(deployment, "_workflow_initial", baseline))
+    restored._workflow_save_path = getattr(deployment, "_workflow_save_path", None)
+    restored.last_message = "已返回部署阶段，可修改部署后再次运行"
+    return restored, restored_battlefield
 
 
 def main() -> None:
@@ -99,25 +128,18 @@ def main() -> None:
             elif game_state == GAME_DEPLOYMENT:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_s and ctrl_held:
-                        filepath = BASE_DIR / "data" / "saved_map.json"
+                        filepath = getattr(deployment, "_workflow_save_path", None) or user_scenario_dir() / "saved_map.json"
                         try:
                             save_scenario(battlefield, deployment.display_units(), filepath)
+                            deployment._workflow_save_path = filepath
                             deployment.last_message = f"地图保存成功: {filepath.name}"
                         except Exception as e:
                             deployment.last_message = f"保存失败: {e}"
                     elif event.key == pygame.K_l and not ctrl_held:
-                        data_dir = BASE_DIR / "data"
-                        files = list_scenarios(data_dir)
-                        if files:
-                            filepath = data_dir / files[0]
-                            try:
-                                loaded_bf, loaded_units = load_scenario_file(filepath)
-                                deployment.reset_to_preset(loaded_units)
-                                deployment.battlefield = loaded_bf
-                                deployment.last_message = f"地图加载成功: {files[0]}"
-                                battlefield = loaded_bf
-                            except Exception as e:
-                                deployment.last_message = f"加载失败: {e}"
+                        deployment, battlefield, loaded = _load_user_deployment(deployment, battlefield)
+                        if loaded:
+                            simulator = None
+                            game_state = GAME_DEPLOYMENT
                     else:
                         simulator, game_state, deployment, battlefield, running = \
                             handle_deployment_event(
@@ -167,12 +189,13 @@ def handle_deployment_event(event, deployment, battlefield, simulator,
     if action == "quit":
         running = False
     elif action == "reset":
-        deployment, battlefield = create_deployment()
+        deployment, battlefield = _reset_deployment(deployment, battlefield)
         simulator = None
         game_state = GAME_DEPLOYMENT
     elif action == "start":
         result = deployment.finalize()
         if result.ok:
+            deployment._workflow_run = deepcopy((battlefield, result.units))
             simulator = Simulator(battlefield, result.units)
             game_state = GAME_RUNNING
     return simulator, game_state, deployment, battlefield, running
@@ -186,7 +209,7 @@ def handle_runtime_key(key, simulator, game_state, deployment, battlefield,
         elif game_state == GAME_PAUSED:
             game_state = GAME_RUNNING
     elif key == pygame.K_s and simulator and \
-            game_state in (GAME_RUNNING, GAME_PAUSED, GAME_FINISHED):
+            game_state in (GAME_RUNNING, GAME_PAUSED):
         simulator.step()
         game_state = GAME_FINISHED if simulator.winner else GAME_PAUSED
     elif key == pygame.K_f:
@@ -194,9 +217,14 @@ def handle_runtime_key(key, simulator, game_state, deployment, battlefield,
     elif key == pygame.K_k and simulator:
         simulator.show_wrecks = not simulator.show_wrecks
     elif key == pygame.K_r:
-        deployment, battlefield = create_deployment()
+        deployment, battlefield = _reset_deployment(deployment, battlefield, runtime=True)
         simulator = None
         game_state = GAME_DEPLOYMENT
+    elif key == pygame.K_l:
+        deployment, battlefield, loaded = _load_user_deployment(deployment, battlefield)
+        if loaded:
+            simulator = None
+            game_state = GAME_DEPLOYMENT
     return simulator, game_state, deployment, battlefield, sim_speed_index
 
 

@@ -1,0 +1,149 @@
+{
+  "ok": true,
+  "verified_at": "2026-10-11T13:02:17.534510+08:00",
+  "font_family": "Source Han Serif CN",
+  "environment": "Real QML window with QtTest input on the offscreen Qt platform",
+  "sizes": [
+    [
+      920,
+      540
+    ],
+    [
+      1280,
+      720
+    ],
+    [
+      1366,
+      768
+    ],
+    [
+      1920,
+      1080
+    ]
+  ],
+  "states": [
+    "deployment",
+    "unit-selection",
+    "timing",
+    "records",
+    "results",
+    "help"
+  ],
+  "interaction_check_count": 16,
+  "font_check_count": 8,
+  "screenshots_count": 25,
+  "visible_font_item_checks": 3584,
+  "unique_runtime_font_variants": 15,
+  "unique_actual_text_font_pairs": 218,
+  "resolved_families": [
+    "Source Han Serif CN"
+  ],
+  "glyph_families": [
+    "Source Han Serif CN"
+  ],
+  "qml_warning_count": 0,
+  "checks": [
+    {
+      "id": "application-default-font",
+      "ok": true
+    },
+    {
+      "id": "runtime-visible-item-fonts",
+      "ok": true,
+      "inspected_items": 3584
+    },
+    {
+      "id": "regular-bold-chinese-numeric-glyphs",
+      "ok": true
+    },
+    {
+      "id": "qml-text-default-family-inheritance",
+      "ok": true,
+      "normal_and_bold": [
+        {
+          "requested": "Source Han Serif CN",
+          "resolved": "Source Han Serif CN",
+          "style": "Regular",
+          "bold": false,
+          "pixel_size": -1,
+          "point_size": 12.0,
+          "sample_glyph_families": [
+            "Source Han Serif CN"
+          ],
+          "supports_chinese_and_digits": true
+        },
+        {
+          "requested": "Source Han Serif CN",
+          "resolved": "Source Han Serif CN",
+          "style": "Bold",
+          "bold": true,
+          "pixel_size": -1,
+          "point_size": 12.0,
+          "sample_glyph_families": [
+            "Source Han Serif CN"
+          ],
+          "supports_chinese_and_digits": true
+        }
+      ]
+    },
+    {
+      "id": "complete-actual-text-glyphs",
+      "ok": true,
+      "unique_text_font_pairs": 218,
+      "glyph_families": [
+        "Source Han Serif CN"
+      ],
+      "fallback_or_missing_glyph_count": 0
+    },
+    {
+      "id": "canvas-grid-font-context",
+      "ok": true,
+      "font": "Source Han Serif CN,-1,11,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0",
+      "pixel_size": 11,
+      "ten_digit_canvas_width": 59.0,
+      "same_font_qt_metrics_width": 59.0
+    },
+    {
+      "id": "four-size-geometry-and-text-overflow",
+      "ok": true,
+      "state_size_checks": 24,
+      "text_overflow_candidates": 0
+    },
+    {
+      "id": "visual-readability-review",
+      "ok": true,
+      "reviewed": "24-state contact sheet; all 6 states at 920x540 individually; unit-selection at 1280x720, timing at 1366x768, deployment at 1920x1080 individually. Chinese, numbers, buttons, fields, map labels, statistics, detail panel and dialogs remain readable."
+    }
+  ],
+  "screenshots": [
+    "ui-deployment-920x540.png",
+    "ui-deployment-1280x720.png",
+    "ui-deployment-1920x1080.png",
+    "ui-unit-selection-1280x720.png",
+    "ui-timing-920x540.png",
+    "ui-records-920x540.png",
+    "ui-results-920x540.png",
+    "ui-help-920x540.png",
+    "ui-keyboard-focus-1280x720.png"
+  ],
+  "limitations": "Offscreen rendering does not verify a separate computer or native display scaling.",
+  "captured_screenshot_count": 25,
+  "published_screenshot_count": 9,
+  "pygame_glyph_validation": {
+    "regular": true,
+    "bold": true,
+    "sample": "无人装备侦察共享摧毁0123456789",
+    "method": "Actual Pygame font metrics and render from the bundled OTF files"
+  },
+  "full_regression": {
+    "passed": 405,
+    "warnings": 1,
+    "seconds": 16.17
+  },
+  "package_verification": {
+    "checks": 9,
+    "resources": 20,
+    "actual_font_family": "Source Han Serif CN"
+  },
+  "local_evidence": "Complete 25-image evidence and contact sheet are retained in the ignored build directory."
+}

@@ -61,7 +61,17 @@ def test_qml_unit_obstacle_and_base_icons_render():
     assert all(item.property("paintedWidth") > 0 for item in unit_icons)
     assert all(item.property("paintedWidth") > 0 for item in obstacle_icons)
     assert all(item.property("paintedWidth") > 0 for item in base_icons)
-    assert all(item.width() == 44 for item in unit_icons)
+    # Map glyphs shrink at the fitted scale so dense deployments stay readable.
+    # They remain visible and keep a bounded size when the camera zooms in.
+    fitted_widths = [item.width() for item in unit_icons]
+    assert all(20 <= width <= 45 for width in fitted_widths)
+    viewport = root.findChild(QQuickItem, "mapViewport")
+    viewport.setProperty("zoomLevel", 3.0)
+    app.processEvents()
+    assert all(
+        fitted <= icon.width() <= 45
+        for fitted, icon in zip(fitted_widths, unit_icons)
+    )
     base_backdrops = [
         item for item in items if item.objectName().startswith("baseBackdrop-")
     ]

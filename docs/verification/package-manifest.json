@@ -1,0 +1,43 @@
+{
+  "filename": "UAV_WarGame.exe",
+  "bytes": 207934964,
+  "sha256": "462bf72e9516ad8775051124eff870a36dcc1b9ecd0a4e6e7599221f91ec3362",
+  "built_at": "2026-10-11T13:31:21.294789+08:00",
+  "platform": "Windows 11 build 26200 x64",
+  "smoke_exit_code": 0,
+  "smoke_report": "package-smoke.json",
+  "smoke_checks": 9,
+  "scene_ids": [
+    "standard",
+    "obstacles",
+    "custom",
+    "valley",
+    "river_city"
+  ],
+  "embedded_qml_matches_source": true,
+  "font_family": "Source Han Serif CN",
+  "embedded_ui_fonts_match_source": true,
+  "embedded_map_assets_and_scenarios_match_source": true,
+  "verified_resources_sha256": {
+    "ui/qml/Main.qml": "1dea9db2c424d11ecd89a86b0ffcc3087c645724c9351bc271fe04e877019ed8",
+    "ui/qml/ActionButton.qml": "acecf54b0837a0d5ed9b321e6ef397888828f39609640e9def06094a81fc86da",
+    "ui/qml/Theme.js": "3e245e197b231b540ef1b7626587fbe8ffb9ab395ff58390c9830ac420c5ca2c",
+    "ui/qml/HelpDialog.qml": "2a03a277c79ce29d7f37a58e361a8bf38453c135de902a7115157a4350fbef84",
+    "ui/qml/TerrainLayer.qml": "12d0e301a07d520a0eb24bf78eab034b5d50580b97db39adea51b2d4adce4668",
+    "ui/qml/MapOverview.qml": "560f18ea61f8abaf5c8d3daf7ff862b09224f0f8b05a9c33247088419831a880",
+    "ui/assets/maps/terrain_valley.png": "5adfe363247ce6a1fc09c2f46b17e57663f65200d392da7afc8efc81a1715df7",
+    "ui/qml/ResultsDialog.qml": "651379138b58a05c436bcd2c90020890dcd0dd0f426135e54541cfbef1dfa260",
+    "ui/qml/UnitDetails.qml": "3ba7ba6ddc5d4f647b93abf57c2ad4e502720bc34498000e9abced3819598924",
+    "ui/assets/maps/terrain_river.png": "319ee7624734e906e104e4306338450cae0367839abcdf723957b1e9fc66efc5",
+    "ui/assets/maps/sources.json": "04ae2db8a927e400fb5a410d34c768958d4f12b45579d9c3a393c41825b55a31",
+    "data/scenario_1.json": "89faef5b8c556d73507dc323c7b5cae93139f4331d3b87211a55e676b1c3ceed",
+    "data/scenario_obstacles.json": "acd76411987a376345cfd8317a30d3f473f5915f5f4cfee747d773d64ba04c81",
+    "data/scenario_custom.json": "b95a368cb13f1ce46f6d81c0b7df73828776cef8fe30f66a93c7488acfe767f4",
+    "data/scenario_valley.json": "22c65be5fcef565fb273f65444e9886299b47b9d7f9e5d58369b558e11229fe5",
+    "data/scenario_river_city.json": "23123402947ce5bc300b9cc9168b488f9a5e8e408103b95c101463de81e3fade",
+    "ui/assets/fonts/SourceHanSerifCN-Regular.otf": "3754ea669c530e2473354f8f6d9f79680a44d7e26ec7d00eeabee4a7e0753c5d",
+    "ui/assets/fonts/SourceHanSerifCN-Bold.otf": "4ee555ae58b3d22f6a95c2c494f2c36b7cccfc1d2224635f6461a03756f0e3c1",
+    "ui/assets/fonts/LICENSE.txt": "9ff5bb567e1b92c801fc1069e5fbf992ff8efccacb9db94e5959a5b3ba9bb903",
+    "ui/assets/fonts/sources.json": "e06297a42cce5bd85e3bcdda4c9860e39711dff2213deb0a2e585563eefe148e"
+  }
+}

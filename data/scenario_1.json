@@ -1,7 +1,8 @@
 {
   "map": {
     "width": 800,
-    "height": 600
+    "height": 600,
+    "style": "river"
   },
   "terrain": "mixed_training_area",
   "red_base": [80, 300],
