@@ -16,6 +16,12 @@ def test_complete_journal_step_limit_is_bounded(tmp_path, monkeypatch):
     assert not result.ok
     assert str(MAX_CONFIGURABLE_STEPS) in result.message
 
+    qml = (ROOT / "ui" / "qml" / "Main.qml").read_text(encoding="utf-8")
+    assert 'text: "最大运行步数（1–10,000）"' in qml
+    assert "IntValidator { bottom: 1; top: 10000 }" in qml
+    assert "1–1,000,000" not in qml
+    assert "top: 1000000" not in qml
+
 
 def test_pull_requests_run_packaging_and_executable_smoke_test():
     workflow = (ROOT / ".github" / "workflows" / "verify.yml").read_text(encoding="utf-8")

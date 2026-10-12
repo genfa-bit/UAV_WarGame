@@ -1986,7 +1986,7 @@ ApplicationWindow {
                     validator: DoubleValidator { bottom: 0.01; top: 60; decimals: 6; notation: DoubleValidator.StandardNotation; locale: "C" }
                     Accessible.name: "单步时长（秒）"
                 }
-                Label { text: "最大运行步数（1–1,000,000）"; color: Theme.text }
+                Label { text: "最大运行步数（1–10,000）"; color: Theme.text }
                 TextField {
                     id: maxStepsField
                     objectName: "maxStepsField"
@@ -2006,7 +2006,7 @@ ApplicationWindow {
                         border.width: parent.activeFocus ? 2 : 1
                     }
                     inputMethodHints: Qt.ImhDigitsOnly
-                    validator: IntValidator { bottom: 1; top: 1000000 }
+                    validator: IntValidator { bottom: 1; top: 10000 }
                     Accessible.name: "最大运行步数"
                 }
                 Text {
