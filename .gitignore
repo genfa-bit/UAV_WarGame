@@ -4,6 +4,7 @@ __pycache__/
 
 # 虚拟环境
 venv/
+.venv/
 uav_wargame/
 .env/
 
@@ -21,3 +22,12 @@ uav_wargame/
 
 # 用户保存地图
 data/saved_map.json
+
+# 本机优化备份、构建与源码索引
+.optimization-backup/
+.codegraph/
+build/
+dist/
+.build-cache/
+.test-user-data/
+UAV_WarGame_Diagnostic.spec

@@ -1,0 +1,44 @@
+[
+  {
+    "scene": "standard",
+    "seed": 7,
+    "steps": 5000,
+    "winner": null,
+    "seconds": 1.162
+  },
+  {
+    "scene": "standard",
+    "seed": 42,
+    "steps": 943,
+    "winner": "red",
+    "seconds": 0.305
+  },
+  {
+    "scene": "standard",
+    "seed": 123,
+    "steps": 1850,
+    "winner": "red",
+    "seconds": 0.582
+  },
+  {
+    "scene": "obstacles",
+    "seed": 7,
+    "steps": 4401,
+    "winner": "red",
+    "seconds": 1.4
+  },
+  {
+    "scene": "obstacles",
+    "seed": 42,
+    "steps": 5000,
+    "winner": null,
+    "seconds": 1.514
+  },
+  {
+    "scene": "obstacles",
+    "seed": 123,
+    "steps": 5000,
+    "winner": null,
+    "seconds": 1.288
+  }
+]

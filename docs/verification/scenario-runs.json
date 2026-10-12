@@ -1,0 +1,50 @@
+[
+  {
+    "scene": "standard",
+    "seed": 7,
+    "steps": 2000,
+    "winner": "draw",
+    "finish_reason": "step_limit",
+    "seconds": 0.587
+  },
+  {
+    "scene": "standard",
+    "seed": 42,
+    "steps": 943,
+    "winner": "red",
+    "finish_reason": "base_destroyed",
+    "seconds": 0.285
+  },
+  {
+    "scene": "standard",
+    "seed": 123,
+    "steps": 1850,
+    "winner": "red",
+    "finish_reason": "base_destroyed",
+    "seconds": 0.541
+  },
+  {
+    "scene": "obstacles",
+    "seed": 7,
+    "steps": 2000,
+    "winner": "draw",
+    "finish_reason": "step_limit",
+    "seconds": 0.753
+  },
+  {
+    "scene": "obstacles",
+    "seed": 42,
+    "steps": 2000,
+    "winner": "draw",
+    "finish_reason": "step_limit",
+    "seconds": 0.679
+  },
+  {
+    "scene": "obstacles",
+    "seed": 123,
+    "steps": 2000,
+    "winner": "draw",
+    "finish_reason": "step_limit",
+    "seconds": 0.58
+  }
+]

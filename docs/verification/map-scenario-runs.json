@@ -1,0 +1,50 @@
+{
+  "validation": "rich-map-scenarios",
+  "runs": [
+    {
+      "scene_id": "valley",
+      "scenario": "scenario_valley.json",
+      "seed": 42,
+      "time_steps": 2000,
+      "winner": "draw",
+      "finish_reason": "step_limit",
+      "max_steps": 2000,
+      "elapsed_seconds": 0.9717,
+      "exception": null
+    },
+    {
+      "scene_id": "valley",
+      "scenario": "scenario_valley.json",
+      "seed": 7,
+      "time_steps": 2000,
+      "winner": "draw",
+      "finish_reason": "step_limit",
+      "max_steps": 2000,
+      "elapsed_seconds": 0.8667,
+      "exception": null
+    },
+    {
+      "scene_id": "river_city",
+      "scenario": "scenario_river_city.json",
+      "seed": 42,
+      "time_steps": 2000,
+      "winner": "draw",
+      "finish_reason": "step_limit",
+      "max_steps": 2000,
+      "elapsed_seconds": 0.7889,
+      "exception": null
+    },
+    {
+      "scene_id": "river_city",
+      "scenario": "scenario_river_city.json",
+      "seed": 7,
+      "time_steps": 2000,
+      "winner": "draw",
+      "finish_reason": "step_limit",
+      "max_steps": 2000,
+      "elapsed_seconds": 0.6843,
+      "exception": null
+    }
+  ],
+  "all_completed_without_exception": true
+}

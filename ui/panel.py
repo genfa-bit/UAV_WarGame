@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pygame
+from ui.fonts import pygame_font
 
 from config import (
     MAP_WIDTH,
@@ -18,9 +19,9 @@ class InfoPanel:
     """显示部署提示或运行期统计信息。"""
 
     def __init__(self):
-        self.font = pygame.font.SysFont("Microsoft YaHei", 15)
-        self.small_font = pygame.font.SysFont("Microsoft YaHei", 13)
-        self.title_font = pygame.font.SysFont("Microsoft YaHei", 20, bold=True)
+        self.font = pygame_font(15)
+        self.small_font = pygame_font(13)
+        self.title_font = pygame_font(20, bold=True)
 
     # ── 运行阶段 ──────────────────────────────────────────────
 
