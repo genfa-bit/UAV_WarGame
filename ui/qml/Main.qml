@@ -502,6 +502,86 @@ ApplicationWindow {
                 onWidthChanged: constrainPan()
                 onHeightChanged: constrainPan()
 
+                // ── 左键拖动平移 ────────────────────────────────────────
+                // 坐标必须用场景坐标：这些 MouseArea 都是 battlefield 的子项，会随
+                // 相机一起移动，用自身局部坐标会把"地图跟着光标走"反馈进增量里，
+                // 表现为走一步停一步的抖动。
+                //
+                // immediate=true：本次按下没有编辑语义（运行态点选，或部署态按下点
+                // 不在对象上且未选障碍类型），移动超过死区即平移。
+                // immediate=false：按下已经开始编辑手势，需按住不动超过阈值再移动
+                // 才改判为平移，避免抢走拉框创建、拖动对象和缩放。
+                readonly property int leftPanHoldMs: 320
+                readonly property real leftPanSlop: 6
+                // 适应地图（1×）时地图不超出视口，没有可平移空间，不启用平移判定
+                readonly property bool leftPanPossible: zoomLevel > 1.001
+                property bool leftPanArmed: false
+                property bool leftPanMoved: false
+                property bool leftPanSuppressClick: false
+                property real leftPanHoldX: 0
+                property real leftPanHoldY: 0
+                property real leftPanLastX: 0
+                property real leftPanLastY: 0
+                signal leftPanStarted()
+
+                function beginLeftPress(x, y, immediate) {
+                    leftPanMoved = false
+                    leftPanSuppressClick = false
+                    leftPanHoldX = x
+                    leftPanHoldY = y
+                    leftPanLastX = x
+                    leftPanLastY = y
+                    leftPanTimer.stop()
+                    leftPanArmed = immediate && leftPanPossible
+                    if (!immediate && leftPanPossible) leftPanTimer.restart()
+                }
+                // 返回 true 表示本次按下已作为平移处理
+                function moveLeftPress(x, y) {
+                    if (!leftPanArmed) {
+                        if (movedBeyondSlop(x, y)) leftPanTimer.stop()
+                        return false
+                    }
+                    if (!leftPanMoved) {
+                        // 死区：光标只是轻微抖动仍按点击处理
+                        if (!movedBeyondSlop(x, y)) {
+                            leftPanLastX = x
+                            leftPanLastY = y
+                            return false
+                        }
+                        leftPanMoved = true
+                        leftPanStarted()
+                    }
+                    panX += x - leftPanLastX
+                    panY += y - leftPanLastY
+                    leftPanLastX = x
+                    leftPanLastY = y
+                    constrainPan()
+                    return true
+                }
+                function movedBeyondSlop(x, y) {
+                    return Math.abs(x - leftPanHoldX) > leftPanSlop
+                        || Math.abs(y - leftPanHoldY) > leftPanSlop
+                }
+                // 返回 true 表示本次按下被平移消费，调用方应跳过普通左键收尾
+                function endLeftPress() {
+                    leftPanTimer.stop()
+                    const consumed = leftPanArmed && leftPanMoved
+                    leftPanSuppressClick = consumed
+                    leftPanArmed = false
+                    leftPanMoved = false
+                    return consumed
+                }
+                function consumePanClick() {
+                    const suppressed = leftPanSuppressClick
+                    leftPanSuppressClick = false
+                    return suppressed
+                }
+                Timer {
+                    id: leftPanTimer
+                    interval: battlefieldViewport.leftPanHoldMs
+                    onTriggered: battlefieldViewport.leftPanArmed = true
+                }
+
                 MouseArea {
                     anchors.fill: parent
                     z: -1
@@ -1204,50 +1284,94 @@ ApplicationWindow {
                                 height: width
                                 hoverEnabled: true
                                 enabled: !root.deploymentMode
-                                cursorShape: Qt.PointingHandCursor
-                                onPressed: battlefieldViewport.forceActiveFocus(Qt.MouseFocusReason)
-                                onClicked: viewModel.selectUnit(unitDelegate.unitId)
+                                cursorShape: battlefieldViewport.leftPanArmed ? Qt.ClosedHandCursor
+                                    : Qt.PointingHandCursor
+                                onPressed: function(mouse) {
+                                    battlefieldViewport.forceActiveFocus(Qt.MouseFocusReason)
+                                    const scene = unitHitTarget.mapToItem(null, mouse.x, mouse.y)
+                                    battlefieldViewport.beginLeftPress(scene.x, scene.y, true)
+                                }
+                                onPositionChanged: function(mouse) {
+                                    if (!pressed) return
+                                    const scene = unitHitTarget.mapToItem(null, mouse.x, mouse.y)
+                                    battlefieldViewport.moveLeftPress(scene.x, scene.y)
+                                }
+                                onReleased: battlefieldViewport.endLeftPress()
+                                onClicked: {
+                                    if (battlefieldViewport.consumePanClick()) return
+                                    viewModel.selectUnit(unitDelegate.unitId)
+                                }
                             }
                         }
                     }
 
                     MouseArea {
+                        id: runtimeMapArea
                         anchors.fill: parent
                         z: 4.5
                         enabled: !root.deploymentMode
-                        onPressed: battlefieldViewport.forceActiveFocus(Qt.MouseFocusReason)
+                        cursorShape: battlefieldViewport.leftPanArmed ? Qt.ClosedHandCursor : Qt.ArrowCursor
+                        onPressed: function(mouse) {
+                            battlefieldViewport.forceActiveFocus(Qt.MouseFocusReason)
+                            const scene = runtimeMapArea.mapToItem(null, mouse.x, mouse.y)
+                            battlefieldViewport.beginLeftPress(scene.x, scene.y, true)
+                        }
+                        onPositionChanged: function(mouse) {
+                            if (!pressed) return
+                            const scene = runtimeMapArea.mapToItem(null, mouse.x, mouse.y)
+                            battlefieldViewport.moveLeftPress(scene.x, scene.y)
+                        }
+                        onReleased: battlefieldViewport.endLeftPress()
                         onClicked: function(mouse) {
+                            if (battlefieldViewport.consumePanClick()) return
                             viewModel.pointerPress(1, mouse.x / battlefieldViewport.scaleFactor,
                                                    mouse.y / battlefieldViewport.scaleFactor)
                         }
                     }
 
                     MouseArea {
+                        id: deploymentMapArea
                         anchors.fill: parent
                         z: 10
                         enabled: root.deploymentMode
                         acceptedButtons: Qt.LeftButton | Qt.RightButton
                         hoverEnabled: true
-                        cursorShape: root.deploymentMode ? Qt.CrossCursor : Qt.ArrowCursor
+                        cursorShape: battlefieldViewport.leftPanArmed ? Qt.ClosedHandCursor
+                            : root.deploymentMode ? Qt.CrossCursor : Qt.ArrowCursor
+
+                        Connections {
+                            target: battlefieldViewport
+                            // 改判为平移时放弃已经开始的编辑手势（预览框、拖拽）
+                            function onLeftPanStarted() {
+                                if (root.deploymentMode) viewModel.cancelPointer()
+                            }
+                        }
 
                         onPressed: function(mouse) {
                             battlefieldViewport.forceActiveFocus(Qt.MouseFocusReason)
                             const button = mouse.button === Qt.RightButton ? 3 : 1
-                            viewModel.pointerPress(
+                            // 返回是否已经开始了编辑手势（拉框创建、拖动对象、缩放）
+                            const editing = viewModel.pointerPress(
                                 button,
                                 mouse.x / battlefieldViewport.scaleFactor,
                                 mouse.y / battlefieldViewport.scaleFactor
                             )
+                            if (mouse.button !== Qt.LeftButton) return
+                            const scene = deploymentMapArea.mapToItem(null, mouse.x, mouse.y)
+                            battlefieldViewport.beginLeftPress(scene.x, scene.y, !editing)
                         }
                         onPositionChanged: function(mouse) {
-                            if (pressed) {
-                                viewModel.pointerMove(
-                                    mouse.x / battlefieldViewport.scaleFactor,
-                                    mouse.y / battlefieldViewport.scaleFactor
-                                )
-                            }
+                            if (!pressed) return
+                            const scene = deploymentMapArea.mapToItem(null, mouse.x, mouse.y)
+                            if (battlefieldViewport.moveLeftPress(scene.x, scene.y)) return
+                            viewModel.pointerMove(
+                                mouse.x / battlefieldViewport.scaleFactor,
+                                mouse.y / battlefieldViewport.scaleFactor
+                            )
                         }
                         onReleased: function(mouse) {
+                            if (mouse.button === Qt.LeftButton && battlefieldViewport.endLeftPress())
+                                return
                             const button = mouse.button === Qt.RightButton ? 3 : 1
                             viewModel.pointerRelease(
                                 button,
@@ -1734,7 +1858,7 @@ ApplicationWindow {
             Text {
                 width: parent.width
                 text: "点击单位查看详情与范围 · 滚轮缩放
-中键拖动地图 · 总览点击定位"
+中键拖动地图 · 左键拖动平移（放大后）· 总览点击定位"
                 color: root.mutedColor
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSmall

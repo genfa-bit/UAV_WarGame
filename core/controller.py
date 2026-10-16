@@ -329,6 +329,17 @@ class SimulationController:
         self.deployment.handle_mouse_up(button, x, y)
         return self._sync_editor_message()
 
+    @property
+    def editor_active(self) -> bool:
+        """部署阶段是否有进行中的编辑手势，供界面区分点击与平移。"""
+        return self.game_state == GAME_DEPLOYMENT and self.deployment.editor_active
+
+    def pointer_cancel(self) -> CommandResult:
+        if self.game_state != GAME_DEPLOYMENT:
+            return CommandResult(False, "")
+        self.deployment.handle_mouse_cancel()
+        return self._sync_editor_message()
+
     def undo(self) -> CommandResult:
         if self.game_state != GAME_DEPLOYMENT:
             return CommandResult(False, "只能在部署阶段撤销")

@@ -295,3 +295,48 @@ def test_cancel_clears_state():
     assert not editor.state.creating
     assert editor.preview_rect is None
     assert not editor.state.is_active
+
+
+# ── 编辑手势中断（左键拖动平移等场景）──
+
+def test_cancel_interaction_discards_obstacle_preview():
+    bf = _battlefield()
+    editor = MapEditor(bf)
+
+    editor.start_create_obstacle(200, 200)
+    editor.update_create_obstacle(340, 300)
+    editor.cancel_interaction()
+
+    assert len(bf.obstacles) == 1
+    assert editor.preview_rect is None
+    assert not editor.state.is_active
+
+
+def test_cancel_interaction_restores_dragged_obstacle():
+    bf = _battlefield()
+    editor = MapEditor(bf)
+
+    editor.start_drag_obstacle(0, 140, 130)
+    editor.update_drag_obstacle(260, 220)
+    assert bf.obstacles[0].x != 100
+    editor.cancel_interaction()
+
+    assert (bf.obstacles[0].x, bf.obstacles[0].y) == (100, 100)
+    assert not editor.state.is_active
+
+
+def test_cancel_interaction_restores_dragged_unit_and_base():
+    bf = _battlefield()
+    editor = MapEditor(bf)
+    units = _units()
+    editor._deploy_units = units
+
+    editor.start_drag_unit(0, units)
+    editor.update_drag_unit(200, 200, units)
+    editor.start_drag_base("red")
+    editor.update_drag_base(400, 400)
+    editor.cancel_interaction()
+
+    assert (units[0].x, units[0].y) == (50, 50)
+    assert bf.red_base == (80, 300)
+    assert not editor.state.is_active

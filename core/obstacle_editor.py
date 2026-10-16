@@ -487,6 +487,35 @@ class MapEditor:
     def cancel(self) -> None:
         self.state = EditorState()
 
+    def cancel_interaction(self) -> None:
+        """放弃进行中的创建/拖拽/缩放，不提交任何修改。
+
+        用于左键拖动平移等需要中断编辑手势的场景：障碍物按 _obs_snapshot
+        回退，单位/基地回到拖拽起点，同时清空全局提示以免留下过期文案。
+        """
+        state = self.state
+        if state.dragging_obs or state.resizing:
+            idx = state.selected_obs_idx
+            if (self._obs_snapshot is not None and idx is not None
+                    and 0 <= idx < len(self.battlefield.obstacles)):
+                self.battlefield.obstacles[idx] = self._obs_snapshot
+            self._obs_snapshot = None
+        if state.dragging_unit_idx is not None:
+            idx = state.dragging_unit_idx
+            if 0 <= idx < len(self._deploy_units):
+                unit = self._deploy_units[idx]
+                unit.x = state.drag_unit_start_x
+                unit.y = state.drag_unit_start_y
+        if state.dragging_base:
+            self._restore_base(state.dragging_base)
+
+        state.creating = False
+        state.dragging_obs = False
+        state.resizing = False
+        state.dragging_unit_idx = None
+        state.dragging_base = None
+        state.last_message = ""
+
     @property
     def message(self) -> str:
         return self.state.last_message

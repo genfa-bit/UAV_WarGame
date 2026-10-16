@@ -298,8 +298,9 @@ class SimulationViewModel(QObject):
         self.controller.place_at(x, y)
         self._refresh()
 
-    @Slot(int, float, float)
-    def pointerPress(self, button: int, x: float, y: float) -> None:
+    @Slot(int, float, float, result=bool)
+    def pointerPress(self, button: int, x: float, y: float) -> bool:
+        """返回按下后是否开始了部署编辑手势（拉框、拖拽、缩放）。"""
         if self.controller.game_state != "deployment":
             if button == 1:
                 candidates = [row for row in self._snapshot["units"]
@@ -307,9 +308,10 @@ class SimulationViewModel(QObject):
                               and (row["x"] - x) ** 2 + (row["y"] - y) ** 2 <= 24 ** 2]
                 candidates.sort(key=lambda row: (row["x"] - x) ** 2 + (row["y"] - y) ** 2)
                 self.selectUnit(candidates[0]["id"] if candidates else "")
-            return
+            return False
         self.controller.pointer_press(button, x, y)
         self._refresh()
+        return self.controller.editor_active
 
     @Slot(float, float)
     def pointerMove(self, x: float, y: float) -> None:
@@ -319,6 +321,11 @@ class SimulationViewModel(QObject):
     @Slot(int, float, float)
     def pointerRelease(self, button: int, x: float, y: float) -> None:
         self.controller.pointer_release(button, x, y)
+        self._refresh()
+
+    @Slot()
+    def cancelPointer(self) -> None:
+        self.controller.pointer_cancel()
         self._refresh()
 
     @Slot()
