@@ -239,6 +239,52 @@ def test_decoder_rejects_corrupt_or_truncated_buffers():
         decode_frames(broken)
     with pytest.raises(ReplayError, match="无法解码"):
         decode_frames(dict(block, frames="not base64!!"))
+    with pytest.raises(ReplayError, match="字节长度无效"):
+        decode_frames(dict(block, frames="eA=="))
+
+
+def test_replay_clock_preserves_mid_run_timing_changes():
+    controller = SimulationController(DEFAULT_SCENARIO_PATH)
+    assert controller.set_timing(0.2, 20).ok
+    assert controller.start().ok
+    for _ in range(5):
+        assert controller.advance().ok
+    assert controller.toggle_pause().ok
+    assert controller.set_timing(0.5, 20).ok
+    assert controller.toggle_pause().ok
+    for _ in range(5):
+        assert controller.advance().ok
+
+    track = ReplayTrack.from_payload(controller._run_payload())
+    assert track.timing_at(5) == pytest.approx((0.5, 1.0))
+    assert track.timing_at(10) == pytest.approx((0.5, 3.5))
+    assert track.statistics(10)["elapsed_seconds"] == pytest.approx(3.5)
+
+
+def test_replay_clock_handles_repeated_changes_at_same_step():
+    controller = SimulationController(DEFAULT_SCENARIO_PATH)
+    assert controller.set_timing(0.2, 20).ok
+    assert controller.start().ok
+    for _ in range(5):
+        assert controller.advance().ok
+    assert controller.toggle_pause().ok
+    assert controller.set_timing(0.5, 20).ok
+    assert controller.set_timing(1.0, 20).ok
+    assert controller.toggle_pause().ok
+    assert controller.advance().ok
+    track = ReplayTrack.from_payload(controller._run_payload())
+    assert track.timing_at(0) == pytest.approx((0.2, 0.0))
+    assert track.timing_at(4) == pytest.approx((0.2, 0.8))
+    assert track.timing_at(5) == pytest.approx((1.0, 1.0))
+    assert track.timing_at(6) == pytest.approx((1.0, 2.0))
+
+
+def test_replay_clock_falls_back_for_records_without_timing_events():
+    controller, _, _ = run_to_finish(max_steps=10, duration=0.2)
+    payload = controller._run_payload()
+    payload["records"] = []
+    track = ReplayTrack.from_payload(payload)
+    assert track.timing_at(5) == pytest.approx((0.2, 1.0))
 
 
 def test_empty_frame_buffer_encodes_an_empty_track():

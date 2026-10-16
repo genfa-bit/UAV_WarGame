@@ -847,7 +847,7 @@ class SimulationController:
                                   else str(self.current_save_path) if self.current_save_path else ""),
             "show_wrecks": (self._show_wrecks if track
                             else self.simulator.show_wrecks if self.simulator else True),
-            "timing": ({"step_duration_seconds": track.step_duration_seconds,
+            "timing": ({"step_duration_seconds": track.timing_at(cursor)[0],
                         "max_steps": track.max_step, "editable": False} if track
                        else {"step_duration_seconds": self.step_duration_seconds,
                              "max_steps": self.max_steps,
@@ -875,8 +875,8 @@ class SimulationController:
             "max_step": track.max_step,
             "run_id": self._replay_run_id,
             "scene_name": track.scene_name,
-            "step_duration_seconds": track.step_duration_seconds,
-            "elapsed_seconds": round(cursor * track.step_duration_seconds, 9),
+            "step_duration_seconds": track.timing_at(cursor)[0],
+            "elapsed_seconds": track.timing_at(cursor)[1],
             "records_up_to": len(track.records_up_to(cursor)),
             "finished": track.finished,
         }
