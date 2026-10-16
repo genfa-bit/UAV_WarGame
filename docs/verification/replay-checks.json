@@ -4,18 +4,18 @@
   "environment": "本机源码运行，offscreen Qt；Windows 11，Python 3.13.9，PySide6 6.11.1，pytest 9.0.3",
   "pytest": {
     "command": "python -m pytest -q",
-    "total": 455,
+    "total": 460,
     "failed": 0,
     "skipped": 0,
     "baseline_before_this_round": 420,
-    "added": 35,
+    "added": 40,
     "new_files": {
       "tests/test_replay_core.py": 12,
       "tests/test_replay_controller.py": 14,
       "tests/test_replay_qml.py": 9
     },
     "note": "本轮未重新生成 docs/verification/pytest-results.xml，该文件仍是 2026-10-11 的 405 项证据。",
-    "history": "加入部署阶段入口与退出回放的位置还原后，计数由 453/+33 变为 455/+35；两个新用例是 test_replay_controller.py::test_replay_started_from_deployment_keeps_the_layout_being_edited 与 test_replay_qml.py::test_deployment_replay_returns_to_the_layout_being_edited。"
+    "history": "453/+33（回放落地）→ 455/+35（加入部署阶段入口与退出回放的位置还原）→ 460/+40（加入记录压缩，另见 journal-size-checks.json）。"
   },
   "source_smoke": {
     "command": "python main.py --smoke-test",
@@ -55,6 +55,7 @@
   ],
   "not_verified": [
     "真实鼠标拖动进度滑块的连续手感（离屏测试只覆盖 moved 信号与按钮点击）",
-    "无 Python 的独立 Windows 机器上的回放验收"
+    "无 Python 的独立 Windows 机器上的回放验收",
+    "压缩归档后的体积与耗时另记于 journal-size-checks.json"
   ]
 }

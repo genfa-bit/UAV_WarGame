@@ -8,6 +8,7 @@ import pytest
 from config import (GAME_DEPLOYMENT, GAME_FINISHED, GAME_PAUSED, GAME_REPLAY,
                     GAME_REPLAY_PAUSED, GAME_RUNNING)
 from core.controller import DEFAULT_SCENARIO_PATH, SimulationController
+from core.map_persistence import read_json_document
 
 
 @pytest.fixture(autouse=True)
@@ -211,7 +212,7 @@ def test_wreck_visibility_toggles_without_a_simulator():
 
 def test_old_schema_two_records_are_listed_but_not_replayable(tmp_path):
     controller = finished_controller(max_steps=12)
-    legacy = json.loads(journal_path(controller).read_text(encoding="utf-8"))
+    legacy = read_json_document(journal_path(controller))
     legacy.pop("replay")
     legacy.pop("map")
     legacy["schema_version"] = 2

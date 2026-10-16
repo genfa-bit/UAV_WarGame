@@ -37,7 +37,8 @@ from core.battlefield import obstacle_display_name
 from core.deployment import DeploymentManager
 from core.map_persistence import (
     BUILTIN_SCENARIOS, BUILTIN_SCENARIO_DIR, is_builtin_scenario, list_scenarios,
-    load_scenario_file, save_scenario, user_scenario_dir, write_json_atomic,
+    load_scenario_file, read_json_document, save_scenario, user_scenario_dir,
+    write_json_atomic,
 )
 from core.replay import (BASE_IDS, ENGAGEMENT_CODES, STATUS_CODES, ReplayError,
                          ReplayTrack, encode_replay_block)
@@ -189,7 +190,7 @@ class SimulationController:
         """载入一局运行记录的逐帧数据并停在末帧，等待播放。"""
         source = Path(filepath).expanduser()
         try:
-            payload = json.loads(source.read_text(encoding="utf-8"))
+            payload = read_json_document(source)
         except (OSError, ValueError) as exc:
             self.last_message = f"无法读取运行记录：{exc}"
             return CommandResult(False, self.last_message)
@@ -610,7 +611,7 @@ class SimulationController:
             files = sorted(self.recording_directory.glob("*.json"), reverse=True)
             for path in files:
                 try:
-                    payload = json.loads(path.read_text(encoding="utf-8"))
+                    payload = read_json_document(path)
                     if (isinstance(payload, dict)
                             and payload.get("schema_version") in SUPPORTED_JOURNAL_SCHEMAS
                             and isinstance(payload.get("run_id"), str) and payload["run_id"]
@@ -711,7 +712,7 @@ class SimulationController:
         self._last_run_payload = payload
         path = self.recording_directory / f"{self._run_id}.json"
         try:
-            write_json_atomic(path, payload)
+            write_json_atomic(path, payload, compress=True)
         except Exception as exc:
             self._recording_error = f"自动保存记录失败：{exc}"
             self._unsaved_runs[self._run_id] = payload
@@ -736,7 +737,7 @@ class SimulationController:
                 continue
             path = self.recording_directory / f"{run_id}.json"
             try:
-                write_json_atomic(path, payload)
+                write_json_atomic(path, payload, compress=True)
             except Exception as exc:
                 self._recording_error = f"自动保存记录失败：{exc}"
                 all_saved = False
