@@ -165,7 +165,8 @@ def test_results_dialog_replays_the_run_that_just_finished(replay_ui):
     assert root.property("replayMode") is True
     assert model.snapshot["game_state"] == "replay_paused"
     assert model.snapshot["state_label"] == "回放暂停"
-    assert model.snapshot["replay"]["cursor"] == model.snapshot["replay"]["max_step"]
+    # 默认停在第一帧，三个入口一致。
+    assert model.snapshot["replay"]["cursor"] == 0
     # 实时运行的按钮让位给回放条，速度档位两边共用。
     assert not root.findChild(QQuickItem, "startSimulationButton").isVisible()
     assert not root.findChild(QQuickItem, "pauseSimulationButton").isVisible()
@@ -180,7 +181,7 @@ def test_replay_bar_play_pause_step_and_slider(replay_ui):
     slider = root.findChild(QQuickItem, "replaySlider")
     max_step = model.snapshot["replay"]["max_step"]
     assert slider.property("to") == max_step
-    assert slider.property("value") == max_step
+    assert slider.property("value") == 0
 
     # 拖动时间轴只走 onMoved，避免定时器推游标时回灌控制器。
     slider.setProperty("value", 3)

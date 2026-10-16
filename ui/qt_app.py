@@ -230,11 +230,12 @@ def _verify_delivery(app, engine, view_model) -> int:
                                      for path in controller.recording_directory.glob("*.json"))
             assert journals_before
             view_model.replayCurrentRun()
-            assert controller.snapshot()["replay"]["active"]
+            replay = controller.snapshot()["replay"]
+            # 进入回放默认停在第一帧，所以这一帧就是部署态，截图即回放开头。
+            assert replay["active"] and replay["cursor"] == 0
             assert controller.snapshot()["game_state"] == "replay_paused"
             slider = root.findChild(QObject, "replaySlider")
-            assert slider and slider.property("to") == controller.snapshot()["replay"]["max_step"]
-            view_model.seekReplay(0)
+            assert slider and slider.property("to") == replay["max_step"]
             replay_frame = render()
             assert controller.snapshot()["statistics"]["time_step"] == 0
             if report_path:

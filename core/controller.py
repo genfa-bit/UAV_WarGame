@@ -187,7 +187,7 @@ class SimulationController:
         return self.game_state == GAME_REPLAY
 
     def replay_run(self, filepath: str | Path) -> CommandResult:
-        """载入一局运行记录的逐帧数据并停在末帧，等待播放。"""
+        """载入一局运行记录的逐帧数据并停在第一帧（部署帧），等待播放。"""
         source = Path(filepath).expanduser()
         try:
             payload = read_json_document(source)
@@ -221,13 +221,15 @@ class SimulationController:
                                    if self.game_state == GAME_DEPLOYMENT
                                    else self._run_deployment)
         self._replay = track
-        self._replay_cursor = track.max_step
+        # 停在第一帧而不是末帧：回放看的是这一局怎么打起来的，从部署态起播才是它该有的开头。
+        self._replay_cursor = 0
         self._replay_run_id = track.run_id
         self._replay_save_path = str(source)
         self._show_wrecks = True
         self.game_state = GAME_REPLAY_PAUSED
         self.last_message = (f"回放：{track.scene_name or source.stem}，"
-                             f"共 {track.frame_count} 帧（第 0–{track.max_step} 步）")
+                             f"共 {track.frame_count} 帧（第 0–{track.max_step} 步），"
+                             f"已停在第一帧")
         return CommandResult(True, self.last_message)
 
     def replay_current_run(self) -> CommandResult:

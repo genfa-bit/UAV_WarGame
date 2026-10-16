@@ -34,7 +34,7 @@ def journal_path(controller):
     return Path(controller._record_save_path)
 
 
-def test_replay_opens_paused_at_the_last_frame():
+def test_replay_opens_paused_at_the_first_frame():
     controller = finished_controller()
     final_step = controller.simulator.time_step
     unit_ids = [row["id"] for row in controller.snapshot()["units"]]
@@ -44,13 +44,14 @@ def test_replay_opens_paused_at_the_last_frame():
     snapshot = controller.snapshot()
     assert snapshot["game_state"] == GAME_REPLAY_PAUSED
     assert snapshot["state_label"] == "回放暂停"
+    # 默认停在第一帧（部署帧），所以进度条、累计时间与运行记录都从开头起算。
     assert snapshot["replay"] == {
-        "active": True, "playing": False, "cursor": final_step, "frame_count": final_step + 1,
+        "active": True, "playing": False, "cursor": 0, "frame_count": final_step + 1,
         "max_step": final_step, "run_id": controller._run_id,
         "scene_name": controller.scene_name,
         "step_duration_seconds": pytest.approx(0.2),
-        "elapsed_seconds": pytest.approx(final_step * 0.2, abs=1e-9),
-        "records_up_to": len(controller._replay.records),
+        "elapsed_seconds": pytest.approx(0.0, abs=1e-9),
+        "records_up_to": len(controller._replay.records_up_to(0)),
         "finished": controller._replay.finished,
     }
     # 单位行与实时快照形状一致，且顺序稳定（QML 才能走逐角色动画）。
@@ -62,7 +63,7 @@ def test_replay_opens_paused_at_the_last_frame():
 def test_playing_pausing_and_stepping_move_the_cursor():
     controller = finished_controller()
     assert controller.replay_run(journal_path(controller)).ok
-    assert controller.seek_replay(0).ok
+    # 进入回放就停在第一帧，不需要先定位。
     assert controller.snapshot()["replay"]["cursor"] == 0
 
     assert controller.toggle_pause().ok
@@ -88,7 +89,6 @@ def test_playing_pausing_and_stepping_move_the_cursor():
 def test_playing_to_the_end_pauses_and_reports_finished():
     controller = finished_controller(max_steps=12)
     assert controller.replay_run(journal_path(controller)).ok
-    assert controller.seek_replay(0).ok
     assert controller.toggle_pause().ok
     while controller.game_state == GAME_REPLAY:
         assert controller.advance().ok
@@ -99,16 +99,17 @@ def test_playing_to_the_end_pauses_and_reports_finished():
     assert controller.advance().ok is False
 
 
-def test_seeking_to_zero_restores_the_deployment_frame():
+def test_replay_opens_at_the_deployment_frame():
+    """进入回放默认就在第一帧，不需要先定位：画的正是这一局的部署态。"""
     controller = SimulationController(DEFAULT_SCENARIO_PATH)
     assert controller.start().ok
     deployment = {unit.id: (unit.x, unit.y) for unit in controller.simulator.units}
     while controller.game_state == GAME_RUNNING:
         assert controller.advance().ok
     assert controller.replay_run(journal_path(controller)).ok
-    assert controller.seek_replay(0).ok
 
     snapshot = controller.snapshot()
+    assert snapshot["replay"]["cursor"] == 0
     for row in snapshot["units"]:
         x, y = deployment[row["id"]]
         assert row["x"] == pytest.approx(x, abs=0.05)
