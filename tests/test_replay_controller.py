@@ -60,6 +60,42 @@ def test_replay_opens_paused_at_the_first_frame():
     json.dumps(snapshot, ensure_ascii=False, allow_nan=False)
 
 
+def test_replay_snapshot_uses_clock_history_after_timing_change():
+    controller = SimulationController(DEFAULT_SCENARIO_PATH)
+    assert controller.set_timing(0.2, 20).ok
+    assert controller.start().ok
+    for _ in range(5):
+        assert controller.advance().ok
+    assert controller.toggle_pause().ok
+    assert controller.set_timing(0.5, 20).ok
+    assert controller.toggle_pause().ok
+    for _ in range(5):
+        assert controller.advance().ok
+    assert controller.replay_current_run().ok
+    assert controller.seek_replay(10).ok
+    replay = controller.snapshot()["replay"]
+    assert replay["step_duration_seconds"] == pytest.approx(0.5)
+    assert replay["elapsed_seconds"] == pytest.approx(3.5)
+    assert controller.seek_replay(2).ok
+    early = controller.snapshot()
+    assert early["timing"]["step_duration_seconds"] == pytest.approx(0.2)
+    assert early["replay"]["elapsed_seconds"] == pytest.approx(0.4)
+
+
+def test_replay_rejects_odd_byte_buffer_without_changing_state(tmp_path):
+    controller = finished_controller(max_steps=5)
+    payload = controller._run_payload()
+    payload["replay"]["frames"] = "eA=="
+    path = tmp_path / "corrupt.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    state = controller.game_state
+    result = controller.replay_run(path)
+    assert not result.ok
+    assert "字节长度无效" in result.message
+    assert controller.game_state == state
+    assert not controller.replaying
+
+
 def test_playing_pausing_and_stepping_move_the_cursor():
     controller = finished_controller()
     assert controller.replay_run(journal_path(controller)).ok

@@ -142,7 +142,12 @@ def decode_frames(block: dict) -> tuple[array, list[str], int]:
     except (ValueError, TypeError) as exc:
         raise ReplayError(f"回放数据无法解码：{exc}") from exc
     values = array("h")
-    values.frombytes(raw_bytes)
+    if len(raw_bytes) % values.itemsize:
+        raise ReplayError("回放数据的字节长度无效")
+    try:
+        values.frombytes(raw_bytes)
+    except (BufferError, MemoryError, ValueError) as exc:
+        raise ReplayError(f"回放数据无法解码：{exc}") from exc
     if (sys.byteorder == "big") != (block.get("byteorder") == "big"):
         values.byteswap()
     if unit_count != len(unit_ids) or unit_count <= 0:
@@ -195,6 +200,30 @@ class ReplayTrack:
         self._record_steps = [int(row.get("step", 0) or 0) for row in self.records]
         self._combat_records = [row for row in self.records if row.get("category") == "combat"]
         self._combat_steps = [int(row.get("step", 0) or 0) for row in self._combat_records]
+        self._timing_segments = self._build_timing_segments()
+
+    def _build_timing_segments(self) -> list[tuple[int, float, float]]:
+        """Return (start step, elapsed seconds, duration) segments.
+
+        Timing-change records already preserve the clock value at the boundary,
+        so replay can reconstruct elapsed time without expanding every frame.
+        """
+        segments: list[tuple[int, float, float]] = []
+        for row in self.records:
+            if row.get("event") not in {"created", "timing_changed"}:
+                continue
+            try:
+                step = int(row.get("step", 0) or 0)
+                elapsed = float(row.get("elapsed_seconds", 0.0) or 0.0)
+                duration = float(row["step_duration_seconds"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if duration > 0:
+                segments.append((step, elapsed, duration))
+        if not segments:
+            segments.append((0, 0.0, self.step_duration_seconds))
+        segments.sort(key=lambda item: item[0])
+        return segments
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "ReplayTrack":
@@ -210,6 +239,17 @@ class ReplayTrack:
             return float(self.settings.get("step_duration_seconds", _DEFAULT_STEP_DURATION))
         except (TypeError, ValueError):
             return _DEFAULT_STEP_DURATION
+
+    def timing_at(self, cursor: int) -> tuple[float, float]:
+        """Return the duration and cumulative clock at a replay cursor."""
+        cursor = self.clamp(cursor)
+        segment = self._timing_segments[0]
+        for candidate in self._timing_segments[1:]:
+            if candidate[0] > cursor:
+                break
+            segment = candidate
+        step, elapsed, duration = segment
+        return duration, round(elapsed + (cursor - step) * duration, 9)
 
     def clamp(self, index: int) -> int:
         try:
@@ -308,8 +348,9 @@ class ReplayTrack:
         cursor = self.clamp(cursor)
         stats = dict(self.statistics_final)
         stats["time_step"] = cursor
-        stats["elapsed_seconds"] = round(cursor * self.step_duration_seconds, 9)
-        stats["step_duration_seconds"] = self.step_duration_seconds
+        duration, elapsed = self.timing_at(cursor)
+        stats["elapsed_seconds"] = elapsed
+        stats["step_duration_seconds"] = duration
         stats["max_steps"] = int(self.settings.get("max_steps", stats.get("max_steps", 0)) or 0)
         stats["record_count"] = len(self.records_up_to(cursor))
 
