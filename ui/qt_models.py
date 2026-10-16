@@ -18,7 +18,12 @@ from PySide6.QtCore import (
     Slot,
 )
 
+from config import GAME_REPLAY, GAME_RUNNING
 from core.controller import SimulationController
+
+
+# 需要 QTimer 驱动的状态：实时运行，以及正在播放的回放。
+_PLAYING_STATES = (GAME_RUNNING, GAME_REPLAY)
 
 
 class UnitListModel(QAbstractListModel):
@@ -278,6 +283,43 @@ class SimulationViewModel(QObject):
         self.controller.toggle_wrecks()
         self._refresh()
 
+    @Slot(str)
+    def replayRun(self, path: str) -> None:
+        result = self.controller.replay_run(path)
+        if result.ok:
+            self._selected_unit_id = ""
+        self._refresh()
+
+    @Slot(QUrl)
+    def replayRunFromUrl(self, url: QUrl) -> None:
+        path = self._local_path(url)
+        if path:
+            self.replayRun(path)
+
+    @Slot()
+    def replayCurrentRun(self) -> None:
+        result = self.controller.replay_current_run()
+        if result.ok:
+            self._selected_unit_id = ""
+        self._refresh()
+
+    @Slot(int)
+    def seekReplay(self, index: int) -> None:
+        self.controller.seek_replay(index)
+        self._refresh()
+
+    @Slot(int)
+    def replayStep(self, delta: int) -> None:
+        self.controller.replay_step(delta)
+        self._refresh()
+
+    @Slot()
+    def exitReplay(self) -> None:
+        result = self.controller.exit_replay()
+        if result.ok:
+            self._selected_unit_id = ""
+        self._refresh()
+
     @Slot()
     def toggleTeam(self) -> None:
         self.controller.toggle_team()
@@ -362,7 +404,7 @@ class SimulationViewModel(QObject):
         deadline = perf_counter() + 0.012
         for _ in range(24 if self.controller.speed_interval_ms == 0 else 1):
             self.controller.advance()
-            if self.controller.game_state != "running" or perf_counter() >= deadline:
+            if self.controller.game_state not in _PLAYING_STATES or perf_counter() >= deadline:
                 break
         self._refresh()
 
@@ -380,7 +422,7 @@ class SimulationViewModel(QObject):
         self._update_selection()
         interval = int(self._snapshot["speed_interval_ms"]) or 33
         self._timer.setInterval(interval)
-        if self._snapshot["game_state"] == "running":
+        if self._snapshot["game_state"] in _PLAYING_STATES:
             if not self._timer.isActive():
                 self._timer.start()
         else:

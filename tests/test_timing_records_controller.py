@@ -106,7 +106,7 @@ def test_pause_and_finish_persist_result_events_and_history_survives_new_control
     assert controller.game_state == GAME_FINISHED
     assert not controller.set_timing(1, 100).ok
     finished = saved_payload(controller)
-    assert finished["schema_version"] == 2
+    assert finished["schema_version"] == 3
     assert finished["finished"] is True
     assert finished["result"]["elapsed_seconds"] == 1
     assert len([row for row in finished["records"] if row["category"] == "result"]) == 1
@@ -291,7 +291,7 @@ def test_exports_reject_empty_run_and_builtin_scene_and_result_requires_finish(t
     controller.game_state = GAME_FINISHED
     assert controller.export_result(tmp_path / "result.json").ok
     data = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
-    assert data["schema_version"] == 2 and data["result"]["winner"] == "red"
+    assert data["schema_version"] == 3 and data["result"]["winner"] == "red"
     assert data["statistics"] == controller.snapshot()["statistics"]
 
 

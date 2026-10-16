@@ -65,6 +65,7 @@ OBSTACLE_TYPE_LABELS = {
 STATE_LABELS = {
     "deployment": "部署阶段", "running": "运行中",
     "paused": "已暂停", "finished": "已结束",
+    "replay": "回放中", "replay_paused": "回放暂停",
 }
 
 # ── 对象放置参数 ──────────────────────────────────────────────
@@ -107,12 +108,18 @@ class SimState:
     RUNNING = "running"
     PAUSED = "paused"
     FINISHED = "finished"
+    # 回放：replay 表示正在播放，replay_paused 表示停住等操作。
+    REPLAY = "replay"
+    REPLAY_PAUSED = "replay_paused"
 
 
 GAME_DEPLOYMENT = SimState.DEPLOYMENT
 GAME_RUNNING = SimState.RUNNING
 GAME_PAUSED = SimState.PAUSED
 GAME_FINISHED = SimState.FINISHED
+GAME_REPLAY = SimState.REPLAY
+GAME_REPLAY_PAUSED = SimState.REPLAY_PAUSED
+GAME_REPLAY_STATES = (GAME_REPLAY, GAME_REPLAY_PAUSED)
 
 UNIT_RADIUS = 10
 COMMAND_SIZE = 18

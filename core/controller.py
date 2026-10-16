@@ -16,6 +16,9 @@ from config import (
     GAME_DEPLOYMENT,
     GAME_FINISHED,
     GAME_PAUSED,
+    GAME_REPLAY,
+    GAME_REPLAY_PAUSED,
+    GAME_REPLAY_STATES,
     GAME_RUNNING,
     MAX_SIMULATION_STEPS,
     MIN_STEP_DURATION_SECONDS,
@@ -36,6 +39,8 @@ from core.map_persistence import (
     BUILTIN_SCENARIOS, BUILTIN_SCENARIO_DIR, is_builtin_scenario, list_scenarios,
     load_scenario_file, save_scenario, user_scenario_dir, write_json_atomic,
 )
+from core.replay import (BASE_IDS, ENGAGEMENT_CODES, STATUS_CODES, ReplayError,
+                         ReplayTrack, encode_replay_block)
 from core.scenario_loader import load_scenario
 from core.simulator import Simulator
 from core.threat import team_strength
@@ -48,6 +53,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_SCENARIO_PATH = BASE_DIR / "data" / "scenario_1.json"
 DEFAULT_SAVE_PATH = user_scenario_dir() / "saved_map.json"
 _RECORD_AUTOSAVE_INTERVAL_SECONDS = 5.0
+# v3 增加逐帧 replay 块与静态 map 负载；v2 记录仍可读取，只是不能回放。
+JOURNAL_SCHEMA = 3
+SUPPORTED_JOURNAL_SCHEMAS = (2, 3)
 
 
 @dataclass(frozen=True)
@@ -85,6 +93,13 @@ class SimulationController:
         self._unsaved_runs: dict[str, dict[str, Any]] = {}
         self._last_record_save_step = 0
         self._last_record_save_at = 0.0
+        self._replay: ReplayTrack | None = None
+        self._replay_cursor = 0
+        self._replay_run_id = ""
+        self._replay_save_path = ""
+        # 退出回放要恢复的那份部署，在进入回放时捕获（见 replay_run）。
+        self._replay_return = None
+        self._show_wrecks = True
         battlefield, units = load_scenario(self.scenario_path)
         self._accept_scenario(battlefield, units, self.scenario_path)
 
@@ -137,6 +152,10 @@ class SimulationController:
         return CommandResult(True, self.last_message)
 
     def reset(self) -> CommandResult:
+        # 回放时 _replay 仍持有数据，直接 reset 会让状态与画面不一致。
+        if self._replay is not None:
+            self.last_message = "回放中不能返回部署，请先退出回放"
+            return CommandResult(False, self.last_message)
         baseline = self._run_deployment if self.game_state != GAME_DEPLOYMENT else self._initial_deployment
         if baseline is None:
             return CommandResult(False, "没有可恢复的部署")
@@ -153,6 +172,125 @@ class SimulationController:
         self.deployment = DeploymentManager(battlefield, units)
         self.simulator = None
         self.game_state = GAME_DEPLOYMENT
+
+    # ═══════════════════════════════════════════════════════════
+    #  回放
+    # ═══════════════════════════════════════════════════════════
+
+    @property
+    def replaying(self) -> bool:
+        return self._replay is not None
+
+    @property
+    def replay_playing(self) -> bool:
+        return self.game_state == GAME_REPLAY
+
+    def replay_run(self, filepath: str | Path) -> CommandResult:
+        """载入一局运行记录的逐帧数据并停在末帧，等待播放。"""
+        source = Path(filepath).expanduser()
+        try:
+            payload = json.loads(source.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            self.last_message = f"无法读取运行记录：{exc}"
+            return CommandResult(False, self.last_message)
+        if not isinstance(payload, dict):
+            self.last_message = "运行记录格式不正确"
+            return CommandResult(False, self.last_message)
+        if payload.get("schema_version") not in SUPPORTED_JOURNAL_SCHEMAS:
+            self.last_message = "无法识别的运行记录版本"
+            return CommandResult(False, self.last_message)
+        if not isinstance(payload.get("replay"), dict):
+            self.last_message = "该记录是旧版本，未包含逐帧数据，无法回放"
+            return CommandResult(False, self.last_message)
+        try:
+            track = ReplayTrack.from_payload(payload)
+        except ReplayError as exc:
+            self.last_message = str(exc)
+            return CommandResult(False, self.last_message)
+        if track.frame_count <= 0:
+            self.last_message = "该记录没有可回放的帧"
+            return CommandResult(False, self.last_message)
+        # 先落盘进行中的对局，避免它只留在内存里。
+        if self._replay is None:
+            if self.simulator is not None:
+                self._persist_run()
+            # 从部署态直接进回放时，退出要回到用户此刻正在编辑的布局；
+            # 沿用 _run_deployment 会退回上一局开跑前的旧布局，丢掉刚做的编辑。
+            self._replay_return = (deepcopy((self.battlefield, self.deployment.deploy_units))
+                                   if self.game_state == GAME_DEPLOYMENT
+                                   else self._run_deployment)
+        self._replay = track
+        self._replay_cursor = track.max_step
+        self._replay_run_id = track.run_id
+        self._replay_save_path = str(source)
+        self._show_wrecks = True
+        self.game_state = GAME_REPLAY_PAUSED
+        self.last_message = (f"回放：{track.scene_name or source.stem}，"
+                             f"共 {track.frame_count} 帧（第 0–{track.max_step} 步）")
+        return CommandResult(True, self.last_message)
+
+    def replay_current_run(self) -> CommandResult:
+        """回放刚刚打完的这一局（读它已落盘的运行记录）。"""
+        if not self._run_id:
+            return CommandResult(False, "还没有可回放的对局")
+        path = Path(self._record_save_path) if self._record_save_path else \
+            self.recording_directory / f"{self._run_id}.json"
+        if not self._replay and self.simulator is not None:
+            self._persist_run()
+            if self._record_save_path:
+                path = Path(self._record_save_path)
+        if not path.exists():
+            return CommandResult(False, "本局记录尚未保存，无法回放")
+        return self.replay_run(path)
+
+    def exit_replay(self) -> CommandResult:
+        if self._replay is None:
+            return CommandResult(False, "当前不在回放")
+        baseline = self._replay_return if self._replay_return is not None \
+            else self._run_deployment or self._initial_deployment
+        self._replay = None
+        self._replay_cursor = 0
+        self._replay_run_id = ""
+        self._replay_save_path = ""
+        self._replay_return = None
+        if baseline is None:
+            self.game_state = GAME_DEPLOYMENT
+            self.last_message = "已退出回放"
+            return CommandResult(True, self.last_message)
+        self._restore_deployment(baseline)
+        self.last_message = "已退出回放，返回部署阶段"
+        self.deployment.last_message = self.last_message
+        return CommandResult(True, self.last_message)
+
+    def seek_replay(self, index: int) -> CommandResult:
+        if self._replay is None:
+            return CommandResult(False, "当前不在回放")
+        self._replay_cursor = self._replay.clamp(index)
+        self.last_message = f"回放定位到第 {self._replay_cursor} 步"
+        return CommandResult(True, self.last_message)
+
+    def replay_step(self, delta: int = 1) -> CommandResult:
+        if self._replay is None:
+            return CommandResult(False, "当前不在回放")
+        if isinstance(delta, bool) or not isinstance(delta, int):
+            return CommandResult(False, "无效的回放步进")
+        if self.game_state == GAME_REPLAY:
+            self.game_state = GAME_REPLAY_PAUSED
+        return self.seek_replay(self._replay_cursor + delta)
+
+    def _replay_advance(self) -> CommandResult:
+        track = self._replay
+        if track is None or self.game_state != GAME_REPLAY:
+            return CommandResult(False, "")
+        if self._replay_cursor >= track.max_step:
+            self.game_state = GAME_REPLAY_PAUSED
+            self.last_message = "回放结束"
+            return CommandResult(True, self.last_message)
+        self._replay_cursor += 1
+        if self._replay_cursor >= track.max_step:
+            self.game_state = GAME_REPLAY_PAUSED
+            self.last_message = "回放结束"
+        return CommandResult(True, self.last_message)
 
     def _accept_scenario(self, battlefield, units, path: Path) -> None:
         self.scenario_path = path
@@ -191,6 +329,9 @@ class SimulationController:
         return CommandResult(True, self.last_message)
 
     def restart(self) -> CommandResult:
+        if self._replay is not None:
+            self.last_message = "回放中不能重新运行，请先退出回放"
+            return CommandResult(False, self.last_message)
         if self._run_deployment is not None:
             self._archive_run("restart", "重新运行，保存上一局记录")
             self._restore_deployment(self._run_deployment)
@@ -222,6 +363,11 @@ class SimulationController:
         return CommandResult(True, self.last_message)
 
     def toggle_pause(self) -> CommandResult:
+        if self.game_state in GAME_REPLAY_STATES:
+            self.game_state = (GAME_REPLAY_PAUSED if self.game_state == GAME_REPLAY
+                               else GAME_REPLAY)
+            self.last_message = "回放继续" if self.game_state == GAME_REPLAY else "回放暂停"
+            return CommandResult(True, self.last_message)
         if self.game_state == GAME_RUNNING:
             self.game_state = GAME_PAUSED
             self.simulator.record_event("lifecycle", "仿真已暂停", action="pause")
@@ -237,6 +383,8 @@ class SimulationController:
         return CommandResult(False, "当前状态不能暂停或继续")
 
     def step(self) -> CommandResult:
+        if self._replay is not None:
+            return self.replay_step(1)
         if self.simulator is None or self.game_state not in (
             GAME_RUNNING,
             GAME_PAUSED,
@@ -251,6 +399,8 @@ class SimulationController:
         return CommandResult(True, self.last_message)
 
     def advance(self) -> CommandResult:
+        if self._replay is not None:
+            return self._replay_advance()
         if self.simulator is None or self.game_state != GAME_RUNNING:
             return CommandResult(False, "")
         self.simulator.step()
@@ -276,10 +426,14 @@ class SimulationController:
         return CommandResult(True, self.last_message)
 
     def toggle_wrecks(self) -> CommandResult:
-        if self.simulator is None:
+        if self._replay is not None:
+            self._show_wrecks = not self._show_wrecks
+        elif self.simulator is not None:
+            self.simulator.show_wrecks = not self.simulator.show_wrecks
+            self._show_wrecks = self.simulator.show_wrecks
+        else:
             return CommandResult(False, "请先开始仿真")
-        self.simulator.show_wrecks = not self.simulator.show_wrecks
-        label = "显示" if self.simulator.show_wrecks else "隐藏"
+        label = "显示" if self._show_wrecks else "隐藏"
         self.last_message = f"已{label}残骸"
         return CommandResult(True, self.last_message)
 
@@ -359,6 +513,9 @@ class SimulationController:
         return self._sync_editor_message(ok)
 
     def save_map(self, filepath: str | Path | None = None) -> CommandResult:
+        if self._replay is not None:
+            self.last_message = "回放中不能保存地图，请先退出回放"
+            return CommandResult(False, self.last_message)
         path = Path(filepath).expanduser() if filepath is not None else self.current_save_path or user_scenario_dir() / "saved_map.json"
         try:
             if self.game_state == GAME_DEPLOYMENT:
@@ -375,6 +532,9 @@ class SimulationController:
         return CommandResult(True, self.last_message)
 
     def load_map(self, filepath: str | Path | None = None) -> CommandResult:
+        if self._replay is not None:
+            self.last_message = "回放中不能载入地图，请先退出回放"
+            return CommandResult(False, self.last_message)
         path = Path(filepath).expanduser() if filepath is not None else self.current_save_path or user_scenario_dir() / "saved_map.json"
         if not path.exists():
             self.last_message = f"未找到地图：{path.name}"
@@ -401,7 +561,11 @@ class SimulationController:
 
     def flush_records(self) -> CommandResult:
         """Save the current journal on normal application shutdown."""
-        if self.simulator is None:
+        if self._replay is not None:
+            # 回放不写记录，但仍要补存此前失败的对局。
+            self._retry_unsaved_runs()
+            saved = True
+        elif self.simulator is None:
             saved = self._retry_unsaved_runs()
         else:
             saved = self._persist_run()
@@ -447,7 +611,8 @@ class SimulationController:
             for path in files:
                 try:
                     payload = json.loads(path.read_text(encoding="utf-8"))
-                    if (isinstance(payload, dict) and payload.get("schema_version") == 2
+                    if (isinstance(payload, dict)
+                            and payload.get("schema_version") in SUPPORTED_JOURNAL_SCHEMAS
                             and isinstance(payload.get("run_id"), str) and payload["run_id"]
                             and isinstance(payload.get("statistics"), dict)
                             and isinstance(payload.get("records"), list)):
@@ -470,6 +635,7 @@ class SimulationController:
             "winner": statistics.get("winner") or "",
             "record_count": len(payload.get("records", [])),
             "save_path": save_path,
+            "replayable": isinstance(payload.get("replay"), dict),
         }
 
     def _run_payload(self) -> dict[str, Any] | None:
@@ -478,7 +644,7 @@ class SimulationController:
         self._ensure_record_history()
         statistics = self._statistics_snapshot(self.simulator.units)
         return {
-            "schema_version": 2,
+            "schema_version": JOURNAL_SCHEMA,
             "run_id": self._run_id,
             "started_at": self._run_started_at,
             "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -498,9 +664,46 @@ class SimulationController:
             "records": deepcopy(self.simulator.records),
             "logs": list(self.simulator.combat_logs),
             "history": deepcopy(self._history[:20]),
+            "map": self._map_payload(),
+            "replay": encode_replay_block(self.simulator.frame_buffer,
+                                          self._replay_unit_meta(self.simulator)),
         }
 
+    def _replay_unit_meta(self, simulator: Simulator) -> dict[str, dict[str, Any]]:
+        """回放所需的静态单位属性；位置只存在于帧里，不在此重复。"""
+        units = list(simulator.units) + [simulator.battlefield.base_obj(TEAM_RED),
+                                         simulator.battlefield.base_obj(TEAM_BLUE)]
+        meta = {}
+        for unit in units:
+            meta[unit.id] = {
+                "name": unit.name,
+                "team": unit.team,
+                "unit_type": unit.unit_type,
+                "type_label": UNIT_TYPE_LABELS.get(unit.unit_type, unit.unit_type),
+                "domain": unit.domain,
+                "domain_label": {"air": "空中平台", "ground": "地面平台",
+                                 "command": "指挥节点"}.get(unit.domain, unit.domain),
+                "speed": unit.speed,
+                "attack_power": unit.attack_power,
+                "max_hp": unit.max_hp,
+                "max_ammo": get_unit_stats(unit.unit_type).get("ammo", unit.ammo),
+                "detect_range": unit.detect_range,
+                "attack_range": unit.attack_range,
+            }
+        return meta
+
+    def _map_payload(self) -> dict[str, Any]:
+        """运行记录里的静态地图：不含编辑态，供回放画出当时的战场。"""
+        snapshot = self._map_snapshot()
+        snapshot.pop("preview", None)
+        for obstacle in snapshot["obstacles"]:
+            obstacle.pop("selected", None)
+        return snapshot
+
     def _persist_run(self) -> bool:
+        # 回放期间绝不新建或覆盖运行记录。
+        if self._replay is not None:
+            return True
         payload = self._run_payload()
         if payload is None:
             return True
@@ -549,7 +752,7 @@ class SimulationController:
         return all_saved
 
     def _archive_run(self, action: str, message: str) -> None:
-        if self.simulator is None:
+        if self._replay is not None or self.simulator is None:
             return
         self.simulator.record_event("lifecycle", message, action=action)
         self._persist_run()
@@ -561,6 +764,23 @@ class SimulationController:
 
     def _recording_snapshot(self) -> dict[str, Any]:
         self._ensure_record_history()
+        track = self._replay
+        if track is not None:
+            # 回放时记录面板只显示游标之前的事件，读起来正是那一刻的样子。
+            records = track.records_up_to(self._replay_cursor)
+            return {
+                "has_run": True,
+                "run_id": self._replay_run_id,
+                "record_count": len(records),
+                "records": deepcopy(records[-200:]),
+                "destroyed_units": deepcopy(track.destroyed_up_to(self._replay_cursor)),
+                "history": deepcopy(self._history[:20]),
+                "save_path": self._replay_save_path,
+                "last_error": "",
+                "unsaved_count": 0,
+                "directory": str(self.recording_directory),
+                "replayable": True,
+            }
         payload = self._last_run_payload
         records = self.simulator.records if self.simulator else payload.get("records", []) if payload else []
         destroyed = self.simulator.destroyed_units if self.simulator else payload.get("destroyed_units", []) if payload else []
@@ -575,39 +795,156 @@ class SimulationController:
             "last_error": self._recording_error,
             "unsaved_count": len(self._unsaved_runs),
             "directory": str(self.recording_directory),
+            "replayable": (self.simulator is not None
+                           or bool(payload) and isinstance(payload.get("replay"), dict)),
         }
 
     def snapshot(self) -> dict[str, Any]:
-        """Return a QML-safe snapshot containing only basic Python values."""
-        units = (
-            self.deployment.display_units()
-            if self.game_state == GAME_DEPLOYMENT
-            else self.simulator.units if self.simulator else []
-        )
-        return {
+        """Return a QML-safe snapshot containing only basic Python values.
+
+        回放时键名与形状和实时完全一致，只是取值来自逐帧记录与游标，
+        因此地图、单位、连线、详情和统计面板都无需区分两种模式。
+        """
+        track = self._replay
+        if track is not None:
+            cursor = self._replay_cursor
+            dynamic = {
+                "map": self._replay_map_snapshot(),
+                "units": self._replay_units_snapshot(),
+                "attack_events": track.attack_events(cursor),
+                "statistics": track.statistics(cursor),
+                "logs": track.logs_up_to(cursor),
+            }
+        else:
+            units = (
+                self.deployment.display_units()
+                if self.game_state == GAME_DEPLOYMENT
+                else self.simulator.units if self.simulator else []
+            )
+            dynamic = {
+                "map": self._map_snapshot(),
+                "units": self._units_snapshot(units),
+                "attack_events": self._attack_event_snapshot(),
+                "statistics": self._statistics_snapshot(units),
+                "logs": list(self.simulator.combat_logs) if self.simulator else [],
+            }
+        scene_name = track.scene_name if track else self.scene_name
+        snapshot = {
             "game_state": self.game_state,
             "state_label": STATE_LABELS.get(self.game_state, self.game_state),
             "message": self.last_message,
             "speed_label": self.speed_label,
             "speed_interval_ms": self.speed_interval_ms,
             "speed_index": self.speed_index,
-            "scene_id": self.scene_id,
-            "scene_name": self.scene_name,
-            "current_scenario": self.scene_name,
+            "scene_id": track.scene_id if track else self.scene_id,
+            "scene_name": scene_name,
+            "current_scenario": scene_name,
             "scenarios": self.available_scenarios(),
-            "current_save_path": str(self.current_save_path) if self.current_save_path else "",
-            "show_wrecks": self.simulator.show_wrecks if self.simulator else True,
-            "timing": {"step_duration_seconds": self.step_duration_seconds,
-                       "max_steps": self.max_steps,
-                       "editable": self.game_state in (GAME_DEPLOYMENT, GAME_PAUSED)},
+            "current_save_path": (self._replay_save_path if track
+                                  else str(self.current_save_path) if self.current_save_path else ""),
+            "show_wrecks": (self._show_wrecks if track
+                            else self.simulator.show_wrecks if self.simulator else True),
+            "timing": ({"step_duration_seconds": track.step_duration_seconds,
+                        "max_steps": track.max_step, "editable": False} if track
+                       else {"step_duration_seconds": self.step_duration_seconds,
+                             "max_steps": self.max_steps,
+                             "editable": self.game_state in (GAME_DEPLOYMENT, GAME_PAUSED)}),
             "recording": self._recording_snapshot(),
-            "map": self._map_snapshot(),
-            "units": self._units_snapshot(units),
-            "attack_events": self._attack_event_snapshot(),
             "deployment": self._deployment_snapshot(),
-            "statistics": self._statistics_snapshot(units),
-            "logs": list(self.simulator.combat_logs) if self.simulator else [],
+            "replay": self._replay_snapshot(),
         }
+        snapshot.update(dynamic)
+        return snapshot
+
+    def _replay_snapshot(self) -> dict[str, Any]:
+        track = self._replay
+        if track is None:
+            return {"active": False, "playing": False, "cursor": 0, "frame_count": 0,
+                    "max_step": 0, "run_id": "", "scene_name": "",
+                    "step_duration_seconds": 0.0, "elapsed_seconds": 0.0,
+                    "records_up_to": 0, "finished": False}
+        cursor = self._replay_cursor
+        return {
+            "active": True,
+            "playing": self.game_state == GAME_REPLAY,
+            "cursor": cursor,
+            "frame_count": track.frame_count,
+            "max_step": track.max_step,
+            "run_id": self._replay_run_id,
+            "scene_name": track.scene_name,
+            "step_duration_seconds": track.step_duration_seconds,
+            "elapsed_seconds": round(cursor * track.step_duration_seconds, 9),
+            "records_up_to": len(track.records_up_to(cursor)),
+            "finished": track.finished,
+        }
+
+    def _replay_units_snapshot(self) -> list[dict[str, Any]]:
+        """与 ``_unit_snapshot`` 逐字段一致，取值来自游标帧与静态单位属性。"""
+        track = self._replay
+        positions = track.frame(self._replay_cursor)
+        destroyed = {row["unit_id"]: row for row in track.destroyed_up_to(self._replay_cursor)}
+        rows = []
+        for unit_id in track.unit_ids:
+            if unit_id in BASE_IDS:
+                continue  # 基地由地图负载渲染，与实时一致
+            values = positions.get(unit_id)
+            if not values:
+                continue
+            meta = track.unit_meta.get(unit_id) or {}
+            status = STATUS_CODES[values[4]]
+            engagement = ENGAGEMENT_CODES[values[5]]
+            type_label = meta.get("type_label", meta.get("unit_type", ""))
+            # 摧毁信息只在游标越过该单位被摧毁的那一步后才出现。
+            destruction = destroyed.get(unit_id) or {}
+            rows.append({
+                "id": unit_id,
+                "name": meta.get("name", unit_id),
+                "team": meta.get("team", ""),
+                "unit_type": meta.get("unit_type", ""),
+                "type_label": type_label,
+                "unit_type_label": type_label,
+                "domain": meta.get("domain", ""),
+                "domain_label": meta.get("domain_label", ""),
+                "x": values[0] / track.scale,
+                "y": values[1] / track.scale,
+                "hp": values[2],
+                "max_hp": meta.get("max_hp", 0),
+                "ammo": values[3],
+                "max_ammo": meta.get("max_ammo", values[3]),
+                "status": status,
+                "status_label": STATUS_LABELS.get(status, status),
+                "speed": meta.get("speed", 0),
+                "detect_range": meta.get("detect_range", 0),
+                "attack_range": meta.get("attack_range", 0),
+                "target_id": "",
+                "destroyed": bool(values[6]),
+                "destroyed_step": destruction.get("step"),
+                "destroyed_elapsed_seconds": destruction.get("elapsed_seconds"),
+                "killer_id": destruction.get("killer_id") or "",
+                "killer_name": destruction.get("killer_name") or "",
+                "engagement": engagement,
+                "engagement_label": engagement,
+            })
+        return rows
+
+    def _replay_map_snapshot(self) -> dict[str, Any]:
+        """画当时那张地图：障碍与地形取自记录，基地血量按游标覆盖。"""
+        track = self._replay
+        cursor = self._replay_cursor
+        snapshot = deepcopy(track.map_payload)
+        snapshot.setdefault("width", self.battlefield.width)
+        snapshot.setdefault("height", self.battlefield.height)
+        snapshot.setdefault("terrain", self.battlefield.terrain)
+        snapshot.setdefault("style", self.battlefield.map_style)
+        snapshot.setdefault("visual", map_presentation(snapshot["style"], snapshot["width"],
+                                                       snapshot["height"]))
+        snapshot["red_base"] = track.base_snapshot(cursor, TEAM_RED)
+        snapshot["blue_base"] = track.base_snapshot(cursor, TEAM_BLUE)
+        snapshot["preview"] = {"visible": False, "x": 0, "y": 0, "width": 0, "height": 0}
+        for index, obstacle in enumerate(snapshot.get("obstacles") or []):
+            obstacle.setdefault("index", index)
+            obstacle["selected"] = False
+        return snapshot
 
     def _map_snapshot(self) -> dict[str, Any]:
         editor = self.deployment.editor

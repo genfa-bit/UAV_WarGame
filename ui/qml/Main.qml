@@ -30,6 +30,10 @@ ApplicationWindow {
 
     property var snap: viewModel.snapshot
     readonly property bool deploymentMode: snap.game_state === "deployment"
+    readonly property bool replayMode: snap.game_state === "replay" || snap.game_state === "replay_paused"
+    readonly property var replay: root.snap.replay || ({ active: false, playing: false, cursor: 0,
+        frame_count: 0, max_step: 0, run_id: "", scene_name: "", step_duration_seconds: 0.22,
+        elapsed_seconds: 0, records_up_to: 0, finished: false })
     readonly property color redColor: Theme.red
     readonly property color blueColor: Theme.blue
     readonly property color accentColor: Theme.accent
@@ -53,6 +57,7 @@ ApplicationWindow {
     readonly property bool dialogActive: confirmationDialog.visible || resultsDialog.visible
         || helpDialog.visible || loadMapDialog.visible || saveMapDialog.visible || exportDialog.visible
         || timingDialog.visible || recordsDialog.visible || exportRecordsDialog.visible
+        || loadReplayDialog.visible
     readonly property bool controlHasFocus: !!root.activeFocusControl
 
     function secondsLabel(value) {
@@ -138,6 +143,8 @@ ApplicationWindow {
 
     function stateColor(state) {
         if (state === "running") return accentColor
+        if (state === "replay") return Theme.selectionText
+        if (state === "replay_paused") return Theme.warning
         if (state === "paused") return Theme.warning
         if (state === "finished") return redColor
         return blueColor
@@ -1507,7 +1514,8 @@ ApplicationWindow {
 
                     Loader {
                         width: parent.width
-                        sourceComponent: root.deploymentMode ? deploymentControls : runtimeControls
+                        sourceComponent: root.deploymentMode ? deploymentControls
+                            : root.replayMode ? replayControls : runtimeControls
                     }
 
                     UnitDetails {
@@ -1878,20 +1886,83 @@ ApplicationWindow {
         }
     }
 
+    Component {
+        id: replayControls
+        Column {
+            width: parent ? parent.width : 288
+            spacing: 8
+            RowLayout {
+                width: parent.width
+                SectionTitle { Layout.fillWidth: true; text: "战局回放" }
+                AppButton {
+                    Layout.preferredWidth: 88
+                    implicitHeight: 28
+                    flat: true
+                    text: root.snap.show_wrecks ? "隐藏残骸" : "显示残骸"
+                    onClicked: viewModel.toggleWrecks()
+                }
+            }
+            Text {
+                width: parent.width
+                text: "记录：" + (root.replay.scene_name || "当前场景")
+                color: Theme.text
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSize
+                elide: Text.ElideRight
+            }
+            Text {
+                width: parent.width
+                text: "共 " + root.replay.frame_count + " 帧 · 每步 "
+                    + Number(root.replay.step_duration_seconds || 0).toFixed(2) + " 秒 · 已播放到第 "
+                    + root.replay.cursor + " 步"
+                color: root.mutedColor
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSmall
+                wrapMode: Text.Wrap
+            }
+            Text {
+                width: parent.width
+                text: "拖动时间轴定位 · 左右方向键单步 · 空格播放/暂停 · Esc 退出回放
+点击单位查看那一刻的详情与范围"
+                color: root.mutedColor
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSmall
+                wrapMode: Text.Wrap
+            }
+            Text {
+                width: parent.width
+                visible: !root.replay.finished
+                text: "该局未自然结束，回放到最后一帧为止。"
+                color: Theme.warning
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSmall
+                wrapMode: Text.Wrap
+            }
+            AppButton {
+                width: parent.width
+                text: "退出回放，返回部署"
+                tone: root.redColor
+                onClicked: viewModel.exitReplay()
+            }
+        }
+    }
+
     footer: Rectangle {
         objectName: "workflowControls"
-        height: 52
+        height: root.replayMode ? 112 : 52
         color: Theme.surface
         Rectangle { width: parent.width; height: 1; color: Theme.divider }
 
         RowLayout {
             anchors.fill: parent
             anchors.margins: 10
+            anchors.bottomMargin: root.replayMode ? 66 : 10
             spacing: 8
 
             AppButton {
                 objectName: "startSimulationButton"
                 Layout.preferredWidth: 104
+                visible: !root.replayMode
                 text: root.snap.game_state === "finished" ? "再来一局" : "开始仿真"
                 tone: root.accentColor
                 highlighted: root.deploymentMode || root.snap.game_state === "finished"
@@ -1901,6 +1972,7 @@ ApplicationWindow {
             AppButton {
                 objectName: "pauseSimulationButton"
                 Layout.preferredWidth: 80
+                visible: !root.replayMode
                 text: root.snap.game_state === "paused" ? "继续" : "暂停"
                 tone: Theme.warning
                 selected: root.snap.game_state === "paused"
@@ -1910,6 +1982,7 @@ ApplicationWindow {
             AppButton {
                 objectName: "stepSimulationButton"
                 Layout.preferredWidth: 80
+                visible: !root.replayMode
                 text: "单步推进"
                 enabled: root.snap.game_state === "paused"
                 onClicked: viewModel.stepSimulation()
@@ -1935,18 +2008,84 @@ ApplicationWindow {
             }
             Item { Layout.fillWidth: true }
             AppButton {
+                objectName: "loadReplayButton"
+                Layout.preferredWidth: 100
+                flat: true
+                // 部署阶段也要能看回放：刚启动或刚返回部署时正是最想看旧记录的时机。
+                visible: !root.replayMode
+                text: "载入回放…"
+                onClicked: loadReplayDialog.open()
+            }
+            AppButton {
                 Layout.preferredWidth: 88
                 flat: true
                 text: "返回部署"
                 tone: root.redColor
                 enabled: !root.deploymentMode
-                onClicked: root.requestReset()
+                onClicked: root.replayMode ? viewModel.exitReplay() : root.requestReset()
             }
             AppButton {
                 Layout.preferredWidth: 60
                 flat: true
                 text: "帮助"
                 onClicked: helpDialog.open()
+            }
+        }
+
+        RowLayout {
+            objectName: "replayBar"
+            visible: root.replayMode
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.leftMargin: 10
+            anchors.rightMargin: 10
+            anchors.bottomMargin: 10
+            height: 40
+            spacing: 8
+
+            AppButton {
+                objectName: "replayPlayButton"
+                Layout.preferredWidth: 80
+                text: root.replay.playing ? "暂停" : "播放"
+                tone: Theme.warning
+                selected: root.replay.playing
+                onClicked: viewModel.togglePause()
+            }
+            AppButton {
+                objectName: "replayStepBackButton"
+                Layout.preferredWidth: 80
+                text: "上一帧"
+                onClicked: viewModel.replayStep(-1)
+            }
+            AppButton {
+                objectName: "replayStepForwardButton"
+                Layout.preferredWidth: 80
+                text: "下一帧"
+                onClicked: viewModel.replayStep(1)
+            }
+            ReplayStepSlider {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 220
+                cursor: root.replay.cursor
+                frameCount: root.replay.frame_count
+                onSeek: function(index) { viewModel.seekReplay(index) }
+            }
+            Text {
+                Layout.preferredWidth: 116
+                text: Number(root.replay.elapsed_seconds || 0).toFixed(2) + " 秒"
+                color: root.mutedColor
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                horizontalAlignment: Text.AlignRight
+            }
+            AppButton {
+                objectName: "exitReplayButton"
+                Layout.preferredWidth: 88
+                flat: true
+                text: "退出回放"
+                tone: root.redColor
+                onClicked: viewModel.exitReplay()
             }
         }
     }
@@ -2040,6 +2179,15 @@ ApplicationWindow {
         onAccepted: viewModel.exportRecordsToUrl(selectedFile, root.recordFilter)
     }
 
+    FileDialog {
+        id: loadReplayDialog
+        objectName: "loadReplayDialog"
+        title: "载入运行记录进行回放"
+        currentFolder: viewModel.recordingDirectoryUrl
+        nameFilters: ["运行记录 (*.json)"]
+        onAccepted: viewModel.replayRunFromUrl(selectedFile)
+    }
+
     Dialog {
         id: timingDialog
         objectName: "timingDialog"
@@ -2081,6 +2229,7 @@ ApplicationWindow {
                 Text {
                     Layout.fillWidth: true
                     text: root.timing.editable ? "部署或暂停时可修改；暂停修改后从下一步生效。"
+                        : root.replayMode ? "回放沿用作战记录里的时间设置，不能修改。"
                         : root.snap.game_state === "running" ? "当前正在运行，请先暂停再修改。" : "本局已结束，请返回部署后修改。"
                     color: root.timing.editable ? root.mutedColor : Theme.warning
                     font.family: Theme.fontFamily
@@ -2320,7 +2469,7 @@ ApplicationWindow {
             ScrollView {
                     id: historyScroll
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Math.min(82, historyColumn.implicitHeight)
+                    Layout.preferredHeight: Math.min(112, historyColumn.implicitHeight)
                     visible: (root.recording.history || []).length > 0
                     clip: true
                     contentWidth: availableWidth
@@ -2330,19 +2479,51 @@ ApplicationWindow {
                         spacing: 5
                         Repeater {
                             model: (root.recording.history || []).slice(0, 10)
-                            delegate: Text {
+                            delegate: Column {
+                                id: historyRow
                                 required property var modelData
                                 width: historyColumn.width
-                                text: (modelData.scene_name || "当前场景") + " · " + modelData.steps + " 步 · "
-                                    + root.secondsLabel(modelData.elapsed_seconds) + " · " + modelData.record_count + " 条 · "
-                                    + (modelData.finished ? (modelData.winner === "red" ? "红方胜" : modelData.winner === "blue" ? "蓝方胜" : "平局")
-                                       : modelData.run_id === root.recording.run_id && root.snap.game_state === "paused" ? "已暂停"
-                                       : modelData.run_id === root.recording.run_id && root.snap.game_state === "running" ? "运行中" : "已中止")
-                                    + "\n" + (modelData.save_path || "尚未保存")
-                                color: root.mutedColor
-                                font.family: Theme.fontFamily
-                                font.pixelSize: 11
-                                wrapMode: Text.WrapAnywhere
+                                spacing: 3
+                                Text {
+                                    width: parent.width
+                                    text: (historyRow.modelData.scene_name || "当前场景") + " · " + historyRow.modelData.steps + " 步 · "
+                                        + root.secondsLabel(historyRow.modelData.elapsed_seconds) + " · " + historyRow.modelData.record_count + " 条 · "
+                                        + (historyRow.modelData.finished ? (historyRow.modelData.winner === "red" ? "红方胜" : historyRow.modelData.winner === "blue" ? "蓝方胜" : "平局")
+                                           : historyRow.modelData.run_id === root.recording.run_id && root.snap.game_state === "paused" ? "已暂停"
+                                           : historyRow.modelData.run_id === root.recording.run_id && root.snap.game_state === "running" ? "运行中" : "已中止")
+                                        + "\n" + (historyRow.modelData.save_path || "尚未保存")
+                                    color: root.mutedColor
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 11
+                                    wrapMode: Text.WrapAnywhere
+                                }
+                                RowLayout {
+                                    width: parent.width
+                                    spacing: 8
+                                    Text {
+                                        Layout.fillWidth: true
+                                        visible: historyRow.modelData.replayable === false
+                                        text: "旧版本记录，未包含逐帧数据，暂不支持回放"
+                                        color: Theme.warning
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 11
+                                        wrapMode: Text.Wrap
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    ActionButton {
+                                        objectName: "historyReplayButton"
+                                        Layout.preferredWidth: 84
+                                        implicitHeight: 26
+                                        flat: true
+                                        text: "回放"
+                                        enabled: historyRow.modelData.replayable !== false
+                                        onClicked: {
+                                            recordsDialog.close()
+                                            viewModel.replayRun(historyRow.modelData.save_path)
+                                        }
+                                    }
+                                }
+                                Rectangle { width: parent.width; height: 1; color: Theme.divider }
                             }
                         }
                     }
@@ -2388,6 +2569,7 @@ ApplicationWindow {
         onEditDeployment: { close(); viewModel.resetSimulation() }
         onExportResult: exportDialog.open()
         onViewRecords: { close(); recordsDialog.open() }
+        onReplayRun: { close(); viewModel.replayCurrentRun() }
     }
 
     HelpDialog {
@@ -2423,10 +2605,13 @@ ApplicationWindow {
     Shortcut { sequence: "Return"; enabled: root.deploymentMode && !root.dialogActive && !root.controlHasFocus; onActivated: viewModel.startSimulation() }
     Shortcut { sequence: "Enter"; enabled: root.deploymentMode && !root.dialogActive && !root.controlHasFocus; onActivated: viewModel.startSimulation() }
     Shortcut { sequence: "Space"; enabled: !root.deploymentMode && root.snap.game_state !== "finished" && !root.dialogActive && !root.controlHasFocus; onActivated: viewModel.togglePause() }
-    Shortcut { sequence: "S"; enabled: root.snap.game_state === "paused" && !root.dialogActive; onActivated: viewModel.stepSimulation() }
+    Shortcut { sequence: "S"; enabled: (root.snap.game_state === "paused" || root.replayMode) && !root.dialogActive; onActivated: viewModel.stepSimulation() }
     Shortcut { sequence: "F"; enabled: root.snap.game_state !== "finished" && !root.dialogActive; onActivated: viewModel.cycleSpeed() }
     Shortcut { sequence: "K"; enabled: !root.deploymentMode && !root.dialogActive; onActivated: viewModel.toggleWrecks() }
-    Shortcut { sequence: "R"; enabled: !root.deploymentMode && !root.dialogActive; onActivated: root.requestReset() }
+    Shortcut { sequence: "R"; enabled: !root.deploymentMode && !root.dialogActive; onActivated: root.replayMode ? viewModel.exitReplay() : root.requestReset() }
+    Shortcut { sequence: "Left"; enabled: root.replayMode && !root.dialogActive; onActivated: viewModel.replayStep(-1) }
+    Shortcut { sequence: "Right"; enabled: root.replayMode && !root.dialogActive; onActivated: viewModel.replayStep(1) }
+    Shortcut { sequence: "Escape"; enabled: root.replayMode && !root.dialogActive; onActivated: viewModel.exitReplay() }
     Shortcut { sequence: "Ctrl+S"; enabled: root.deploymentMode && !root.dialogActive; onActivated: viewModel.saveMap() }
     Shortcut { sequence: "Ctrl+Shift+S"; enabled: root.deploymentMode && !root.dialogActive; onActivated: saveMapDialog.open() }
     Shortcut { sequence: "L"; enabled: root.deploymentMode && !root.dialogActive; onActivated: root.requestLoadMap() }
