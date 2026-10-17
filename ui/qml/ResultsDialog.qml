@@ -15,6 +15,7 @@ Dialog {
     signal editDeployment()
     signal exportResult()
     signal viewRecords()
+    signal replayRun()
     modal: true
     title: "本局结算"
     closePolicy: Popup.CloseOnEscape
@@ -150,7 +151,7 @@ Dialog {
         }
     }
     footer: Item {
-        implicitHeight: 124
+        implicitHeight: 156
         GridLayout {
             anchors.fill: parent
             anchors.leftMargin: 16
@@ -163,6 +164,7 @@ Dialog {
             ActionButton { Layout.fillWidth: true; text: "再来一局"; highlighted: true; onClicked: dialog.restart() }
             ActionButton { Layout.fillWidth: true; text: "调整部署"; onClicked: dialog.editDeployment() }
             ActionButton { Layout.fillWidth: true; text: "导出战报…"; onClicked: dialog.exportResult() }
+            ActionButton { objectName: "resultReplayButton"; Layout.fillWidth: true; Layout.columnSpan: 2; text: "回放本局"; onClicked: dialog.replayRun() }
             ActionButton { objectName: "resultRecordsButton"; Layout.fillWidth: true; Layout.columnSpan: 2; text: "运行记录与摧毁时间"; flat: true; onClicked: dialog.viewRecords() }
         }
     }

@@ -281,6 +281,24 @@ class DeploymentManager:
         self._hit_type = ""
         self._hit_index = None
 
+    @property
+    def editor_active(self) -> bool:
+        """是否有进行中的编辑手势（拉框创建、拖拽对象、缩放障碍）。"""
+        return self._editor.state.is_active
+
+    def handle_mouse_cancel(self) -> None:
+        """放弃本次左键编辑（不放置单位、不创建或移动对象）。"""
+        if not self._mouse_down:
+            return
+        self._mouse_down = False
+        self._editor._deploy_units = self.deploy_units
+        if self._editor.state.is_active:
+            # 编辑手势已中断，“正在创建/移动...”之类的提示不再成立
+            self.last_message = ""
+        self._editor.cancel_interaction()
+        self._hit_type = ""
+        self._hit_index = None
+
     def _handle_right_click(self, bf_x: float, bf_y: float) -> None:
         if not self.battlefield.in_bounds(bf_x, bf_y):
             return

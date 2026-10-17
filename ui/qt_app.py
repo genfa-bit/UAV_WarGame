@@ -184,7 +184,7 @@ def _verify_delivery(app, engine, view_model) -> int:
             assert view_model.snapshot["statistics"]["winner"] == "red"
             assert controller.export_result(temporary / "result.json").ok
             exported_result = json.loads((temporary / "result.json").read_text(encoding="utf-8"))
-            assert exported_result["schema_version"] == 2
+            assert exported_result["schema_version"] == 3
             assert exported_result["records"]
             assert exported_result["destroyed_units"]
             assert sum(record["category"] == "result" for record in exported_result["records"]) == 1
@@ -225,6 +225,27 @@ def _verify_delivery(app, engine, view_model) -> int:
             assert len(controller.snapshot()["recording"]["history"]) >= 2
             assert controller.snapshot()["recording"]["has_run"]
             report["checks"].append("independent_run_archives_survive_restart")
+            # 回放自检：回放本局记录，游标可定位，且期间不新建或改写任何记录文件。
+            journals_before = sorted(path.name
+                                     for path in controller.recording_directory.glob("*.json"))
+            assert journals_before
+            view_model.replayCurrentRun()
+            replay = controller.snapshot()["replay"]
+            # 进入回放默认停在第一帧，所以这一帧就是部署态，截图即回放开头。
+            assert replay["active"] and replay["cursor"] == 0
+            assert controller.snapshot()["game_state"] == "replay_paused"
+            slider = root.findChild(QObject, "replaySlider")
+            assert slider and slider.property("to") == replay["max_step"]
+            replay_frame = render()
+            assert controller.snapshot()["statistics"]["time_step"] == 0
+            if report_path:
+                replay_frame.save(str(report_path.with_name("replay-1280x720.png")))
+            view_model.exitReplay()
+            render()
+            assert controller.snapshot()["game_state"] == "deployment"
+            assert sorted(path.name
+                          for path in controller.recording_directory.glob("*.json")) == journals_before
+            report["checks"].append("replay_last_run_without_touching_journals")
             view_model._timer.stop()
             report["checks"].append("restart_and_edit_original_deployment")
             report["ok"] = True

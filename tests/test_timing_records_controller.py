@@ -1,5 +1,6 @@
 """Timing, full journal exports, and durable repeated-run regression coverage."""
 
+import gzip
 import json
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import pytest
 
 from config import GAME_DEPLOYMENT, GAME_FINISHED, GAME_PAUSED, GAME_RUNNING
 from core.controller import DEFAULT_SCENARIO_PATH, SimulationController
+from core.map_persistence import GZIP_MAGIC, read_json_document
 
 
 @pytest.fixture(autouse=True)
@@ -15,7 +17,8 @@ def isolated_record_storage(tmp_path, monkeypatch):
 
 
 def saved_payload(controller):
-    return json.loads(Path(controller.snapshot()["recording"]["save_path"]).read_text(encoding="utf-8"))
+    # 自动保存的记录是压缩归档，导出文件才是明文缩进 JSON。
+    return read_json_document(Path(controller.snapshot()["recording"]["save_path"]))
 
 
 def test_default_timing_keeps_existing_speed_intervals_and_snapshot_serializable():
@@ -106,7 +109,7 @@ def test_pause_and_finish_persist_result_events_and_history_survives_new_control
     assert controller.game_state == GAME_FINISHED
     assert not controller.set_timing(1, 100).ok
     finished = saved_payload(controller)
-    assert finished["schema_version"] == 2
+    assert finished["schema_version"] == 3
     assert finished["finished"] is True
     assert finished["result"]["elapsed_seconds"] == 1
     assert len([row for row in finished["records"] if row["category"] == "result"]) == 1
@@ -117,6 +120,27 @@ def test_pause_and_finish_persist_result_events_and_history_survives_new_control
     assert history[0]["finished"] is True
     assert history[0]["steps"] == 2
     assert history[0]["elapsed_seconds"] == 1
+
+
+def test_auto_saved_journal_is_compressed_while_exports_stay_readable(tmp_path):
+    controller = SimulationController()
+    assert controller.start().ok
+    for index in range(60):
+        controller.advance()
+        if controller.game_state != GAME_RUNNING:
+            break
+    assert controller.flush_records().ok
+    journal = Path(controller._record_save_path)
+
+    # 自动保存的归档压成 gzip，省的是磁盘；导出的文件是交付物，必须仍是缩进明文。
+    assert journal.read_bytes()[:2] == GZIP_MAGIC
+    exported = tmp_path / "records.json"
+    assert controller.export_records(exported).ok
+    assert exported.read_bytes()[:2] != GZIP_MAGIC
+    assert exported.read_text(encoding="utf-8").startswith("{\n")
+    # 两种形态读到的是同一份记录，导出不会因为压缩而缺内容。
+    assert json.loads(exported.read_text(encoding="utf-8"))["records"] == read_json_document(journal)["records"]
+    assert read_json_document(journal)["schema_version"] == 3
 
 
 def test_full_export_is_not_truncated_to_recent_rows_and_filter_preserves_other_fields(tmp_path):
@@ -153,7 +177,7 @@ def test_auto_save_failure_keeps_simulation_and_archived_records_exportable(tmp_
 
     original_writer = module.write_json_atomic
 
-    def failing_writer(path, data):
+    def failing_writer(path, data, **kwargs):
         raise PermissionError("record directory is read-only")
 
     monkeypatch.setattr(module, "write_json_atomic", failing_writer)
@@ -214,9 +238,9 @@ def test_fast_compute_throttles_complete_journal_writes_but_finish_flushes(monke
     original_writer = module.write_json_atomic
     saved_steps = []
 
-    def counted_writer(path, data):
+    def counted_writer(path, data, **kwargs):
         saved_steps.append(data["statistics"]["time_step"])
-        original_writer(path, data)
+        original_writer(path, data, **kwargs)
 
     monkeypatch.setattr(module, "write_json_atomic", counted_writer)
     controller = SimulationController()
@@ -245,7 +269,7 @@ def test_failed_periodic_save_waits_before_retry_and_pause_still_saves(monkeypat
     original_writer = module.write_json_atomic
     attempts = []
 
-    def failing_writer(path, data):
+    def failing_writer(path, data, **kwargs):
         attempts.append(data["statistics"]["time_step"])
         raise PermissionError("temporary storage outage")
 
@@ -291,7 +315,7 @@ def test_exports_reject_empty_run_and_builtin_scene_and_result_requires_finish(t
     controller.game_state = GAME_FINISHED
     assert controller.export_result(tmp_path / "result.json").ok
     data = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
-    assert data["schema_version"] == 2 and data["result"]["winner"] == "red"
+    assert data["schema_version"] == 3 and data["result"]["winner"] == "red"
     assert data["statistics"] == controller.snapshot()["statistics"]
 
 
@@ -319,6 +343,8 @@ def test_history_ignores_corrupt_files_and_is_cached_for_snapshot_refresh(tmp_pa
     directory.mkdir(parents=True)
     (directory / "bad.json").write_text("{broken", encoding="utf-8")
     (directory / "shape.json").write_text(json.dumps({"schema_version": 2, "run_id": "bad", "statistics": []}), encoding="utf-8")
+    # 压缩归档写到一半就断电：其余记录仍必须能读出来。
+    (directory / "half.json").write_bytes(gzip.compress(b'{"run_id": "half"}', mtime=0)[:10])
     assert controller.start().ok
     assert len(controller.snapshot()["recording"]["history"]) == 1
 
@@ -360,7 +386,7 @@ def test_failed_archived_runs_retry_on_shutdown_without_an_active_simulator(tmp_
 
     original_writer = module.write_json_atomic
 
-    def failing_writer(path, data):
+    def failing_writer(path, data, **kwargs):
         raise PermissionError("temporary storage outage")
 
     monkeypatch.setattr(module, "write_json_atomic", failing_writer)
@@ -381,6 +407,6 @@ def test_failed_archived_runs_retry_on_shutdown_without_an_active_simulator(tmp_
     assert snapshot["last_error"] == ""
     assert len(snapshot["history"]) == 2
     for run_id, target in ((first_id, "first"), (second_id, "second")):
-        data = json.loads((controller.recording_directory / f"{run_id}.json").read_text(encoding="utf-8"))
+        data = read_json_document(controller.recording_directory / f"{run_id}.json")
         assert any(row.get("target_id") == target for row in data["records"])
         assert any(row["run_id"] == run_id and row["save_path"] for row in snapshot["history"])

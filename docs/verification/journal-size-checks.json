@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-16",
+  "scope": "运行记录归档的紧凑序列化与 gzip 压缩（方案 1+2）",
+  "environment": "本机源码运行；Windows 11，Python 3.13.9，PySide6 6.11.1",
+  "method": "山区河谷预设、单步 0.2 秒、2000 步上限，跑满一局后对同一份 payload 分别按三种形态序列化后量字节，避免用两次不同对局互比。",
+  "same_payload_measurement": {
+    "records": 13704,
+    "steps": 2000,
+    "pretty_indent2_MB": 8.80,
+    "compact_MB": 6.66,
+    "compact_plus_gzip6_MB": 0.282,
+    "compact_saving_percent": 24,
+    "total_saving_percent": 96.8,
+    "ratio": 31.3,
+    "note": "gzip 压缩率来自 JSON 键名与字段名的高度重复；逐帧回放块内容一字未改。"
+  },
+  "replay_integrity_after_compression": {
+    "replay_run_ok": true,
+    "frame_count": 2001,
+    "units_in_snapshot": 14,
+    "seek_replay_ok": true,
+    "history_replayable": true,
+    "exit_replay_ok": true
+  },
+  "design": {
+    "write": "core/map_persistence.write_json_atomic(path, data, compress=True)：紧凑分隔符 + gzip，compresslevel=6，mtime=0 以保证同样内容产出同样字节。",
+    "read": "core/map_persistence.read_json_document(path)：按 gzip 魔数 1f 8b 自动识别，明文与压缩两种形态可在同一目录共存。",
+    "unchanged": "场景另存（save_scenario）与用户导出（export_result / export_records）仍写 indent=2 明文，它们是交付给用户看的文件。",
+    "applied_at": "core/controller.py 的 _persist_run 与 _retry_unsaved_runs 两处归档写入；replay_run 与 _ensure_record_history 两处读取。"
+  },
+  "robustness": {
+    "issue": "gzip.decompress 对截断输入抛出 EOFError，而调用方只处理 (OSError, ValueError)。断电留下半个 gzip 流时会把整个历史列表读不出来。",
+    "fix": "read_json_document 把 (OSError, EOFError, zlib.error) 统一转为 ValueError(\"运行记录已损坏：…\")，与坏 JSON 走同一条跳过路径。",
+    "verified_by": "tests/test_map_persistence.py::test_read_json_document_reports_damaged_and_truncated_files 与 tests/test_timing_records_controller.py::test_history_ignores_corrupt_files_and_is_cached_for_snapshot_refresh（后者在坏 JSON 之外另放一个截断的 gzip 文件）"
+  },
+  "pytest": {
+    "command": "python -m pytest -q",
+    "total": 460,
+    "failed": 0,
+    "skipped": 0,
+    "baseline_before_this_round": 420,
+    "added": 40,
+    "history": "回放落地时 453/+33，加入部署阶段入口后 455/+35，加入记录压缩后 460/+40。",
+    "note": "本轮未重新生成 docs/verification/pytest-results.xml，该文件仍是 2026-10-11 的 405 项证据。"
+  },
+  "source_smoke": {
+    "command": "python main.py --smoke-test",
+    "ok": true,
+    "frozen": false,
+    "check_count": 10,
+    "note": "回放自检项在压缩落盘后仍通过：进入回放、定位到第 0 步、逐字节确认 runs 下文件未变，再退出回放。docs/verification/source-smoke.json 仍是 2026-10-11 的九组证据。"
+  },
+  "covered": [
+    "压缩写出的文件以 gzip 魔数开头，读回内容与明文形态完全一致",
+    "同样内容两次写出产生完全相同的字节（回放“不改写记录”的逐字节比较因此仍成立）",
+    "同一目录下明文与压缩记录共存，版本 2 旧记录与手写测试文件照常读取",
+    "save_scenario 的输出仍是缩进明文 JSON，未被压缩影响",
+    "自动归档为压缩、导出文件为明文，两者内容一致且导出不丢记录",
+    "截断的 gzip 归档报 ValueError，历史列表跳过它并继续显示其余对局"
+  ],
+  "not_verified": [
+    "压缩与解压在大记录（10,000 步上限、20 单位，约 1.9 MB 逐帧块）上的耗时未单独测量",
+    "真实桌面长跑中多次自动保存叠加压缩后的交互流畅度（离屏测试不覆盖手感）"
+  ]
+}

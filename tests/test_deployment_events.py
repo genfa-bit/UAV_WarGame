@@ -79,3 +79,32 @@ def test_clear_map_removes_all():
 
     assert manager.deploy_units == []
     assert manager.battlefield.obstacles == []
+
+
+def test_mouse_cancel_discards_in_progress_obstacle_and_message():
+    manager = _manager()
+    manager._select_obstacle_type("building")
+
+    manager.handle_mouse_down(1, 120, 120)
+    manager.handle_mouse_motion(180, 180)
+    assert manager._editor.state.creating
+    assert manager.last_message
+
+    manager.handle_mouse_cancel()
+    manager.handle_mouse_up(1, 180, 180)
+
+    obstacles = manager.battlefield.obstacles
+    assert [(o.x, o.y) for o in obstacles] == [(50, 50)]
+    assert not manager._editor.state.creating
+    assert manager.last_message == ""
+
+
+def test_mouse_cancel_blocks_placement_when_released_on_same_spot():
+    manager = _manager()
+    manager.selected_unit_type = "ground_vehicle"
+
+    manager.handle_mouse_down(1, 100, 100)
+    manager.handle_mouse_cancel()
+    manager.handle_mouse_up(1, 100, 100)
+
+    assert manager.deploy_units == []

@@ -21,6 +21,7 @@ from core.behavior import BEHAVIOR_LABELS
 from core.combat import AttackEvent, CombatSystem
 from core.engagement import EngagementPhase
 from core.pathfinding import cleanup_destroyed
+from core.replay import BASE_IDS, FrameBuffer
 from core.strategy import StrategyEngine
 from core.target_pool import TargetPool
 from core.threat import priority_targets, situation_label, tactics_label, team_strength
@@ -82,6 +83,9 @@ class Simulator:
         self._destruction_ids: set[str] = set()
         self._unit_tactical_state: dict[str, tuple] = {}
         self._team_tactical_state: dict[str, tuple] = {}
+        # 逐帧采样供运行记录回放；基地不在 self.units 里，单独追加在队尾。
+        self.frame_buffer = FrameBuffer([unit.id for unit in self.units] + list(BASE_IDS))
+        self._capture_replay_frame()
         self.record_event("lifecycle", "本局仿真已建立", event="created",
                           step_duration_seconds=self.step_duration_seconds,
                           max_steps=self.max_steps)
@@ -175,6 +179,7 @@ class Simulator:
         self._record_team_tactical_changes()
         self._judge_winner()
         self._tick_attack_events()
+        self._capture_replay_frame()
 
     # ═══════════════════════════════════════════════════════════
     #  交战状态更新
@@ -699,6 +704,15 @@ class Simulator:
         alive_ids = {unit.id for unit in self.active_units()}
         for own_ids in self._own_sightings.values():
             own_ids.intersection_update(alive_ids)
+
+    def _capture_replay_frame(self) -> None:
+        """采样当前步的单位与基地状态，供运行记录回放。
+
+        单位顺序在首帧冻结；本局内不增删单位，因此帧号恒等于 time_step。
+        """
+        self.frame_buffer.capture(self.units,
+                                  self.battlefield.base_obj(TEAM_RED),
+                                  self.battlefield.base_obj(TEAM_BLUE))
 
     def _tick_attack_events(self) -> None:
         """更新攻击连线特效生命周期。"""
