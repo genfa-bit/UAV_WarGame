@@ -93,6 +93,10 @@ Windows 推荐用 `powershell -ExecutionPolicy Bypass -File .\build_windows.ps1`
 
 2026-11-15 验证（补充：空中单位地形命中修正）：`scout_drone`、`strike_drone` 也配置山地/建筑 `terrain_effects`，`speed_factor=1.0`、`attack_hit_factor=0.85`、`cover_hit_factor=0.80`；空中单位位于山地/建筑内时命中与被命中各按 ×0.85 / ×0.80 修正，速度保持不变；位于禁行区或默认障碍物内时仍沿用原有 0.3 视线遮挡。新增 5 项测试（`tests/test_terrain_effects.py` 共 36 项），全量 `python -m pytest -q` 为 **536 passed**（0 失败、0 跳过）。详见 [测试报告](docs/测试报告.md#五补充验证空中单位的地形命中修正2026-11-15) 与 [详细设计](docs/详细设计.md#山地建筑通行与地形修正2026-11-15)。
 
+2026-11-15 验证（障碍物直线遮挡与叠加）：攻击者到目标的攻击直线每穿过一个障碍物，就按 `data/obstacle_config.json` 的类型倍率衰减命中率，多个障碍物连续相乘；当前缺省为山地 ×0.45、建筑 ×0.35、禁行区/默认障碍 ×0.30，未配置类型使用 `default_hit_factor`。攻击方或目标自身所在且可通行的地形不重复计入直线遮挡。新增 `tests/test_obstacle_hit_factor.py` 10 项，全量 `python -m pytest -q` 为 **546 passed**（0 失败、0 跳过）。详见 [测试报告](docs/测试报告.md#2026-11-15-验证障碍物直线遮挡与叠加) 与 [详细设计](docs/详细设计.md#障碍物直线遮挡与按兵种命中衰减2026-11-15)。
+
+2026-11-15 验证（按兵种配置障碍物命中衰减）：遮挡倍率移入 `data/unit_config.json` 的 `obstacle_hit_factors`，攻击直线每穿过一个障碍物就乘一次**攻击方兵种**对该类型的倍率。导弹发射车 0.92~0.95（基本无影响）、侦察/打击无人机 0.52~0.65（次之）、无人战车 0.25~0.30（最严重）；未配置类型按 1.0，非法值回退 1.0 并只警告一次。旧 `data/obstacle_config.json` 与 `core/obstacle_config_loader.py` 已移除。`tests/test_obstacle_hit_factor.py` 改写为 15 项，全量 `python -m pytest -q` 为 **551 passed**（0 失败、0 跳过）。详见 [测试报告](docs/测试报告.md#2026-11-15-验证按兵种配置障碍物命中衰减) 与 [详细设计](docs/详细设计.md#障碍物直线遮挡与按兵种命中衰减2026-11-15)。
+
 `.github/workflows/verify.yml` 提供 Windows 自动测试；手动触发还会构建并保存 EXE。源码压缩包需要提交到自己的 GitHub 仓库后，工作流才会执行。
 
 ## 代码结构
@@ -110,7 +114,7 @@ Windows 推荐用 `powershell -ExecutionPolicy Bypass -File .\build_windows.ps1`
 | ui/qml/ / ui/assets/ | 主界面、工作流组件和图标 |
 | ui/qml/TerrainLayer.qml / MapOverview.qml | 底图、地标及小地图，复用主界面相机坐标 |
 | ui/assets/maps/ | 两张参考地图原图及素材来源、哈希记录 |
-| data/unit_config.json | 五类单位的教学参数 |
+| data/unit_config.json | 五类单位的教学参数、地形通行/命中修正与按兵种配置的障碍物遮挡倍率 |
 | tools/cooperative_benchmark.py | 固定种子 Baseline/RDMA 对比，含基地场景与基地指标 |
 | tests/ | 核心与界面回归测试 |
 | docs/ | 需求、设计、操作、工作流和测试记录 |

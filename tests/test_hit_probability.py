@@ -68,7 +68,7 @@ def test_cover_factor_when_obstacle_between():
     obs = Obstacle(x=70, y=20, width=10, height=60)
     battlefield = Battlefield(200, 200, [obs])
     prob = calculate_hit_probability(attacker, target, battlefield)
-    assert prob < 0.5  # 0.3 factor applied
+    assert prob < 0.5  # 侦察无人机的障碍物倍率 0.60
 
 
 def test_no_cover_without_obstacles():
@@ -110,6 +110,6 @@ def test_combined_factors():
     obs = Obstacle(x=90, y=20, width=10, height=60)
     battlefield = Battlefield(200, 200, [obs])
     prob = calculate_hit_probability(attacker, target, battlefield, is_evading=True)
-    # base 0.9 * dist_factor * speed_factor * 0.7 * 0.3
+    # base 0.9 * dist_factor * speed_factor * 0.7 * 0.58
     # should be significantly reduced
     assert prob < 0.3

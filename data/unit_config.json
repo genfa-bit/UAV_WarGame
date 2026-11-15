@@ -1,9 +1,11 @@
 {
-  "version": "1.7",
+  "version": "1.8",
 
   "_comment_全局": "反先手机制：反应延迟/冷却减半，基础命中率提高，配合温和距离衰减",
 
   "_comment_地形": "terrain_effects 中列出的地形表示该兵种可以进入；speed_factor 为移动速度倍率，attack_hit_factor 为自身在该地形内攻击时的命中倍率，cover_hit_factor 为自身在该地形内被命中时的命中倍率。删除某项地形即恢复为不可进入。空中单位也可配置：山地/建筑只影响命中与受击，speed_factor 固定 1.0 以保持速度不变。",
+
+  "_comment_障碍物命中": "obstacle_hit_factors 按攻击方兵种配置：攻击直线每穿过一个该类障碍物，命中率就乘以对应倍率，多个障碍物连续相乘。倍率越接近 1.0 表示受遮挡影响越小；未列出的障碍类型按 1.0（不衰减）处理。当前设定：导弹发射车基本不受影响，无人机次之，无人战车受影响最严重。",
 
   "cooperative_assignment": {
     "enabled": true,
@@ -100,6 +102,12 @@
         "attack_hit_factor": 0.85,
         "cover_hit_factor": 0.80
       }
+    },
+    "obstacle_hit_factors": {
+      "obstacle": 0.60,
+      "mountain": 0.60,
+      "building": 0.55,
+      "restricted": 0.65
     }
   },
 
@@ -130,6 +138,12 @@
         "attack_hit_factor": 0.85,
         "cover_hit_factor": 0.80
       }
+    },
+    "obstacle_hit_factors": {
+      "obstacle": 0.58,
+      "mountain": 0.58,
+      "building": 0.52,
+      "restricted": 0.62
     }
   },
 
@@ -160,6 +174,12 @@
         "attack_hit_factor": 0.70,
         "cover_hit_factor": 0.60
       }
+    },
+    "obstacle_hit_factors": {
+      "obstacle": 0.30,
+      "mountain": 0.30,
+      "building": 0.25,
+      "restricted": 0.30
     }
   },
 
@@ -190,6 +210,12 @@
         "attack_hit_factor": 0.60,
         "cover_hit_factor": 0.50
       }
+    },
+    "obstacle_hit_factors": {
+      "obstacle": 0.95,
+      "mountain": 0.95,
+      "building": 0.92,
+      "restricted": 0.95
     }
   },
 

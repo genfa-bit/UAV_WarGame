@@ -293,7 +293,7 @@ def test_air_unit_over_restricted_still_uses_line_of_sight_cover():
     target = _ground(x=150, y=60, speed=0)
     prob = _hit_prob(attacker, target, terrain)
     baseline = _hit_prob(attacker, target, Battlefield(200, 200))
-    assert prob == pytest.approx(baseline * 0.3, rel=1e-6)
+    assert prob == pytest.approx(baseline * 0.65, rel=1e-6)
 
 
 def test_units_without_terrain_effects_ignore_terrain_factors():

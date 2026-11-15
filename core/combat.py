@@ -89,7 +89,9 @@ def calculate_hit_probability(
     - 距离因子：越近命中率越高，射程边缘衰减
     - 目标速度因子：目标越快越难命中
     - 自身状态因子：规避状态时命中率下降
-    - 掩体遮挡因子：视线穿过障碍物大幅降低命中率
+    - 障碍物遮挡因子：攻击直线每穿过一个障碍物，就乘以攻击方兵种在
+      data/unit_config.json 的 obstacle_hit_factors 中为该类型配置的倍率；
+      多个障碍物依次相乘。不同兵种对同一障碍物的衰减不同。
     - 地形因子：攻击方在山地/建筑内时命中率下降；目标在山地/建筑内时
       被命中率下降。倍率来自 data/unit_config.json 的 terrain_effects。
     """
@@ -111,8 +113,11 @@ def calculate_hit_probability(
     # ── 自身状态因子 ──
     status_factor = 0.7 if is_evading else 1.0
 
-    # ── 掩体遮挡因子 ──
-    # 双方所处山体/建筑由下面的地形因子单独计算，避免同一障碍重复惩罚。
+    # ── 障碍物遮挡因子 ──
+    # 攻击直线每穿过一个障碍物就乘一次攻击方兵种对该类型的倍率；多个
+    # 障碍物叠加。导弹发射车倍率接近 1.0，无人机次之，无人战车最低。
+    # 双方所处且可通行的山体/建筑由下面的地形因子单独计算，避免同一障碍
+    # 同时触发遮挡与地形惩罚。
     cover_factor = 1.0
     if battlefield is not None:
         for obs in battlefield.obstacles:
@@ -126,8 +131,7 @@ def calculate_hit_probability(
                 attacker.x, attacker.y, target.x, target.y,
                 obs.x, obs.y, obs.width, obs.height,
             ):
-                cover_factor = 0.3
-                break
+                cover_factor *= attacker.obstacle_hit_factor(obs.type)
 
     # ── 地形命中因子（攻守双方）──
     attack_terrain_factor = 1.0

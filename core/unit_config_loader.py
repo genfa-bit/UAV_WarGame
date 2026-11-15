@@ -20,6 +20,7 @@ _CONFIG: dict[str, Any] | None = None
 _CONFIG_PATH = Path(__file__).resolve().parent.parent / "data" / "unit_config.json"
 _COOPERATIVE_WARNINGS: set[str] = set()
 _TERRAIN_WARNINGS: set[str] = set()
+_OBSTACLE_WARNINGS: set[str] = set()
 _TERRAIN_FACTOR_KEYS = ("speed_factor", "attack_hit_factor", "cover_hit_factor")
 
 
@@ -99,12 +100,46 @@ def get_terrain_effects(unit_type: str) -> dict[str, dict[str, float]]:
     return effects
 
 
+def get_obstacle_hit_factors(unit_type: str) -> dict[str, float]:
+    """读取攻击方兵种对各类障碍物的直线命中衰减倍率。
+
+    返回 ``{障碍类型: 倍率}``。攻击直线每穿过一个障碍物，就乘以攻击方在该
+    障碍类型上的倍率；倍率越接近 1.0 表示受影响越小。未列出的障碍类型按
+    1.0（不衰减）处理；非法倍率回退为 1.0 并只警告一次。
+    """
+    stats = get_unit_stats(unit_type)
+    raw = stats.get("obstacle_hit_factors", {})
+    if raw in (None, {}):
+        return {}
+    if not isinstance(raw, dict):
+        _warn_obstacle_once(unit_type, "obstacle_hit_factors 必须是对象")
+        return {}
+
+    factors: dict[str, float] = {}
+    for obstacle_type, value in raw.items():
+        if obstacle_type not in OBSTACLE_TYPES:
+            _warn_obstacle_once(
+                f"{unit_type}:type:{obstacle_type}",
+                f"{unit_type} 的 obstacle_hit_factors 含未知障碍类型 "
+                f"{obstacle_type}")
+            continue
+        if not _is_number(value) or not 0.0 < float(value) <= 1.0:
+            _warn_obstacle_once(
+                f"{unit_type}:value:{obstacle_type}",
+                f"{unit_type} 的 obstacle_hit_factors.{obstacle_type} "
+                "必须是 (0, 1] 之间的数字")
+            value = 1.0
+        factors[obstacle_type] = float(value)
+    return factors
+
+
 def clear_config_cache() -> None:
     """清空配置缓存（测试或运行时重载配置时使用）。"""
     global _CONFIG
     _CONFIG = None
     _COOPERATIVE_WARNINGS.clear()
     _TERRAIN_WARNINGS.clear()
+    _OBSTACLE_WARNINGS.clear()
 
 
 def _warn_once(key: str, message: str) -> None:
@@ -120,6 +155,14 @@ def _warn_terrain_once(key: str, message: str) -> None:
         return
     _TERRAIN_WARNINGS.add(key)
     warnings.warn(f"地形配置无效，已忽略该设置：{message}",
+                  RuntimeWarning, stacklevel=3)
+
+
+def _warn_obstacle_once(key: str, message: str) -> None:
+    if key in _OBSTACLE_WARNINGS:
+        return
+    _OBSTACLE_WARNINGS.add(key)
+    warnings.warn(f"障碍物命中配置无效，已回退为 1.0：{message}",
                   RuntimeWarning, stacklevel=3)
 
 

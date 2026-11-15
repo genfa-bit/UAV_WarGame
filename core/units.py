@@ -50,6 +50,7 @@ class Unit(Entity):
     attack_cooldown: int = 0
     base_hit_prob: float = 0.8
     terrain_effects: dict[str, dict[str, float]] = field(default_factory=dict)
+    obstacle_hit_factors: dict[str, float] = field(default_factory=dict)
     engagement_state: EngagementState = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -121,6 +122,14 @@ class Unit(Entity):
     def can_traverse(self, terrain_type: str) -> bool:
         """该兵种是否可以进入指定地形（由 unit_config.json 配置）。"""
         return terrain_type in self.terrain_effects
+
+    def obstacle_hit_factor(self, obstacle_type: str) -> float:
+        """该兵种攻击直线穿过指定障碍物时的命中倍率。
+
+        倍率来自 unit_config.json 的 obstacle_hit_factors；未配置的类型
+        返回 1.0（不衰减）。倍率越接近 1.0，表示该兵种受此类遮挡影响越小。
+        """
+        return float(self.obstacle_hit_factors.get(obstacle_type, 1.0))
 
     def terrain_factor(self, battlefield: Battlefield, key: str,
                        x: float | None = None, y: float | None = None) -> float:
@@ -218,7 +227,11 @@ def _unit_defaults(unit_type: str) -> dict:
 
     第十阶段：反应延迟和攻击冷却在配置范围内随机取值。
     """
-    from core.unit_config_loader import get_terrain_effects, get_unit_stats
+    from core.unit_config_loader import (
+        get_obstacle_hit_factors,
+        get_terrain_effects,
+        get_unit_stats,
+    )
     cfg = get_unit_stats(unit_type)
     rxn_min = cfg.get("reaction_delay_min", 2)
     rxn_max = cfg.get("reaction_delay_max", 5)
@@ -241,6 +254,7 @@ def _unit_defaults(unit_type: str) -> dict:
         attack_cooldown=random.randint(cd_min, cd_max),
         base_hit_prob=cfg.get("base_hit_prob", 0.8),
         terrain_effects=get_terrain_effects(unit_type),
+        obstacle_hit_factors=get_obstacle_hit_factors(unit_type),
     )
 
 
