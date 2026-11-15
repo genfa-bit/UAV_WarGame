@@ -20,7 +20,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
+
+if TYPE_CHECKING:  # 仅用于类型标注，避免与 strike_planner 循环导入
+    from core.strike_planner import StrikeTask
 
 from config import (COOPERATIVE_ASSIGNMENT_DEFAULTS, CRIT_CHANCE,
                     CRIT_DAMAGE_MULTIPLIER, DETECTION_TIMEOUT_STEPS,
@@ -44,6 +47,17 @@ class AssignmentResult:
     assignment_since: dict[str, int] = field(default_factory=dict)
     reasons: dict[str, str] = field(default_factory=dict)
     demand: dict[str, int] = field(default_factory=dict)
+    # ── HTCS 扩展字段（默认值保证 RDMA v2 路径完全不变）──────────
+    # 每个单位的任务束：按计划执行顺序排列的目标 ID。
+    bundles: dict[str, list[str]] = field(default_factory=dict)
+    # 每个单位首个任务的 TOT（打击时刻），供火力门使用。
+    attack_steps: dict[str, int] = field(default_factory=dict)
+    wave_id: int = 0
+    doctrine: str = "balanced"
+    # task_id -> StrikeTask。保留任务状态供 BDA/再攻击使用。
+    tasks: dict[str, "StrikeTask"] = field(default_factory=dict)
+    # 本波次计划投入的期望伤害（按目标汇总），用于可解释性。
+    ledger_plan: dict[str, float] = field(default_factory=dict)
 
     def target_for(self, unit_id: str) -> str | None:
         return self.assignments.get(unit_id)
@@ -88,31 +102,23 @@ class CooperativeAllocator:
         self._invalid_targets.clear()
 
     # ── 主入口 ──────────────────────────────────────────────────
-    def allocate(
+    def _prepare(
         self,
         units: Iterable[Unit],
         sightings: Iterable[TargetSighting] | None,
         step: int,
-        battlefield=None,
-        previous: AssignmentResult | None = None,
-        visible_ids_by_unit: dict[str, set[str]] | None = None,
-        context: dict | None = None,
-    ) -> AssignmentResult:
-        """执行一次分配。
+        visible_ids_by_unit: dict[str, set[str]] | None,
+    ) -> tuple[list[Unit], list[TargetSighting], dict[str, Unit],
+               dict[str, set[str]]]:
+        """按 RDMA/HTCS 共用的口径整理单位、目标与可见性。
 
-        visible_ids_by_unit 必须是“每个单位自己的可见目标 ID 集合”
-        （自身观测 ∪ 已送达共享信息）。为兼容独立测试，传入 None 时
-        退化为使用全部已送达目标；Simulator 始终显式传入。
-        context 可提供 ``enemy_combat_units``，用于基地 late-game 价值。
+        目标池里的基地是静态战略目标，一经确认就保留到摧毁；普通目标
+        仍按 TargetPool 的超时口径过滤。为兼容独立测试，未提供
+        ``visible_ids_by_unit`` 时退化为使用全部已送达目标。
         """
-        cfg = self.config
         unit_list = sorted(list(units), key=lambda u: u.id)
         records = list(sightings or [])
-        previous = previous or AssignmentResult()
-        context = context or {}
 
-        # 目标基本信息。基地是静态战略目标，一经确认就保留到摧毁；
-        # 普通目标仍按 TargetPool 的超时口径过滤。
         target_by_id: dict[str, Unit] = {}
         available_ids: set[str] = set()
         for record in records:
@@ -126,22 +132,45 @@ class CooperativeAllocator:
             if record.available_step <= step:
                 available_ids.add(target.id)
 
-        if not target_by_id:
-            self.consume_dirty()
-            return AssignmentResult(updated_step=step)
-
         visible_sets: dict[str, set[str]] = {}
         for unit in unit_list:
             if visible_ids_by_unit is None:
                 visible_sets[unit.id] = set(available_ids)
             else:
                 visible_sets[unit.id] = set(visible_ids_by_unit.get(unit.id, set()))
+        return unit_list, records, target_by_id, visible_sets
 
-        target_priority = self._target_priorities(target_by_id)
+    def score_pairs(
+        self,
+        units: Iterable[Unit],
+        sightings: Iterable[TargetSighting] | None,
+        step: int,
+        battlefield=None,
+        visible_ids_by_unit: dict[str, set[str]] | None = None,
+        context: dict | None = None,
+        *,
+        htcs: bool = False,
+    ) -> tuple[dict[tuple[str, str], float], dict[tuple[str, str], float],
+               dict[str, float], dict[str, float], dict[str, Unit],
+               dict[str, Unit], dict[str, set[str]], list[Unit]]:
+        """计算 (单位, 目标) 的基础出价、期望伤害与目标价值。
+
+        RDMA v2 与 HTCS 共用同一套评分，避免两条路径出现不可解释的
+        分值漂移。``htcs=True`` 时启用三处修正：
+        - 目标威胁使用绝对归一化，目标集合变化不会改变已有目标分数；
+        - 期望伤害按单位剩余弹药截断，避免为打空的单位分配任务；
+        - 返回的可见集合供上层做任务束与分布式降级。
+        """
+        unit_list, records, target_by_id, visible_sets = self._prepare(
+            units, sightings, step, visible_ids_by_unit)
+        context = context or {}
+        if not target_by_id:
+            return ({}, {}, {}, {}, {}, {}, {}, unit_list)
+
+        target_priority = self._target_priorities(target_by_id, stable=htcs)
         target_values = self._target_values(target_by_id, target_priority, context)
         readiness = {unit.id: self._readiness(unit) for unit in unit_list}
 
-        # pair (uid, tid) -> 基础出价与窗口期望伤害
         bids: dict[tuple[str, str], float] = {}
         damage: dict[tuple[str, str], float] = {}
         for unit in unit_list:
@@ -162,11 +191,42 @@ class CooperativeAllocator:
                 bid = self._bid(unit, target, target_priority[target_id],
                                 role_fit, readiness[unit.id], freshness,
                                 distance_cost)
-                expected = self._expected_damage(unit, target, battlefield)
+                expected = self._expected_damage(
+                    unit, target, battlefield, clamp_ammo=htcs)
                 bids[(unit.id, target_id)] = bid
                 damage[(unit.id, target_id)] = expected
 
-        if not bids:
+        unit_by_id = {unit.id: unit for unit in unit_list}
+        return (bids, damage, target_priority, target_values,
+                target_by_id, unit_by_id, visible_sets, unit_list)
+
+    def allocate(
+        self,
+        units: Iterable[Unit],
+        sightings: Iterable[TargetSighting] | None,
+        step: int,
+        battlefield=None,
+        previous: AssignmentResult | None = None,
+        visible_ids_by_unit: dict[str, set[str]] | None = None,
+        context: dict | None = None,
+    ) -> AssignmentResult:
+        """执行一次分配。
+
+        visible_ids_by_unit 必须是“每个单位自己的可见目标 ID 集合”
+        （自身观测 ∪ 已送达共享信息）。为兼容独立测试，传入 None 时
+        退化为使用全部已送达目标；Simulator 始终显式传入。
+        context 可提供 ``enemy_combat_units``，用于基地 late-game 价值。
+        """
+        cfg = self.config
+        previous = previous or AssignmentResult()
+        context = context or {}
+
+        (bids, damage, target_priority, target_values, target_by_id,
+         unit_by_id, _visible_sets, unit_list) = self.score_pairs(
+            units, sightings, step, battlefield, visible_ids_by_unit, context)
+
+        records = list(sightings or [])
+        if not target_by_id or not bids:
             self.consume_dirty()
             return AssignmentResult(updated_step=step)
 
@@ -210,17 +270,29 @@ class CooperativeAllocator:
         )
 
     # ── 评分 ────────────────────────────────────────────────────
-    def _target_priorities(self, targets: dict[str, Unit]) -> dict[str, float]:
+    def _target_priorities(self, targets: dict[str, Unit],
+                           stable: bool = False) -> dict[str, float]:
+        """目标优先级。
+
+        ``stable=False`` 保持 RDMA v2 的当前目标集合 min-max 归一化；
+        ``stable=True``（HTCS）改用固定威胁上限的绝对归一化，目标集合
+        增加/减少时已有目标的分数不会整体漂移，便于跨波次比较任务价值。
+        """
         raw = {}
         for target_id, target in targets.items():
             raw[target_id] = float(
                 THREAT_VALUE_BY_TYPE.get(target.unit_type,
                                          target.threat_value or 1))
         low, high = min(raw.values()), max(raw.values())
+        ceiling = max(1.0, float(max(THREAT_VALUE_BY_TYPE.values())))
         weights = self.config["target_priority_weights"]
         result = {}
         for target_id, target in targets.items():
-            type_norm = 1.0 if high <= low else (raw[target_id] - low) / (high - low)
+            if stable:
+                type_norm = max(0.0, min(1.0, raw[target_id] / ceiling))
+            else:
+                type_norm = (1.0 if high <= low
+                             else (raw[target_id] - low) / (high - low))
             low_hp = 1.0 - max(0.0, min(1.0, target.hp_ratio))
             value = (weights["type_threat"] * type_norm
                      + weights["low_hp"] * low_hp)
@@ -311,18 +383,19 @@ class CooperativeAllocator:
         return (self._effect(target, current + addition)
                 - self._effect(target, current))
 
-    def _expected_damage(self, unit: Unit, target: Unit, battlefield) -> float:
+    def _expected_damage(self, unit: Unit, target: Unit, battlefield,
+                         clamp_ammo: bool = False) -> float:
         hit_prob = calculate_hit_probability(
             unit, target, battlefield, is_evading=(unit.status == STATUS_EVADE))
         if hit_prob <= 0:
             return 0.0
         crit_factor = 1.0 + CRIT_CHANCE * (CRIT_DAMAGE_MULTIPLIER - 1.0)
-        shots = self._shots_in_horizon(unit)
+        shots = self._shots_in_horizon(unit, clamp_ammo=clamp_ammo)
         if shots <= 0:
             return 0.0
         return hit_prob * unit.attack_power * crit_factor * shots
 
-    def _shots_in_horizon(self, unit: Unit) -> int:
+    def _shots_in_horizon(self, unit: Unit, clamp_ammo: bool = False) -> int:
         horizon = int(self.config["demand_horizon_steps"])
         eng = unit.engagement_state
         reaction = max(0, int(eng.reaction_delay))
@@ -340,8 +413,37 @@ class CooperativeAllocator:
             ready_in = reaction
 
         if ready_in >= horizon:
-            return 0
-        return 1 + (horizon - 1 - ready_in) // cycle
+            shots = 0
+        else:
+            shots = 1 + (horizon - 1 - ready_in) // cycle
+        if clamp_ammo:
+            # HTCS 修正：窗口期望伤害不能超过单位剩余弹药，避免给已打空
+            # 的单位分配“看起来很强”的任务。
+            shots = min(shots, max(0, int(unit.ammo)))
+        return shots
+
+    # ── 供 HTCS 复用的效果函数 ──────────────────────────────────
+    def effect_threshold(self, target: Unit) -> float:
+        """目标达到期望效果所需的期望伤害。"""
+        return self._effect_threshold(target)
+
+    def effect(self, target: Unit, damage: float) -> float:
+        """目标效果 F_j(D)=min(1, D/(q_j*H_j))。"""
+        return self._effect(target, damage)
+
+    def marginal_effect(self, target: Unit, current: float,
+                        addition: float) -> float:
+        """追加期望伤害带来的效果增量。"""
+        return self._effect_gain(target, current, addition)
+
+    @staticmethod
+    def max_ammo(unit: Unit) -> int:
+        """单位满弹量；配置缺失时退回当前弹药，至少为 1。"""
+        try:
+            capacity = int(get_unit_stats(unit.unit_type).get("ammo", 0))
+        except KeyError:
+            capacity = 0
+        return max(1, capacity, int(unit.ammo))
 
     def _target_capacity(self, target: Unit) -> int:
         cap = int(self.config["max_assignments_per_target"])

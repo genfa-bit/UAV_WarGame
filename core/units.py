@@ -52,6 +52,9 @@ class Unit(Entity):
     terrain_effects: dict[str, dict[str, float]] = field(default_factory=dict)
     obstacle_hit_factors: dict[str, float] = field(default_factory=dict)
     engagement_state: EngagementState = field(init=False, repr=False)
+    # HTCS SEAD 压制：被压制单位在该步之前不能发起攻击。默认 0，表示
+    # 未启用 HTCS 时完全不影响既有交战逻辑。
+    suppressed_until: int = 0
 
     def __post_init__(self) -> None:
         self.engagement_state = EngagementState(self.reaction_delay, self.attack_cooldown)

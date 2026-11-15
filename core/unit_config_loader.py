@@ -277,6 +277,85 @@ def _role_fit(config: dict[str, Any],
     config["role_fit"] = merged
 
 
+_COOPERATIVE_MODES = ("rdma_v2", "htcs")
+_HTCS_DOCTRINES = ("adaptive", "balanced", "attrition", "decapitation",
+                   "base_pressure")
+
+
+def _cooperative_mode(config: dict[str, Any]) -> None:
+    mode = config.get("mode", "rdma_v2")
+    if mode not in _COOPERATIVE_MODES:
+        _warn_once("mode", f"mode={mode!r} 必须是 {_COOPERATIVE_MODES} 之一")
+        config["mode"] = "rdma_v2"
+    else:
+        config["mode"] = mode
+
+
+def _htcs_number(config: dict[str, Any], key: str, default: float,
+                 minimum: float = 0.0,
+                 maximum: float | None = None) -> None:
+    value = config.get(key, default)
+    valid = _is_number(value) and float(value) >= minimum
+    if valid and maximum is not None:
+        valid = float(value) <= maximum
+    if not valid:
+        bound = f">= {minimum}" if maximum is None else f"[{minimum}, {maximum}]"
+        _warn_once(f"htcs.{key}",
+                   f"htcs.{key}={value!r} 必须是 {bound} 的有限数值")
+        config[key] = float(default)
+    else:
+        config[key] = float(value)
+
+
+def _htcs_config(config: dict[str, Any]) -> None:
+    defaults = COOPERATIVE_ASSIGNMENT_DEFAULTS["htcs"]
+    provided = config.get("htcs")
+    if not isinstance(provided, dict):
+        if provided is not None:
+            _warn_once("htcs", "htcs 必须是字典")
+        config["htcs"] = copy.deepcopy(defaults)
+        return
+    merged = _deep_merge(defaults, provided)
+
+    for key in ("wave_length_steps", "bundle_size", "max_tasks_per_wave",
+                "planning_horizon_waves"):
+        _positive_int(merged, key, defaults[key])
+    for key in ("tot_tolerance_steps", "tot_late_steps",
+                "reattack_delay_steps", "sead_suppression_steps"):
+        _nonnegative_int(merged, key, defaults[key])
+    _htcs_number(merged, "staging_standoff_ratio",
+                 defaults["staging_standoff_ratio"], minimum=0.0)
+    _htcs_number(merged, "ammo_reserve_ratio",
+                 defaults["ammo_reserve_ratio"], minimum=0.0, maximum=1.0)
+    _htcs_number(merged, "overkill_fire_ratio",
+                 defaults["overkill_fire_ratio"], minimum=1.0)
+    _htcs_number(merged, "reattack_bonus",
+                 defaults["reattack_bonus"], minimum=0.0)
+    _htcs_number(merged, "bda_delivery_ratio",
+                 defaults["bda_delivery_ratio"], minimum=0.0, maximum=1.0)
+    _htcs_number(merged, "sead_effect_ratio",
+                 defaults["sead_effect_ratio"], minimum=0.0, maximum=1.0)
+    _htcs_number(merged, "sead_defense_radius",
+                 defaults["sead_defense_radius"], minimum=0.0)
+    _htcs_number(merged, "doctrine_advantage_ratio",
+                 defaults["doctrine_advantage_ratio"], minimum=0.0)
+    _htcs_number(merged, "doctrine_disadvantage_ratio",
+                 defaults["doctrine_disadvantage_ratio"], minimum=0.0)
+    for key in ("fire_discipline", "opportunity_fire", "bda_enabled",
+                "sead_enabled", "distributed_fallback"):
+        value = merged.get(key, defaults[key])
+        if not isinstance(value, bool):
+            _warn_once(f"htcs.{key}",
+                       f"htcs.{key}={value!r} 必须是布尔值")
+            merged[key] = defaults[key]
+    doctrine = merged.get("doctrine", defaults["doctrine"])
+    if doctrine not in _HTCS_DOCTRINES:
+        _warn_once("htcs.doctrine",
+                   f"htcs.doctrine={doctrine!r} 必须是 {_HTCS_DOCTRINES} 之一")
+        merged["doctrine"] = defaults["doctrine"]
+    config["htcs"] = merged
+
+
 def get_cooperative_assignment_config() -> dict[str, Any]:
     """读取并校验 cooperative_assignment 配置。
 
@@ -295,6 +374,8 @@ def get_cooperative_assignment_config() -> dict[str, Any]:
     if not isinstance(enabled, bool):
         _warn_once("enabled", f"enabled={enabled!r} 必须是布尔值")
         config["enabled"] = True
+    _cooperative_mode(config)
+    _htcs_config(config)
 
     _positive_int(config, "replan_interval_steps",
                   COOPERATIVE_ASSIGNMENT_DEFAULTS["replan_interval_steps"])

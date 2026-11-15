@@ -35,6 +35,8 @@ class AttackEvent:
     is_miss: bool = False
     life: int = 8
     event_id: int = field(default_factory=lambda: next(_attack_event_ids))
+    # HTCS 任务角色（sead/strike/base/opportunity）；旧路径留空。
+    role: str = ""
 
 
 @dataclass
@@ -51,6 +53,7 @@ class AttackIntent:
     is_critical: bool
     attacker: Unit = field(repr=False)
     target: Unit = field(repr=False)
+    role: str = ""
 
 
 def _segment_intersects_rect(
@@ -179,6 +182,7 @@ class CombatSystem:
         target: Unit,
         battlefield=None,
         is_evading: bool = False,
+        role: str = "",
     ) -> AttackIntent | None:
         """将攻击加入意图队列，不立即结算伤害。"""
         if not self.can_attack(attacker, target):
@@ -202,6 +206,7 @@ class CombatSystem:
             is_critical=is_critical,
             attacker=attacker,
             target=target,
+            role=role,
         )
         self._intents.append(intent)
         return intent
@@ -234,6 +239,7 @@ class CombatSystem:
                     target_destroyed=getattr(target, 'is_destroyed', False),
                     is_critical=intent.is_critical,
                     is_miss=False,
+                    role=intent.role,
                 )
             else:
                 event = AttackEvent(
@@ -246,6 +252,7 @@ class CombatSystem:
                     target_destroyed=False,
                     is_critical=False,
                     is_miss=True,
+                    role=intent.role,
                 )
             events.append(event)
         self._intents.clear()

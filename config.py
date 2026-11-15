@@ -146,8 +146,54 @@ COOPERATIVE_ROLE_FIT_DEFAULTS = {
     },
 }
 
+# 分层时相协同打击（HTCS）缺省配置。``mode`` 默认仍为 RDMA v2，只有显式
+# 选择 "htcs" 时才启用新算法，保证既有行为与回归测试不变。
+HTCS_DEFAULTS = {
+    # 滚动波次：每 wave_length_steps 步为一个打击波次；TOT 为目标打击时刻。
+    "wave_length_steps": 6,
+    # 每个单位在一个波次内最多承担的任务数（CBBA 风格任务包）。
+    "bundle_size": 2,
+    # TOT 允许窗口：提前 [-tolerance, +late] 步开火；提前过多则进入待机。
+    "tot_tolerance_steps": 1,
+    "tot_late_steps": 3,
+    # 提前到达时在射程外多远处集结（1.15 表示射程的 115%）。
+    "staging_standoff_ratio": 1.15,
+    # 火力纪律：低于该弹药比例的预留量不参与机会射击。
+    "ammo_reserve_ratio": 0.20,
+    "fire_discipline": True,
+    # 已覆盖期望伤害达到阈值的该倍数后禁止继续排队攻击。
+    "overkill_fire_ratio": 1.0,
+    "opportunity_fire": True,
+    # 战损评估与再攻击。
+    "bda_enabled": True,
+    # 本波次实际兑现伤害达到计划值的该比例即认为任务达成，否则转入再攻击。
+    "bda_delivery_ratio": 0.60,
+    "reattack_delay_steps": 2,
+    "reattack_bonus": 0.25,
+    # 压制敌防空（SEAD）先导任务。
+    "sead_enabled": True,
+    "sead_effect_ratio": 0.60,
+    "sead_suppression_steps": 3,
+    "sead_defense_radius": 220.0,
+    # 态势自适应战法：adaptive / balanced / attrition / decapitation / base_pressure
+    "doctrine": "adaptive",
+    "doctrine_advantage_ratio": 1.25,
+    "doctrine_disadvantage_ratio": 0.80,
+    # 分布式降级：失去指挥链的单位只使用自身观测。
+    "distributed_fallback": False,
+    "max_tasks_per_wave": 6,
+    # 时间折扣与可行性：ETA 超过 wave_length_steps * planning_horizon_waves
+    # 的“单位-目标”对不进入本波次任务束；任务价值按
+    # wave_length / (wave_length + ETA) 折扣，避免部队为遥远目标放弃
+    # 眼前目标（例如放着射程内的敌基地不打，横穿战场去追散兵）。
+    "planning_horizon_waves": 3,
+}
+
 COOPERATIVE_ASSIGNMENT_DEFAULTS = {
     "enabled": True,
+    # 算法模式：rdma_v2（默认，角色约束动态边际拍卖）或 htcs（分层时相协同打击）。
+    "mode": "rdma_v2",
+    "htcs": HTCS_DEFAULTS,
     "replan_interval_steps": 5,
     "max_assignments_per_target": 3,
     "min_assignment_bid": 0.05,

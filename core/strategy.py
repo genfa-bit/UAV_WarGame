@@ -191,6 +191,7 @@ class StrategyEngine:
         *,
         target_mode: str | None = None,
         emergency_target: Unit | None = None,
+        staging_standoff: float | None = None,
     ) -> bool:
         """执行移动决策。
 
@@ -198,7 +199,9 @@ class StrategyEngine:
         - None：旧行为，保持 focus/最近敌人回退；
         - "assigned"：只围绕协同分配目标行动，不切换到其他敌人；
         - "unassigned"：RDMA 下未分配单位，禁止普通攻击候选，仅允许
-          emergency_target 触发的基地防御/自卫移动。
+          emergency_target 触发的基地防御/自卫移动；
+        - "staging"：HTCS 提前到达，围绕分配目标在 staging_standoff 距离
+          上待机，不主动进入射程，等待 TOT 火力门。
         """
         if unit.is_destroyed:
             return False
@@ -226,10 +229,11 @@ class StrategyEngine:
             enemies_near_base[0] if enemies_near_base and unit.can_attack(enemies_near_base[0])
             else (min(enemies_near_base, key=lambda e: unit.distance_to(e))
                   if enemies_near_base else None))
-        assigned_defender_ok = (target_mode == "assigned" and target is not None
+        controlled_mode = target_mode in ("assigned", "staging")
+        assigned_defender_ok = (controlled_mode and target is not None
                                 and defender is not None
                                 and defender.id == target.id)
-        if ((target_mode != "assigned" or assigned_defender_ok)
+        if ((not controlled_mode or assigned_defender_ok)
                 and enemies_near_base and defender is not None
                 and (emergency_target is not None or unit.can_attack(defender)
                      or unit.ammo > 0)):
@@ -256,7 +260,12 @@ class StrategyEngine:
         # 所有“向目标移动”都用外围站位点，绝不把目标的精确坐标当目的地：
         # 否则多个单位会走到同一个像素上，随后距离为 0、永久重叠不动。
         if not need_resupply:
-            if target_mode == "assigned" and target is not None:
+            if target_mode == "staging" and target is not None:
+                candidates.append((Behavior.SCOUT,
+                                   lambda: self._do_hold_for_tot(
+                                       unit, target, battlefield,
+                                       staging_standoff)))
+            elif target_mode == "assigned" and target is not None:
                 candidates.append((Behavior.SCOUT,
                                    lambda: self._do_approach_target(
                                        unit, target, battlefield)))
@@ -307,7 +316,9 @@ class StrategyEngine:
         # 第十阶段：只有交战状态机允许攻击时才能加入 ATTACK 候选。
         # RDMA 下 assigned 只认分配目标，unassigned 不生成普通攻击候选。
         attack_target = None
-        if target_mode == "unassigned":
+        if target_mode in ("unassigned", "staging"):
+            # 未分配/待机单位不生成普通的“接近并攻击”候选；真正开火
+            # 由 Simulator 的火力门与攻击阶段统一授权。
             attack_target = None
         elif target_mode == "assigned":
             if target and not target.is_destroyed and unit.can_attack(target):
@@ -385,6 +396,26 @@ class StrategyEngine:
         """
         standoff = self._standoff_for(unit, APPROACH_STANDOFF_RATIO)
         point = _approach_point(unit, target.x, target.y, standoff)
+        if point is None:
+            unit.status = STATUS_ATTACK
+            return
+        unit.status = STATUS_MOVE
+        move_to(unit, point[0], point[1], battlefield)
+
+    def _do_hold_for_tot(self, unit: Unit, target: Unit,
+                         battlefield: Battlefield,
+                         standoff: float | None = None) -> None:
+        """HTCS 待机：在射程外沿等待 TOT，不提前进入交战。
+
+        ``standoff`` 缺省按射程 115% 计算；已在待机圈内则原地保持，
+        避免来回抖动并把火力提前带入敌方射程。
+        """
+        radius = (standoff if standoff is not None
+                  else self._standoff_for(unit, 1.15))
+        if unit.distance_to(target) <= radius:
+            unit.status = STATUS_ATTACK
+            return
+        point = _approach_point(unit, target.x, target.y, radius)
         if point is None:
             unit.status = STATUS_ATTACK
             return

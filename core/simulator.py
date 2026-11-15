@@ -23,16 +23,21 @@ from core.battlefield import Battlefield
 from core.behavior import BEHAVIOR_LABELS
 from core.combat import AttackEvent, CombatSystem
 from core.cooperative_allocator import AssignmentResult, CooperativeAllocator
+from core.damage_ledger import DamageLedger
 from core.engagement import EngagementPhase
 from core.entity import stable_unit_angle
 from core.pathfinding import cleanup_destroyed
 from core.replay import BASE_IDS, FrameBuffer
 from core.strategy import StrategyEngine
+from core.strike_planner import StrikePlanner
 from core.target_pool import TargetPool
-from core.threat import priority_targets, situation_label, tactics_label, team_strength
+from core.threat import (priority_targets, situation_label, tactics_label,
+                         team_strength, threat_score)
+from core.time_coordination import (FirePlan, FireWindow, estimate_eta,
+                                    staging_standoff)
 from core.unit_config_loader import (get_cooperative_assignment_config,
                                      get_unit_stats)
-from core.units import Unit, UnitDomain
+from core.units import CommandNode, Unit, UnitDomain
 
 
 class Simulator:
@@ -40,7 +45,8 @@ class Simulator:
 
     def __init__(self, battlefield: Battlefield, units: list[Unit],
                  max_steps: int = MAX_SIMULATION_STEPS,
-                 step_duration_seconds: float = SIMULATION_INTERVAL_MS / 1000):
+                 step_duration_seconds: float = SIMULATION_INTERVAL_MS / 1000,
+                 cooperative_config: dict | None = None):
         self._validate_timing(step_duration_seconds, max_steps, current_step=0)
         # 绕障缓存按单位 ID 保存；新局必须清理上一局同名单位的状态。
         cleanup_destroyed(set())
@@ -95,9 +101,31 @@ class Simulator:
         self._team_tactical_state: dict[str, tuple] = {}
         # 协同动态边际拍卖（RDMA）。分配结果只约束移动/攻击授权；旧
         # focus_targets 仍保留给 UI 和兼容路径。
-        self.cooperative_config = get_cooperative_assignment_config()
+        self.cooperative_config = (cooperative_config
+                                   if cooperative_config is not None
+                                   else get_cooperative_assignment_config())
         self.cooperative_enabled = bool(self.cooperative_config.get("enabled", True))
+        # 算法模式由配置决定；缺省 rdma_v2，保证既有行为不变。HTCS 所需的
+        # 账本、火力计划与再攻击状态只在 htcs 模式下创建和使用。
+        self.cooperative_mode = str(self.cooperative_config.get("mode", "rdma_v2"))
+        self.htcs_config = dict(self.cooperative_config.get("htcs", {}))
+        self._htcs_configured = self.cooperative_mode == "htcs"
         self.allocator = CooperativeAllocator(self.cooperative_config)
+        self.strike_planner = (StrikePlanner(self.cooperative_config)
+                               if self._htcs_configured else None)
+        self.damage_ledger = DamageLedger()
+        self.fire_plans: dict[str, dict[str, list[FirePlan]]] = {
+            TEAM_RED: {}, TEAM_BLUE: {}}
+        # 再攻击目标：当前波次未能达成效果的活目标，供下一波次加权。
+        self._htcs_reattack: dict[str, set[str]] = {
+            TEAM_RED: set(), TEAM_BLUE: set()}
+        # 重规划会整体替换任务对象。上一波次的任务如果直接被丢弃，它承诺
+        # 的火力就再也没人核对，BDA 只能对“恰好活过窗口”的任务生效。
+        # 因此把未判定的旧任务挪到退役列表，继续按各自窗口判定，判完即弃。
+        self._htcs_retired: dict[str, list] = {
+            TEAM_RED: [], TEAM_BLUE: []}
+        self._bda_assessed: set[str] = set()
+        self._htcs_hold_logged: set[tuple[str, str, int]] = set()
         self.assignments: dict[str, AssignmentResult] = {
             TEAM_RED: AssignmentResult(), TEAM_BLUE: AssignmentResult()}
         # 只有本步真正执行过分配，才允许 RDMA 路由；直接调用旧阶段方法的
@@ -189,6 +217,10 @@ class Simulator:
         self._cleanup_target_pools()
         self._reconnaissance_phase()
         self._record_shared_deliveries()
+        if self.htcs_enabled:
+            # 战损评估必须在重规划之前：否则本步的新任务会覆盖上一波次的
+            # 任务，BDA 永远看不到“窗口已结束但仍未达成”的任务。
+            self._bda_phase()
         self._update_assignments()
         self._update_engagement_states()
         self._record_unit_tactical_changes()
@@ -213,6 +245,11 @@ class Simulator:
     # ═══════════════════════════════════════════════════════════
     #  协同分配（RDMA）
     # ═══════════════════════════════════════════════════════════
+
+    @property
+    def htcs_enabled(self) -> bool:
+        """当前是否实际运行 HTCS（配置为 htcs 且协同分配已启用）。"""
+        return self.cooperative_enabled and self._htcs_configured
 
     def _assignment_mode_active(self, team: str) -> bool:
         """本步是否已执行 RDMA 分配。
@@ -242,12 +279,42 @@ class Simulator:
             team: {target.id for target in pool.values_available(self.time_step)}
             for team, pool in self.strategic_targets.items()
         }
-        return {
-            unit.id: (set(self._own_sightings.get(unit.id, set()))
-                      | self._base_own_sightings.get(unit.id, set())
-                      | delivered[unit.team] | delivered_bases[unit.team])
-            for unit in self.active_units()
-        }
+        connected = None
+        if (self.htcs_enabled
+                and bool(self.htcs_config.get("distributed_fallback", False))):
+            connected = self._htcs_connected_units()
+        result: dict[str, set[str]] = {}
+        for unit in self.active_units():
+            own = (set(self._own_sightings.get(unit.id, set()))
+                   | self._base_own_sightings.get(unit.id, set()))
+            # 分布式降级：与指挥节点失去联系的单位只能使用自身观测，
+            # 不再接收共享池与战略目标池的广播。
+            if connected is None or unit.id in connected:
+                own |= delivered[unit.team] | delivered_bases[unit.team]
+            result[unit.id] = own
+        return result
+
+    def _htcs_connected_units(self) -> set[str]:
+        """HTCS 分布式降级：仍处于本方指挥链内的单位集合。
+
+        当前模型用指挥节点的 ``comm_range`` 作为连通半径；指挥节点自身
+        始终在链内，其余单位只要靠近任意一个存活指挥节点即可接收共享
+        信息。失去全部指挥节点时，所有单位退化为本地观测。
+        """
+        connected: set[str] = set()
+        for team in (TEAM_RED, TEAM_BLUE):
+            commands = [unit for unit in self.active_units(team)
+                        if isinstance(unit, CommandNode)]
+            for unit in self.active_units(team):
+                if unit.domain == UnitDomain.COMMAND:
+                    connected.add(unit.id)
+                    continue
+                radius = max((getattr(command, "comm_range", 250.0)
+                              for command in commands), default=0.0)
+                if any(unit.distance_to(command) <= radius
+                       for command in commands):
+                    connected.add(unit.id)
+        return connected
 
     def _refresh_strategic_targets(self) -> None:
         """刷新已确认基地的最近观测，但不推迟首次交付时间。
@@ -322,13 +389,42 @@ class Simulator:
                 visible_by_unit.get(unit.id) for unit in self.active_units(team))
             # 首次发现目标时不能等到下一个重规划周期，否则会空转数步。
             newly_detected = not previous.assignments and has_visible
+            wave_length = max(1, int(self.htcs_config.get(
+                "wave_length_steps", interval)))
+            wave_boundary = (self.htcs_enabled
+                             and self.time_step % wave_length == 0)
             due = (previous.updated_step == 0
                    or invalid
                    or newly_detected
                    or target_hp_changed
                    or base_hp_changed
+                   or wave_boundary
                    or self.time_step - previous.updated_step >= interval)
-            if due:
+            context = {
+                "enemy_combat_units": len([
+                    unit for unit in self.enemy_units(team)
+                    if unit.attack_power > 0
+                    and unit.unit_type != "command_node"]),
+            }
+            if due and self.htcs_enabled:
+                context.update(
+                    enemy_units=list(self.enemy_units(team)),
+                    own_strength=team_strength(self.active_units(team)),
+                    enemy_strength=team_strength(self.enemy_units(team)),
+                    reattack_targets=set(self._htcs_reattack[team]),
+                )
+                result = self.strike_planner.plan(
+                    self.active_units(team),
+                    list(self.shared_targets[team].records())
+                    + list(self.strategic_targets[team].records()),
+                    self.time_step,
+                    self.battlefield,
+                    previous=previous,
+                    visible_ids_by_unit=visible_by_unit,
+                    context=context,
+                    ledger=self.damage_ledger,
+                )
+            elif due:
                 result = self.allocator.allocate(
                     self.active_units(team),
                     list(self.shared_targets[team].records())
@@ -337,15 +433,22 @@ class Simulator:
                     self.battlefield,
                     previous=previous,
                     visible_ids_by_unit=visible_by_unit,
-                    context={
-                        "enemy_combat_units": len([
-                            unit for unit in self.enemy_units(team)
-                            if unit.attack_power > 0
-                            and unit.unit_type != "command_node"]),
-                    },
+                    context=context,
                 )
             else:
                 result = previous
+
+            if self.htcs_enabled:
+                if due:
+                    self._install_fire_plans(team, result)
+                else:
+                    self._prune_fire_plans(team)
+
+            if self.htcs_enabled and due and result is not previous:
+                # 旧任务束退役：未判定的承诺继续走 BDA，不随对象替换消失。
+                self._htcs_retired[team].extend(
+                    task for task in previous.tasks.values()
+                    if task.state not in ("done", "failed"))
 
             old_assignments = dict(previous.assignments)
             self.assignments[team] = result
@@ -410,7 +513,264 @@ class Simulator:
             unassigned_count=len(self.active_units(team)) - len(result.assignments),
             primary_target_id=result.primary_target_id,
             replanned=True,
+            algorithm=self.cooperative_mode,
+            wave_id=result.wave_id,
+            doctrine=result.doctrine,
         )
+
+    # ═══════════════════════════════════════════════════════════
+    #  HTCS：火力计划、火力门、BDA 与再攻击
+    # ═══════════════════════════════════════════════════════════
+
+    def _entity(self, entity_id: str | None) -> Unit | None:
+        """按 ID 查找单位或基地。"""
+        if not entity_id:
+            return None
+        for unit in self.units:
+            if unit.id == entity_id:
+                return unit
+        for team in (TEAM_RED, TEAM_BLUE):
+            base = self.battlefield.base_obj(team)
+            if base.id == entity_id:
+                return base
+        return None
+
+    def _install_fire_plans(self, team: str,
+                            result: AssignmentResult) -> None:
+        """把任务束展开为单位级火力计划（每发一个 FirePlan）。"""
+        tolerance = int(self.htcs_config.get("tot_tolerance_steps", 1))
+        late = int(self.htcs_config.get("tot_late_steps", 3))
+        plans: dict[str, list[FirePlan]] = {}
+        for unit in self.active_units(team):
+            unit_plans: list[FirePlan] = []
+            for task_id in result.bundles.get(unit.id, []):
+                task = result.tasks.get(task_id)
+                if task is None:
+                    continue
+                shots = max(1, int(task.shots.get(unit.id, 1)))
+                cycle = max(1, int(unit.reaction_delay)
+                            + int(unit.attack_cooldown) + 1)
+                for index in range(shots):
+                    # 同一任务的多发按冷却周期顺延 TOT，形成波次内的
+                    # 连续射击，而不是所有发数挤在同一帧。
+                    window = FireWindow(
+                        tot=task.tot_step + index * cycle,
+                        tolerance=tolerance, late=late)
+                    unit_plans.append(FirePlan(
+                        task_id=task.task_id,
+                        target_id=task.target_id,
+                        wave=task.wave,
+                        role=task.role,
+                        window=window,
+                    ))
+            plans[unit.id] = unit_plans
+        self.fire_plans[team] = plans
+
+    def _prune_fire_plans(self, team: str) -> None:
+        """非重规划步：丢弃目标已摧毁/消失的队首计划。"""
+        for unit_id, plans in list(self.fire_plans.get(team, {}).items()):
+            unit = self._entity(unit_id)
+            if unit is None or unit.is_destroyed:
+                self.fire_plans[team].pop(unit_id, None)
+                continue
+            while plans:
+                target = self._entity(plans[0].target_id)
+                if target is None or target.is_destroyed:
+                    self._htcs_consume_plan(unit, plans[0])
+                    continue
+                break
+
+    def _drop_plans_for_target(self, target_id: str) -> None:
+        """目标被摧毁后移除所有针对它的队首计划并同步分配。"""
+        for team in (TEAM_RED, TEAM_BLUE):
+            for unit_id, plans in list(self.fire_plans.get(team, {}).items()):
+                unit = self._entity(unit_id)
+                if unit is None:
+                    continue
+                while plans and plans[0].target_id == target_id:
+                    self._htcs_consume_plan(unit, plans[0])
+
+    def _htcs_consume_plan(self, unit: Unit, plan: FirePlan) -> None:
+        """消耗一条火力计划，并把分配同步到任务束中的下一目标。"""
+        plans = self.fire_plans.get(unit.team, {}).get(unit.id)
+        if plans:
+            if plans[0] is plan:
+                plans.pop(0)
+            else:
+                try:
+                    plans.remove(plan)
+                except ValueError:
+                    pass
+        result = self.assignments.get(unit.team)
+        next_plan = plans[0] if plans else None
+        if result is not None:
+            if next_plan is not None:
+                result.assignments[unit.id] = next_plan.target_id
+                result.reasons[unit.id] = f"htcs:{next_plan.role}"
+                result.attack_steps[unit.id] = next_plan.tot
+            else:
+                result.assignments.pop(unit.id, None)
+                result.reasons.pop(unit.id, None)
+                result.attack_steps.pop(unit.id, None)
+        eng = unit.engagement_state
+        if next_plan is not None:
+            if eng.current_target_id != next_plan.target_id:
+                eng.on_assignment_changed(next_plan.target_id)
+        elif eng.current_target_id == plan.target_id:
+            eng.on_target_lost()
+
+    def _htcs_head_plan(self, unit: Unit,
+                        visible_ids: set[str]) -> FirePlan | None:
+        """返回单位当前有效队首计划，顺带清理失效计划。"""
+        plans = self.fire_plans.get(unit.team, {}).get(unit.id)
+        if not plans:
+            return None
+        while plans:
+            plan = plans[0]
+            target = self._entity(plan.target_id)
+            if (target is None or target.is_destroyed
+                    or plan.target_id not in visible_ids):
+                self._htcs_consume_plan(unit, plan)
+                continue
+            return plan
+        return None
+
+    def _desired_effect(self, target: Unit) -> float:
+        return float(self.cooperative_config.get(
+            "desired_effect_by_type", {}).get(target.unit_type, 1.0))
+
+    def _htcs_fire_allowed(self, unit: Unit, target: Unit) -> bool:
+        """火力纪律：账本已覆盖目标效果时停火，等待本波次结算。"""
+        if not bool(self.htcs_config.get("fire_discipline", True)):
+            return True
+        saturated = self.damage_ledger.is_saturated(
+            target.id, target.hp, self._desired_effect(target),
+            float(self.htcs_config.get("overkill_fire_ratio", 1.0)))
+        if saturated:
+            key = (unit.id, target.id, self.time_step // max(
+                1, int(self.htcs_config.get("wave_length_steps", 6))))
+            if key not in self._htcs_hold_logged:
+                self._htcs_hold_logged.add(key)
+                self.record_event(
+                    "coordination",
+                    f"{unit.team.title()} {unit.name} 火力纪律："
+                    f"{target.name} 的在途期望伤害已覆盖效果，暂缓射击",
+                    event="fire_discipline_hold", team=unit.team,
+                    unit_id=unit.id, target_id=target.id,
+                    reserved=self.damage_ledger.reserved(target.id),
+                    target_hp=target.hp)
+        return not saturated
+
+    def _htcs_opportunity_target(self, unit: Unit,
+                                 visible: list[Unit]) -> Unit | None:
+        """机会射击：未分配单位只打射程内、尚未被账本覆盖的目标。"""
+        if not bool(self.htcs_config.get("opportunity_fire", True)):
+            return None
+        reserve_ratio = float(self.htcs_config.get("ammo_reserve_ratio", 0.2))
+        reserve = math.ceil(reserve_ratio * self.allocator.max_ammo(unit))
+        # 预留量不能锁死最后几发：至少留 1 发可用于当前交战。
+        reserve = min(reserve, max(0, unit.ammo - 1))
+        if unit.ammo <= reserve:
+            return None
+        candidates = [
+            target for target in visible
+            if not target.is_destroyed and unit.can_attack(target)
+            and self.damage_ledger.remaining_need(
+                target.id, target.hp, self._desired_effect(target)) > 0.0
+        ]
+        if not candidates:
+            return None
+        return min(candidates, key=lambda target: (
+            -threat_score(target, unit), target.id))
+
+    def _bda_phase(self) -> None:
+        """战损评估：完结任务、清理账本、标记需要再攻击的目标。"""
+        active_ids = {unit.id for unit in self.units if not unit.is_destroyed}
+        for team in (TEAM_RED, TEAM_BLUE):
+            base = self.battlefield.base_obj(team)
+            if not base.is_destroyed:
+                active_ids.add(base.id)
+        self.damage_ledger.prune(active_ids)
+
+        newly_destroyed = set(self._destruction_ids) - self._bda_assessed
+        for target_id in sorted(newly_destroyed):
+            self._bda_assessed.add(target_id)
+            applied = self.damage_ledger.applied(target_id)
+            self.damage_ledger.clear_target(target_id)
+            self._drop_plans_for_target(target_id)
+            for team in (TEAM_RED, TEAM_BLUE):
+                self._htcs_reattack[team].discard(target_id)
+                self._htcs_retired[team] = [
+                    task for task in self._htcs_retired[team]
+                    if task.target_id != target_id]
+                for task in self.assignments[team].tasks.values():
+                    if (task.target_id == target_id
+                            and task.state not in ("done", "failed")):
+                        task.state = "done"
+                        self.record_event(
+                            "coordination",
+                            f"{team.title()} 任务 {task.task_id} 完成："
+                            f"目标已摧毁",
+                            event="bda_completed", team=team,
+                            task_id=task.task_id, target_id=target_id,
+                            planned_damage=round(task.planned_damage, 2),
+                            applied_damage=round(applied, 2))
+
+        if not bool(self.htcs_config.get("bda_enabled", True)):
+            return
+        for team in (TEAM_RED, TEAM_BLUE):
+            for task in list(self.assignments[team].tasks.values()):
+                self._bda_judge(team, task)
+            # 已退役（上一波次被重规划替换）但仍未判定的任务照常核对。
+            self._htcs_retired[team] = [
+                task for task in self._htcs_retired[team]
+                if not self._bda_judge(team, task)]
+
+    def _bda_judge(self, team: str, task) -> bool:
+        """按任务自身的火力窗口判定其承诺是否兑现。
+
+        返回 True 表示已经得出结论（完成/失败），False 表示仍需继续观察。
+        """
+        if task.state in ("done", "failed"):
+            return True
+        target = self._entity(task.target_id)
+        if target is None or target.is_destroyed:
+            return True
+        # 只按任务自己的火力窗口判定，不按波次边界：波次是规划粒度，
+        # 而单位反应+冷却可能长于一个波次，TOT 自然会被推到波次之外。
+        # 窗口内一律视为“仍在执行”。
+        if self.time_step <= task.late_until:
+            return False
+        need = self.damage_ledger.remaining_need(
+            target.id, target.hp, self._desired_effect(target))
+        if need <= 0.5:
+            task.state = "done"
+            return True
+        if task.state != "ready":
+            # 计划本身未满编（火力不足/单位不够），属于下一波次继续规划，
+            # 不是“执行失败”，不触发再攻击加成。
+            return True
+        delivered = max(
+            0.0, self.damage_ledger.applied(target.id) - task.applied_at_plan)
+        if (task.planned_damage > 0.0 and delivered >=
+                float(self.htcs_config.get("bda_delivery_ratio", 0.6))
+                * task.planned_damage):
+            # 本波次承诺的火力已经兑现（即使目标还没被消灭），后续波次
+            # 由规划器继续追加任务，不算执行失败。
+            task.state = "done"
+            return True
+        self._htcs_reattack[team].add(target.id)
+        task.state = "failed"
+        self.record_event(
+            "coordination",
+            f"{team.title()} 战损评估：{target.name} 任务窗口结束，"
+            f"仍需 {round(need, 1)} 期望伤害，转入再攻击",
+            event="reattack_required", team=team,
+            task_id=task.task_id, target_id=target.id,
+            remaining_need=round(need, 2),
+            target_hp=target.hp,
+            reserved=self.damage_ledger.reserved(target.id))
+        return True
 
     def _emergency_attack_target(self, unit: Unit,
                                  visible: list[Unit]) -> Unit | None:
@@ -482,9 +842,11 @@ class Simulator:
                     target = next((t for t in visible if t.id == assigned_id), None)
                 elif assignment_active:
                     # 未分配作战单位只保留紧急自卫，不回退基地/focus/最近敌人。
-                    # 无攻击能力的侦察/指挥单位仍可跟踪 focus 以更新侦察状态，
-                    # 但 _attack_target_for() 不会给它们普通攻击授权。
+                    # HTCS 额外允许“机会射击”：射程内且未被账本覆盖的目标。
                     target = self._emergency_attack_target(unit, visible_units)
+                    if self.htcs_enabled and target is None:
+                        target = self._htcs_opportunity_target(
+                            unit, visible_units)
                     if target is None and unit.attack_power <= 0 and visible_units:
                         focus = self.focus_targets.get(unit.team)
                         target = (focus if focus and focus.id in visible_ids
@@ -523,6 +885,11 @@ class Simulator:
         unit_map["red_base"] = self.battlefield.base_obj(TEAM_RED)
         unit_map["blue_base"] = self.battlefield.base_obj(TEAM_BLUE)
         for event in events:
+            if self.htcs_enabled:
+                # 排队时登记的是期望伤害；结算时用实际伤害替换，保证
+                # 火力门看到的是“在途 + 已结算”的最新覆盖情况。
+                self.damage_ledger.settle(
+                    event.attacker_id, event.target_id, event.damage)
             attacker = unit_map.get(event.attacker_id)
             team = attacker.team if attacker else "unknown"
             if team in self.attack_count:
@@ -538,6 +905,20 @@ class Simulator:
                 self.hit_count[team] += 1
                 self.total_damage[team] += event.damage
             target = unit_map.get(event.target_id)
+            if (self.htcs_enabled and event.role == "sead"
+                    and not event.is_miss and target is not None):
+                steps = int(self.htcs_config.get("sead_suppression_steps", 0))
+                if steps > 0:
+                    target.suppressed_until = max(
+                        target.suppressed_until, self.time_step + steps)
+                    self.record_event(
+                        "coordination",
+                        f"{team.title()} SEAD 压制 {target.name}："
+                        f"{steps} 步内无法开火",
+                        event="sead_suppressed", team=team,
+                        source_id=attacker.id if attacker else None,
+                        target_id=target.id, target_name=target.name,
+                        suppressed_until=target.suppressed_until)
             if attacker and target:
                 self._add_log("Attack",
                     f"{team.title()} {attacker.name} attacked "
@@ -798,7 +1179,32 @@ class Simulator:
             assignment_active = self._assignment_mode_active(unit.team)
             target_mode = None
             emergency_target = None
-            if assignment_active:
+            staging_distance = None
+            if assignment_active and self.htcs_enabled:
+                plan_visible = self._visible_targets_for(
+                    unit, include_base=True)
+                plan_visible_ids = {target.id for target in plan_visible}
+                plan = self._htcs_head_plan(unit, plan_visible_ids)
+                target = (self._entity(plan.target_id)
+                          if plan is not None else None)
+                if plan is not None and target is not None:
+                    eta = estimate_eta(unit, target, self.battlefield)
+                    if self.time_step + eta < plan.window_start:
+                        # 提前到达：在射程外沿待机，等 TOT 再进入。
+                        target_mode = "staging"
+                        staging_distance = staging_standoff(
+                            unit, float(self.htcs_config.get(
+                                "staging_standoff_ratio", 1.15)))
+                    else:
+                        target_mode = "assigned"
+                else:
+                    # 任务束耗尽/目标暂不可见：只侦察巡逻或机会射击，
+                    # 不追逐新的可见敌人。
+                    target = None
+                    target_mode = "unassigned"
+                    emergency_target = self._emergency_attack_target(
+                        unit, visible_for_me)
+            elif assignment_active:
                 assigned_id = self.assignments[unit.team].assignments.get(unit.id)
                 target = unit_map.get(assigned_id or "")
                 target_visible = (
@@ -829,6 +1235,7 @@ class Simulator:
                 all_enemies=visible_for_me,
                 target_mode=target_mode,
                 emergency_target=emergency_target,
+                staging_standoff=staging_distance,
             )
             pending.append((unit, (unit.x, unit.y)))
             # 立即还原到快照位置，保证后续单位看到的是同一份初始战场。
@@ -888,7 +1295,13 @@ class Simulator:
     def _attack_phase(self) -> None:
         """攻击阶段：优先攻击集火目标，需通过交战状态检查。"""
         for unit in self.active_units():
+            # SEAD 压制期：被压制单位不能发起新的攻击。
+            if self.htcs_enabled and unit.suppressed_until > self.time_step:
+                continue
             if not unit.engagement_state.can_attack:
+                continue
+            if self.htcs_enabled:
+                self._htcs_attack_unit(unit)
                 continue
             target = self._attack_target_for(unit)
             if target is None or target.is_destroyed:
@@ -904,6 +1317,65 @@ class Simulator:
                 # 防御：攻击加入队列失败，重置状态避免永久卡死
                 unit.engagement_state.reset_to_search()
 
+    def _htcs_attack_unit(self, unit: Unit) -> None:
+        """HTCS 攻击：火力门 + 伤害账本 + 任务角色。"""
+        eng = unit.engagement_state
+        visible = self._visible_targets_for(unit, include_base=True)
+        visible_ids = {target.id for target in visible}
+        plan = self._htcs_head_plan(unit, visible_ids)
+        if plan is not None:
+            target = self._entity(plan.target_id)
+            if target is None:
+                return
+            if plan.is_early(self.time_step):
+                # 提前到达：保持待机，等待 TOT 窗口。
+                return
+            if not unit.can_attack(target):
+                # 仍在接近；移动阶段负责进入射程，不重置反应状态。
+                return
+            if eng.current_target_id != target.id:
+                return
+            if not self._htcs_fire_allowed(unit, target):
+                return
+            intent = self.combat.queue_attack(
+                unit, target, self.battlefield,
+                is_evading=(unit.status == STATUS_EVADE),
+                role=plan.role)
+            if intent:
+                eng.on_attack_queued()
+                # 排队时登记期望伤害；实际结算后由账本替换。
+                self.damage_ledger.reserve(
+                    unit.id, target.id,
+                    float(intent.damage) * float(intent.hit_probability),
+                    self.time_step)
+                self._htcs_consume_plan(unit, plan)
+            else:
+                eng.reset_to_search()
+            return
+
+        # 任务束已耗尽：只保留机会射击，不追逐新目标。
+        if not bool(self.htcs_config.get("opportunity_fire", True)):
+            eng.reset_to_search()
+            return
+        target = self._attack_target_for(unit)
+        if target is None or target.is_destroyed:
+            eng.reset_to_search()
+            return
+        if not self._htcs_fire_allowed(unit, target):
+            return
+        intent = self.combat.queue_attack(
+            unit, target, self.battlefield,
+            is_evading=(unit.status == STATUS_EVADE),
+            role="opportunity")
+        if intent:
+            eng.on_attack_queued()
+            self.damage_ledger.reserve(
+                unit.id, target.id,
+                float(intent.damage) * float(intent.hit_probability),
+                self.time_step)
+        else:
+            eng.reset_to_search()
+
     def _attack_target_for(self, unit: Unit) -> Unit | None:
         """根据单位状态确定攻击目标，确保目标可被该单位攻击。
 
@@ -917,6 +1389,25 @@ class Simulator:
             unit, include_base=assignment_active)
         visible_ids = {target.id for target in visible}
         eng = unit.engagement_state
+        visible_units = [target for target in visible
+                         if target.unit_type != "base"]
+
+        if assignment_active and self.htcs_enabled:
+            plans = self.fire_plans.get(unit.team, {}).get(unit.id) or []
+            if plans:
+                plan = plans[0]
+                target = self._entity(plan.target_id)
+                if (target is not None and not target.is_destroyed
+                        and plan.target_id in visible_ids
+                        and unit.can_attack(target)
+                        and eng.current_target_id == plan.target_id):
+                    return target
+                return None
+            opportunity = self._htcs_opportunity_target(unit, visible_units)
+            if (opportunity is not None
+                    and eng.current_target_id == opportunity.id):
+                return opportunity
+            return None
 
         if assignment_active:
             assigned_id = self.assignments[unit.team].assignments.get(unit.id)
@@ -1323,6 +1814,21 @@ class Simulator:
             "red_focus": self.focus_target_name(TEAM_RED),
             "blue_focus": self.focus_target_name(TEAM_BLUE),
             "cooperative_enabled": self.cooperative_enabled,
+            "cooperative_mode": self.cooperative_mode,
+            "red_wave": self.assignments[TEAM_RED].wave_id,
+            "blue_wave": self.assignments[TEAM_BLUE].wave_id,
+            "red_doctrine": self.assignments[TEAM_RED].doctrine,
+            "blue_doctrine": self.assignments[TEAM_BLUE].doctrine,
+            "red_fire_plans": sum(len(plans) for plans in
+                                  self.fire_plans[TEAM_RED].values()),
+            "blue_fire_plans": sum(len(plans) for plans in
+                                   self.fire_plans[TEAM_BLUE].values()),
+            "red_suppressed": len([u for u in red_active
+                                   if u.suppressed_until > self.time_step]),
+            "blue_suppressed": len([u for u in blue_active
+                                    if u.suppressed_until > self.time_step]),
+            "red_reattack_targets": len(self._htcs_reattack[TEAM_RED]),
+            "blue_reattack_targets": len(self._htcs_reattack[TEAM_BLUE]),
             "red_assigned": len(self.assignments[TEAM_RED].assignments),
             "blue_assigned": len(self.assignments[TEAM_BLUE].assignments),
             "red_unassigned": len({

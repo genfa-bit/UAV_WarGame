@@ -97,6 +97,8 @@ Windows 推荐用 `powershell -ExecutionPolicy Bypass -File .\build_windows.ps1`
 
 2026-11-15 验证（按兵种配置障碍物命中衰减）：遮挡倍率移入 `data/unit_config.json` 的 `obstacle_hit_factors`，攻击直线每穿过一个障碍物就乘一次**攻击方兵种**对该类型的倍率。导弹发射车 0.92~0.95（基本无影响）、侦察/打击无人机 0.52~0.65（次之）、无人战车 0.25~0.30（最严重）；未配置类型按 1.0，非法值回退 1.0 并只警告一次。旧 `data/obstacle_config.json` 与 `core/obstacle_config_loader.py` 已移除。`tests/test_obstacle_hit_factor.py` 改写为 15 项，全量 `python -m pytest -q` 为 **551 passed**（0 失败、0 跳过）。详见 [测试报告](docs/测试报告.md#2026-11-15-验证按兵种配置障碍物命中衰减) 与 [详细设计](docs/详细设计.md#障碍物直线遮挡与按兵种命中衰减2026-11-15)。
 
+2026-11-15 验证（分层时相协同打击 HTCS / RDMA v3）：`cooperative_assignment.mode` 新增可选值 `htcs`，缺省仍为 `rdma_v2`，既有对局行为不变。HTCS 在 RDMA v2 的出价之上增加三层结构：滚动波次（每 6 步重规划，任务只承诺本波次可投入的伤害）、任务束（CBBA 风格，每单位 ≤2 个任务、按 ETA 做时间折扣、按最晚到达者定共同 TOT）、火力门（提前待机、窗口内齐射）。配套机制包括伤害账本（排队时刻登记期望伤害、饱和即停火）、BDA 与再攻击加权、SEAD 先导与命中压制、四战法态势自适应（斩首/压基地/消耗/平衡）以及可选的断链降级。新增 `core/time_coordination.py`、`core/damage_ledger.py`、`core/strike_planner.py` 与 23 项 `htcs` 配置（非法值按键回退并只警告一次）。新增 5 个测试文件共 168 项，全量 `python -m pytest -q` 为 **719 passed**（0 失败、0 跳过）。3 种子 × 150 步 × 5 场景 × 3 变体对比见 [cooperative-benchmark-htcs-2026-11-15.json](docs/verification/cooperative-benchmark-htcs-2026-11-15.json)：`mirrored` 红方胜率 66.7%（Baseline 与 RDMA v2 均 33.3%）、弹药 19.3 发（40.7 / 29.3）；`base_rush` 红方对蓝基地伤害 396（270 / 72）；HTCS 单次规划 0.16–0.72 ms；SEAD 与火力纪律在基准场景中未触发，由构造场景的集成测试覆盖。详见 [测试报告](docs/测试报告.md#2026-11-15-验证分层时相协同打击htcs) 与 [详细设计](docs/详细设计.md#分层时相协同打击htcs2026-11-15)。
+
 `.github/workflows/verify.yml` 提供 Windows 自动测试；手动触发还会构建并保存 EXE。源码压缩包需要提交到自己的 GitHub 仓库后，工作流才会执行。
 
 ## 代码结构
@@ -105,8 +107,11 @@ Windows 推荐用 `powershell -ExecutionPolicy Bypass -File .\build_windows.ps1`
 | --- | --- |
 | main.py / ui/qt_app.py | QML 主程序入口与初始化 |
 | core/controller.py | 部署、加载、保存、运行、重跑和结果导出 |
-| core/simulator.py | 侦察、共享、RDMA 分配同步、移动、攻击、补给与胜负 |
+| core/simulator.py | 侦察、共享、RDMA/HTCS 分配同步、波次重规划、火力门、BDA、移动、攻击、补给与胜负 |
 | core/cooperative_allocator.py | 角色约束动态边际拍卖：RoleFit、效果型 Demand、边际出价、基地打击包与承诺窗口 |
+| core/strike_planner.py | HTCS 任务规划：战法选择、任务候选、任务束、ETA 时间折扣、TOT 与本波次容量估计 |
+| core/time_coordination.py | ETA 估计、共同打击时刻与火力门（`FireWindow`/`FirePlan`） |
+| core/damage_ledger.py | 伤害账本：排队时刻登记期望伤害、结算替换为实际伤害、饱和判定 |
 | core/target_pool.py | 目标延迟交付与超时清理 |
 | core/map_persistence.py / scenario_loader.py | 持久化、场景读写与验证 |
 | core/terrain_catalog.py | 地图背景、中文标题与按世界尺寸缩放的地标数据 |
@@ -114,8 +119,8 @@ Windows 推荐用 `powershell -ExecutionPolicy Bypass -File .\build_windows.ps1`
 | ui/qml/ / ui/assets/ | 主界面、工作流组件和图标 |
 | ui/qml/TerrainLayer.qml / MapOverview.qml | 底图、地标及小地图，复用主界面相机坐标 |
 | ui/assets/maps/ | 两张参考地图原图及素材来源、哈希记录 |
-| data/unit_config.json | 五类单位的教学参数、地形通行/命中修正与按兵种配置的障碍物遮挡倍率 |
-| tools/cooperative_benchmark.py | 固定种子 Baseline/RDMA 对比，含基地场景与基地指标 |
+| data/unit_config.json | 五类单位的教学参数、地形通行/命中修正、按兵种配置的障碍物遮挡倍率与 `cooperative_assignment`（含 `htcs` 23 项） |
+| tools/cooperative_benchmark.py | 固定种子 Baseline/RDMA v2/HTCS 对比，含基地、HTCS 火力计划、BDA、SEAD 与战法指标 |
 | tests/ | 核心与界面回归测试 |
 | docs/ | 需求、设计、操作、工作流和测试记录 |
 

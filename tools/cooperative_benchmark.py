@@ -1,11 +1,15 @@
-"""固定随机种子的 Baseline / RDMA 对比实验。
+"""固定随机种子的 Baseline / RDMA v2 / HTCS 对比实验。
 
-Baseline 表示未启用协同分配时的旧 ``focus_target`` 机制。两套实验使用
-同一场景定义、同一随机种子和同一仿真步数，只在 Simulator.cooperative_enabled
-上不同。
+- ``baseline``：未启用协同分配时的旧 ``focus_target`` 机制；
+- ``rdma_v2``：角色感知动态边际拍卖（``cooperative_assignment.mode``）；
+- ``htcs``：分层时相协同打击（滚动波次 + 任务束 + TOT 火力门 + 账本 +
+  SEAD/BDA/再攻击 + 态势自适应战法）。
+
+三套实验使用同一场景定义、同一随机种子和同一仿真步数，只切换算法模式。
 
 用法（在项目根目录执行）：
     python tools/cooperative_benchmark.py --seeds 5 --steps 200
+    python tools/cooperative_benchmark.py --variants baseline,rdma_v2,htcs
     python tools/cooperative_benchmark.py --json benchmark.json
 """
 
@@ -27,10 +31,24 @@ if str(ROOT) not in sys.path:
 
 from core.battlefield import Battlefield, Obstacle  # noqa: E402
 from core.simulator import Simulator  # noqa: E402
+from core.unit_config_loader import (  # noqa: E402
+    get_cooperative_assignment_config,
+)
 from core.units import (CommandNode, GroundVehicle, MissileVehicle,  # noqa: E402
                         ScoutDrone, StrikeDrone, Unit)
 
 OVERALLOCATION_RATIO = 1.5
+VARIANTS = ("baseline", "rdma_v2", "htcs")
+
+
+def _cooperative_config(variant: str) -> dict | None:
+    """按实验变体生成协同配置；baseline 直接关闭协同分配。"""
+    config = get_cooperative_assignment_config()
+    if variant == "baseline":
+        config["enabled"] = False
+        return config
+    config["mode"] = "htcs" if variant == "htcs" else "rdma_v2"
+    return config
 
 
 def _mirrored_units(prefix: str, team: str, x_center: float) -> list[Unit]:
@@ -167,7 +185,7 @@ def _assignment_snapshot(simulator: Simulator, cooperative: bool
     """每步的“单位 → 目标”映射。
 
     Baseline 没有分配器，用旧规则“可见 focus，否则最近可见敌人”近似其有效
-    目标；RDMA 使用真实分配结果。两者都只看该单位自己的可见集合，避免把
+    目标；RDMA/HTCS 使用真实分配结果。两者都只看该单位自己的可见集合，避免把
     未送达的共享侦察算进 Baseline 的利用率。旧路径的基地攻击不经过
     focus_target，因此 Baseline 在攻击射程内时也把敌方基地记为有效目标。
     """
@@ -215,26 +233,39 @@ def _overallocation(simulator: Simulator, assignments: dict[str, str],
     return False
 
 
-def run_once(scenario: str, seed: int, cooperative: bool,
+def run_once(scenario: str, seed: int, variant: str,
              steps: int) -> dict:
+    cooperative = variant != "baseline"
     random.seed(seed)
     battlefield, units = build_scenario(scenario)
     simulator = Simulator(battlefield, units, max_steps=steps,
-                          step_duration_seconds=0.22)
+                          step_duration_seconds=0.22,
+                          cooperative_config=_cooperative_config(variant))
     simulator.cooperative_enabled = cooperative
     if not cooperative:
         simulator._assignment_ready_step = {"red": None, "blue": None}
 
     allocation_times: list[float] = []
-    original_allocate = simulator.allocator.allocate
 
-    def timed_allocate(*args, **kwargs):
-        started = time.perf_counter()
-        result = original_allocate(*args, **kwargs)
-        allocation_times.append((time.perf_counter() - started) * 1000.0)
-        return result
+    def timed(original):
+        def wrapper(*args, **kwargs):
+            started = time.perf_counter()
+            result = original(*args, **kwargs)
+            allocation_times.append((time.perf_counter() - started) * 1000.0)
+            return result
+        return wrapper
 
-    simulator.allocator.allocate = timed_allocate  # type: ignore[method-assign]
+    if variant == "htcs" and simulator.strike_planner is not None:
+        simulator.strike_planner.plan = timed(  # type: ignore[method-assign]
+            simulator.strike_planner.plan)
+    else:
+        simulator.allocator.allocate = timed(  # type: ignore[method-assign]
+            simulator.allocator.allocate)
+
+    htcs_doctrines: dict[str, int] = {}
+    htcs_task_states: dict[str, int] = {}
+    htcs_wave_max = 0
+    fire_plan_steps = 0
 
     bases = {team: battlefield.base_obj(team) for team in ("red", "blue")}
     initial_hp = {unit.id: unit.hp
@@ -292,6 +323,19 @@ def run_once(scenario: str, seed: int, cooperative: bool,
                 if previous is not None and previous != target_id:
                     switch_count += 1
             previous_assignments = assignments
+            if variant == "htcs":
+                for team in ("red", "blue"):
+                    result = simulator.assignments[team]
+                    htcs_wave_max = max(htcs_wave_max, result.wave_id)
+                    htcs_doctrines[result.doctrine] = (
+                        htcs_doctrines.get(result.doctrine, 0) + 1)
+                    for task in result.tasks.values():
+                        htcs_task_states[task.state] = (
+                            htcs_task_states.get(task.state, 0) + 1)
+                for team in ("red", "blue"):
+                    fire_plan_steps += sum(
+                        len(plans)
+                        for plans in simulator.fire_plans[team].values())
 
     hits = simulator.hit_count
     total_damage = simulator.total_damage
@@ -317,10 +361,17 @@ def run_once(scenario: str, seed: int, cooperative: bool,
             overkill_unit += excess
     overkill = overkill_unit + overkill_base
 
+    coordination_events = {
+        event: sum(1 for row in simulator.records
+                   if row.get("event") == event)
+        for event in ("bda_completed", "reattack_required", "sead_suppressed",
+                      "fire_discipline_hold")
+    }
+
     return {
         "scenario": scenario,
         "seed": seed,
-        "variant": "rdma" if cooperative else "baseline",
+        "variant": variant,
         "winner": simulator.winner,
         "finish_reason": simulator.finish_reason,
         "steps": simulator.time_step,
@@ -359,12 +410,28 @@ def run_once(scenario: str, seed: int, cooperative: bool,
         "allocation_ms": (statistics.mean(allocation_times)
                           if allocation_times else 0.0),
         "allocation_calls": len(allocation_times),
+        "htcs_wave_max": htcs_wave_max,
+        "htcs_doctrines": htcs_doctrines,
+        "htcs_task_states": htcs_task_states,
+        "htcs_fire_plan_avg": (fire_plan_steps / max(1, simulator.time_step)),
+        "bda_completed": coordination_events["bda_completed"],
+        "reattack_required": coordination_events["reattack_required"],
+        "sead_suppressed": coordination_events["sead_suppressed"],
+        "fire_discipline_holds": coordination_events["fire_discipline_hold"],
     }
 
 
 def _mean_known(values: list[int | None]) -> float | None:
     known = [value for value in values if value is not None]
     return statistics.mean(known) if known else None
+
+
+def _sum_counters(counters) -> dict[str, int]:
+    total: dict[str, int] = {}
+    for counter in counters:
+        for key, value in counter.items():
+            total[key] = total.get(key, 0) + value
+    return total
 
 
 def _aggregate(runs: list[dict]) -> dict:
@@ -402,29 +469,45 @@ def _aggregate(runs: list[dict]) -> dict:
         "blue_base_destroyed": sum(run["blue_base_destroyed"] for run in runs),
         "total_red_kills": sum(run["red_kills"] for run in runs),
         "total_blue_kills": sum(run["blue_kills"] for run in runs),
+        "avg_htcs_fire_plan": statistics.mean(
+            run["htcs_fire_plan_avg"] for run in runs),
+        "total_bda_completed": sum(run["bda_completed"] for run in runs),
+        "total_reattack_required": sum(run["reattack_required"] for run in runs),
+        "total_sead_suppressed": sum(run["sead_suppressed"] for run in runs),
+        "total_fire_discipline_holds": sum(
+            run["fire_discipline_holds"] for run in runs),
+        "doctrine_mix": _sum_counters(run["htcs_doctrines"] for run in runs),
     }
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Baseline / RDMA 固定种子对比实验")
+    parser = argparse.ArgumentParser(
+        description="Baseline / RDMA v2 / HTCS 固定种子对比实验")
     parser.add_argument("--scenario",
                         choices=("mirrored", "clustered", "base_rush",
                                  "defended_base", "asymmetric", "all"),
                         default="all")
     parser.add_argument("--seeds", type=int, default=5)
     parser.add_argument("--steps", type=int, default=200)
+    parser.add_argument("--variants", default=",".join(VARIANTS),
+                        help="逗号分隔的实验变体，缺省 baseline,rdma_v2,htcs")
     parser.add_argument("--json", type=Path, default=None,
                         help="把逐局与汇总结果写入 JSON 文件")
     args = parser.parse_args(argv)
 
+    variants = tuple(item.strip() for item in args.variants.split(",")
+                     if item.strip())
+    unknown = [variant for variant in variants if variant not in VARIANTS]
+    if unknown:
+        parser.error(f"未知变体: {unknown}，可选 {VARIANTS}")
     scenarios = (("mirrored", "clustered", "base_rush", "defended_base",
                   "asymmetric") if args.scenario == "all" else (args.scenario,))
     all_runs: list[dict] = []
     output = {}
     for scenario in scenarios:
         scenario_output = {}
-        for variant, cooperative in (("baseline", False), ("rdma", True)):
-            runs = [run_once(scenario, seed, cooperative, args.steps)
+        for variant in variants:
+            runs = [run_once(scenario, seed, variant, args.steps)
                     for seed in range(1, args.seeds + 1)]
             all_runs.extend(runs)
             scenario_output[variant] = {
@@ -435,9 +518,10 @@ def main(argv: list[str] | None = None) -> int:
 
     for scenario in scenarios:
         print(f"\n场景 {scenario}（{args.seeds} 个固定种子，≤{args.steps} 步）")
-        print(f"{'指标':<24}{'Baseline':>12}{'RDMA':>12}")
-        baseline = output[scenario]["baseline"]["aggregate"]
-        rdma = output[scenario]["rdma"]["aggregate"]
+        header = "".join(f"{label:>12}" for label in variants)
+        print(f"{'指标':<24}{header}")
+        aggregates = [output[scenario][variant]["aggregate"]
+                      for variant in variants]
         rows = [
             ("红方胜率", "red_win_rate", "{:.0%}"),
             ("蓝方胜率", "blue_win_rate", "{:.0%}"),
@@ -461,17 +545,30 @@ def main(argv: list[str] | None = None) -> int:
             ("累计单位超杀", "total_unit_overkill", "{:.0f}"),
             ("累计基地超杀", "total_base_overkill", "{:.0f}"),
             ("累计超杀伤害", "total_overkill", "{:.0f}"),
+            ("HTCS 任务完成数", "total_bda_completed", "{:.0f}"),
+            ("HTCS 再攻击次数", "total_reattack_required", "{:.0f}"),
+            ("HTCS SEAD 压制次数", "total_sead_suppressed", "{:.0f}"),
+            ("HTCS 火力纪律停火", "total_fire_discipline_holds", "{:.0f}"),
+            ("HTCS 平均在途计划", "avg_htcs_fire_plan", "{:.2f}"),
         ]
         for label, key, fmt in rows:
             values = []
-            for aggregate in (baseline, rdma):
+            for aggregate in aggregates:
                 value = aggregate[key]
                 values.append("-" if value is None else fmt.format(value))
-            print(f"{label:<24}{values[0]:>12}{values[1]:>12}")
+            print(f"{label:<24}{''.join(f'{value:>12}' for value in values)}")
+        for aggregate, variant in zip(aggregates, variants):
+            if variant != "htcs":
+                continue
+            mix = aggregate["doctrine_mix"]
+            if mix:
+                print("HTCS 战法分布：" + "，".join(
+                    f"{name} {count}" for name, count in sorted(mix.items())))
 
     payload = {
         "seeds": args.seeds,
         "max_steps": args.steps,
+        "variants": list(variants),
         "scenarios": output,
         "all_runs": all_runs,
     }

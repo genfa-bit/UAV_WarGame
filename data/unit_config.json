@@ -9,6 +9,34 @@
 
   "cooperative_assignment": {
     "enabled": true,
+    "mode": "rdma_v2",
+
+    "htcs": {
+      "wave_length_steps": 6,
+      "bundle_size": 2,
+      "tot_tolerance_steps": 1,
+      "tot_late_steps": 3,
+      "staging_standoff_ratio": 1.15,
+      "ammo_reserve_ratio": 0.20,
+      "fire_discipline": true,
+      "overkill_fire_ratio": 1.0,
+      "opportunity_fire": true,
+      "bda_enabled": true,
+      "bda_delivery_ratio": 0.60,
+      "reattack_delay_steps": 2,
+      "reattack_bonus": 0.25,
+      "sead_enabled": true,
+      "sead_effect_ratio": 0.60,
+      "sead_suppression_steps": 3,
+      "sead_defense_radius": 220.0,
+      "doctrine": "adaptive",
+      "doctrine_advantage_ratio": 1.25,
+      "doctrine_disadvantage_ratio": 0.80,
+      "distributed_fallback": false,
+      "max_tasks_per_wave": 6,
+      "planning_horizon_waves": 3
+    },
+
     "replan_interval_steps": 5,
     "max_assignments_per_target": 3,
     "min_assignment_bid": 0.05,
