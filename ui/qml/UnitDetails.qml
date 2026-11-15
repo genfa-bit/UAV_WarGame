@@ -10,6 +10,7 @@ Rectangle {
     property var unit: ({})
     readonly property bool hasUnit: !!(unit && unit.id)
     readonly property color teamColor: unit && unit.team === "red" ? Theme.red : Theme.blue
+    readonly property color hpColor: unit && unit.team === "red" ? Theme.unitRed : Theme.unitBlue
     signal clearSelection()
     implicitHeight: hasUnit ? detailsContent.implicitHeight + 24 : 74
     radius: Theme.radiusSmall
@@ -86,7 +87,7 @@ Rectangle {
                 width: parent.width * Math.max(0, (detail.unit.hp || 0) / Math.max(1, detail.unit.max_hp || 1))
                 height: parent.height
                 radius: 2
-                color: detail.unit.destroyed ? Theme.red : Theme.accent
+                color: detail.unit.destroyed ? Theme.muted : detail.hpColor
             }
         }
         Text {

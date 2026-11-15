@@ -59,7 +59,7 @@ Rectangle {
                 width: 5
                 height: 5
                 radius: 2.5
-                color: modelData.team === "red" ? Theme.red : Theme.blue
+                color: modelData.team === "red" ? Theme.unitRed : Theme.unitBlue
                 opacity: modelData.destroyed ? 0.25 : 1
             }
         }

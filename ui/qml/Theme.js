@@ -18,6 +18,11 @@ var selection = "#2c424b"
 var selectionText = "#c4ddd9"
 var red = "#e78489"
 var blue = "#80b5e0"
+// 战场图标与血条使用更饱和的队伍色，便于在深色底图和灰色单位图标中区分敌我。
+var unitRed = "#d93b45"
+var unitBlue = "#3279d6"
+var hpTrackRed = "#4a1c22"
+var hpTrackBlue = "#16304f"
 var warning = "#d6b678"
 var radius = 6
 var radiusSmall = 4
