@@ -554,7 +554,7 @@ class StrategyEngine:
             tx = unit.x + offset_x
             ty = unit.y + offset_y
             tx, ty = battlefield.clamp_position(tx, ty)
-            if battlefield.can_move_to(tx, ty, unit.domain):
+            if battlefield.can_move_to(tx, ty, unit):
                 move_to(unit, tx, ty, battlefield)
                 return
         # 全失败则原地等待
@@ -571,10 +571,11 @@ class StrategyEngine:
             vector = (forward, random.uniform(-0.4, 0.4))
             self._patrol_vectors[unit.id] = vector
 
-        nx = unit.x + vector[0] * unit.speed
-        ny = unit.y + vector[1] * unit.speed
+        speed = unit.effective_speed(battlefield)
+        nx = unit.x + vector[0] * speed
+        ny = unit.y + vector[1] * speed
         nx, ny = battlefield.clamp_position(nx, ny)
-        if battlefield.can_move_to(nx, ny, unit.domain):
+        if battlefield.can_move_to(nx, ny, unit):
             self._patrol_hits = getattr(self, '_patrol_hits', {})
             self._patrol_hits[unit.id] = 0
             return vector
@@ -587,10 +588,10 @@ class StrategyEngine:
             (-forward, 0),
         ]
         for dx, dy in prioritized:
-            tx = unit.x + dx * unit.speed * 2
-            ty = unit.y + dy * unit.speed * 2
+            tx = unit.x + dx * speed * 2
+            ty = unit.y + dy * speed * 2
             tx, ty = battlefield.clamp_position(tx, ty)
-            if battlefield.can_move_to(tx, ty, unit.domain):
+            if battlefield.can_move_to(tx, ty, unit):
                 self._patrol_vectors[unit.id] = (dx, dy)
                 return (dx, dy)
 

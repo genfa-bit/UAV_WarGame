@@ -141,10 +141,18 @@ class MapEditor:
                 return True
         return False
 
-    def check_unit_in_obstacle(self, x: float, y: float, domain: str) -> bool:
-        """地面/指挥单位是否落入障碍物范围内。"""
+    def check_unit_in_obstacle(self, x: float, y: float,
+                               unit_or_domain: object) -> bool:
+        """单位是否落入其无法通行的障碍物范围内。
+
+        传入 Unit 时按该兵种的 terrain_effects 判断（可进入山地/建筑）；
+        只传平台名称时沿用旧规则，任何障碍物都阻挡地面单位。
+        """
+        domain = getattr(unit_or_domain, "domain", unit_or_domain)
         if domain == UnitDomain.AIR:
             return False
+        if hasattr(unit_or_domain, "terrain_effects"):
+            return not self.battlefield.is_position_valid(x, y, unit_or_domain)
         return self.battlefield.is_blocked(x, y)
 
     def check_in_any_obstacle(self, x: float, y: float) -> bool:
@@ -172,21 +180,29 @@ class MapEditor:
         return False
 
     def check_units_in_rect(self, rect: tuple[float, float, float, float],
-                            units: list[Unit]) -> bool:
-        """是否有地面/指挥单位落在障碍物矩形区域内（空中单位不受影响）。"""
+                            units: list[Unit],
+                            obstacle_type: str | None = None) -> bool:
+        """是否有单位落在障碍物矩形区域内。
+
+        空中单位不受影响；传入 ``obstacle_type`` 时，能够通行该地形的
+        地面单位也不算冲突（山地/建筑可以覆盖在它们身上）。
+        """
         rx, ry, rw, rh = rect
         for unit in units:
             if unit.is_destroyed:
                 continue
             if unit.domain == UnitDomain.AIR:
                 continue
+            if obstacle_type is not None and unit.can_traverse(obstacle_type):
+                continue
             if rx <= unit.x <= rx + rw and ry <= unit.y <= ry + rh:
                 return True
         return False
 
-    def check_position_valid(self, x: float, y: float, domain: str) -> bool:
-        """检查位置是否合法（边界 + 平台规则）。"""
-        return self.battlefield.is_position_valid(x, y, domain)
+    def check_position_valid(self, x: float, y: float,
+                             unit_or_domain: object) -> bool:
+        """检查位置是否合法（边界 + 平台/地形规则）。"""
+        return self.battlefield.is_position_valid(x, y, unit_or_domain)
 
     # ═══════════════════════════════════════════════════════════
     #  障碍物创建
@@ -228,7 +244,8 @@ class MapEditor:
         if self.check_obstacle_covers_base((rx, ry, rw, rh)):
             self.state.last_message = "放置失败：障碍物不能覆盖基地"
             return None
-        if self.check_units_in_rect((rx, ry, rw, rh), self._deploy_units):
+        if self.check_units_in_rect((rx, ry, rw, rh), self._deploy_units,
+                                    obs_type):
             self.state.last_message = "放置失败：障碍物区域内有单位"
             return None
         idx = len(self.battlefield.obstacles)
@@ -291,7 +308,8 @@ class MapEditor:
             fail_msg = "移动失败：障碍物重叠"
         elif self.check_obstacle_covers_base((obs.x, obs.y, obs.width, obs.height)):
             fail_msg = "移动失败：障碍物不能覆盖基地"
-        elif self.check_units_in_rect((obs.x, obs.y, obs.width, obs.height), self._deploy_units):
+        elif self.check_units_in_rect((obs.x, obs.y, obs.width, obs.height),
+                                      self._deploy_units, obs.type):
             fail_msg = "移动失败：障碍物区域内有地面/指挥单位"
         if fail_msg:
             if self._obs_snapshot:
@@ -345,7 +363,8 @@ class MapEditor:
             fail_msg = "调整失败：障碍物重叠"
         elif self.check_obstacle_covers_base((obs.x, obs.y, obs.width, obs.height)):
             fail_msg = "调整失败：障碍物不能覆盖基地"
-        elif self.check_units_in_rect((obs.x, obs.y, obs.width, obs.height), self._deploy_units):
+        elif self.check_units_in_rect((obs.x, obs.y, obs.width, obs.height),
+                                      self._deploy_units, obs.type):
             fail_msg = "调整失败：障碍物区域内有地面/指挥单位"
         if fail_msg:
             if self._obs_snapshot:
@@ -397,7 +416,7 @@ class MapEditor:
         unit.x = max(0, min(self.battlefield.width, x))
         unit.y = max(0, min(self.battlefield.height, y))
 
-    def finish_drag_unit(self, domain: str, units: list[Unit],
+    def finish_drag_unit(self, unit_or_domain: object, units: list[Unit],
                          exclude_idx: int | None = None) -> bool:
         """确认拖拽，检查位置合法性。返回 True 表示成功。"""
         idx = self.state.dragging_unit_idx
@@ -411,7 +430,7 @@ class MapEditor:
             unit.y = self.state.drag_unit_start_y
             self.state.last_message = "移动失败：不能移出地图"
             return False
-        if self.check_unit_in_obstacle(unit.x, unit.y, domain):
+        if self.check_unit_in_obstacle(unit.x, unit.y, unit):
             unit.x = self.state.drag_unit_start_x
             unit.y = self.state.drag_unit_start_y
             self.state.last_message = "移动失败：该兵种不能进入障碍物"

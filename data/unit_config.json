@@ -1,7 +1,9 @@
 {
-  "version": "1.5",
+  "version": "1.6",
 
   "_comment_全局": "反先手机制：反应延迟/冷却减半，基础命中率提高，配合温和距离衰减",
+
+  "_comment_地形": "terrain_effects 中列出的地形表示该兵种可以进入；speed_factor 为移动速度倍率，attack_hit_factor 为自身在该地形内攻击时的命中倍率，cover_hit_factor 为自身在该地形内被命中时的命中倍率。删除某项地形即恢复为不可进入。",
 
   "cooperative_assignment": {
     "enabled": true,
@@ -122,7 +124,19 @@
     "reaction_delay_max": 18,
     "attack_cooldown_min": 18,
     "attack_cooldown_max": 25,
-    "base_hit_prob": 0.85
+    "base_hit_prob": 0.85,
+    "terrain_effects": {
+      "mountain": {
+        "speed_factor": 0.55,
+        "attack_hit_factor": 0.75,
+        "cover_hit_factor": 0.80
+      },
+      "building": {
+        "speed_factor": 0.70,
+        "attack_hit_factor": 0.70,
+        "cover_hit_factor": 0.60
+      }
+    }
   },
 
   "missile_vehicle": {
@@ -140,7 +154,19 @@
     "reaction_delay_max": 25,
     "attack_cooldown_min": 22,
     "attack_cooldown_max": 35,
-    "base_hit_prob": 0.95
+    "base_hit_prob": 0.95,
+    "terrain_effects": {
+      "mountain": {
+        "speed_factor": 0.45,
+        "attack_hit_factor": 0.65,
+        "cover_hit_factor": 0.75
+      },
+      "building": {
+        "speed_factor": 0.60,
+        "attack_hit_factor": 0.60,
+        "cover_hit_factor": 0.50
+      }
+    }
   },
 
   "command_node": {

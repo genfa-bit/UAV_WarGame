@@ -90,6 +90,8 @@ def calculate_hit_probability(
     - 目标速度因子：目标越快越难命中
     - 自身状态因子：规避状态时命中率下降
     - 掩体遮挡因子：视线穿过障碍物大幅降低命中率
+    - 地形因子：攻击方在山地/建筑内时命中率下降；目标在山地/建筑内时
+      被命中率下降。倍率来自 data/unit_config.json 的 terrain_effects。
     """
     base = attacker.base_hit_prob
     if base <= 0:
@@ -110,9 +112,16 @@ def calculate_hit_probability(
     status_factor = 0.7 if is_evading else 1.0
 
     # ── 掩体遮挡因子 ──
+    # 双方所处山体/建筑由下面的地形因子单独计算，避免同一障碍重复惩罚。
     cover_factor = 1.0
     if battlefield is not None:
         for obs in battlefield.obstacles:
+            attacker_inside = (obs.contains(attacker.x, attacker.y)
+                               and attacker.can_traverse(obs.type))
+            target_inside = (obs.contains(target.x, target.y)
+                             and target.can_traverse(obs.type))
+            if attacker_inside or target_inside:
+                continue
             if _segment_intersects_rect(
                 attacker.x, attacker.y, target.x, target.y,
                 obs.x, obs.y, obs.width, obs.height,
@@ -120,7 +129,17 @@ def calculate_hit_probability(
                 cover_factor = 0.3
                 break
 
-    prob = base * dist_factor * speed_factor * status_factor * cover_factor
+    # ── 地形命中因子（攻守双方）──
+    attack_terrain_factor = 1.0
+    target_terrain_factor = 1.0
+    if battlefield is not None:
+        attack_terrain_factor = attacker.terrain_factor(
+            battlefield, "attack_hit_factor")
+        target_terrain_factor = target.terrain_factor(
+            battlefield, "cover_hit_factor")
+
+    prob = (base * dist_factor * speed_factor * status_factor
+            * cover_factor * attack_terrain_factor * target_terrain_factor)
     return max(0.05, min(0.95, prob))
 
 

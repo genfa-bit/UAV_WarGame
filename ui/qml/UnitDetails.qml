@@ -103,6 +103,40 @@ Rectangle {
             rowSpacing: 5
             Text { text: "移动速度"; color: Theme.muted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
             Text { text: Number(detail.unit.speed || 0).toFixed(1); color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
+            Text {
+                objectName: "unitTerrainLabel"
+                text: "地形"
+                visible: !!detail.unit.terrain_label
+                color: Theme.muted
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSize
+            }
+            Text {
+                objectName: "unitTerrainValue"
+                visible: !!detail.unit.terrain_label
+                text: (detail.unit.terrain_label || "") + " · 速度 ×"
+                    + Number(detail.unit.speed_factor || 1).toFixed(2)
+                color: Theme.text
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSize
+            }
+            Text {
+                objectName: "unitTerrainHitLabel"
+                text: "地形命中"
+                visible: !!detail.unit.terrain_label
+                color: Theme.muted
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSize
+            }
+            Text {
+                objectName: "unitTerrainHitValue"
+                visible: !!detail.unit.terrain_label
+                text: "攻击 ×" + Number(detail.unit.attack_hit_factor || 1).toFixed(2)
+                    + " · 受击 ×" + Number(detail.unit.cover_hit_factor || 1).toFixed(2)
+                color: Theme.text
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSize
+            }
             Text { text: "侦察 / 攻击范围"; color: Theme.muted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
             Text { text: (detail.unit.detect_range || 0) + " / " + (detail.unit.attack_range || 0); color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
             Text { text: "当前位置"; color: Theme.muted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }

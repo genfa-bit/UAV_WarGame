@@ -6,6 +6,7 @@ import json
 import math
 from pathlib import Path
 
+from config import OBSTACLE_TYPES
 from core.battlefield import Battlefield, Obstacle
 from core.terrain_catalog import MAP_STYLES
 from core.unit_factory import UNIT_REGISTRY, UnitFactory
@@ -65,7 +66,7 @@ def validate_scenario(data: dict) -> None:
             raise ValueError(f"{label} 超出地图边界")
         if not isinstance(item.get("name", "障碍物"), str):
             raise ValueError(f"{label} 名称必须是文字")
-        if item.get("type", "obstacle") not in ("obstacle", "mountain", "building", "restricted"):
+        if item.get("type", "obstacle") not in OBSTACLE_TYPES:
             raise ValueError(f"{label} 类型无效")
 
     ids = set()

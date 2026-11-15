@@ -65,6 +65,9 @@ OBSTACLE_TYPE_LABELS = {
     "mountain": "山地", "building": "建筑", "restricted": "禁行区",
 }
 
+# 场景与兵种配置允许的障碍物类型；unit_config.json 的 terrain_effects 以此为准。
+OBSTACLE_TYPES = ("obstacle", "mountain", "building", "restricted")
+
 STATE_LABELS = {
     "deployment": "部署阶段", "running": "运行中",
     "paused": "已暂停", "finished": "已结束",

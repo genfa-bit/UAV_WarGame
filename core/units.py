@@ -49,6 +49,7 @@ class Unit(Entity):
     reaction_delay: int = 0
     attack_cooldown: int = 0
     base_hit_prob: float = 0.8
+    terrain_effects: dict[str, dict[str, float]] = field(default_factory=dict)
     engagement_state: EngagementState = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -117,6 +118,28 @@ class Unit(Entity):
             self.target_id = None
         return before_hp - self.hp
 
+    def can_traverse(self, terrain_type: str) -> bool:
+        """该兵种是否可以进入指定地形（由 unit_config.json 配置）。"""
+        return terrain_type in self.terrain_effects
+
+    def terrain_factor(self, battlefield: Battlefield, key: str,
+                       x: float | None = None, y: float | None = None) -> float:
+        """返回单位当前位置的地形修正倍率；多种地形重叠时取最强修正。"""
+        if not self.terrain_effects or not hasattr(battlefield, "obstacles_at"):
+            return 1.0
+        factor = 1.0
+        for obstacle in battlefield.obstacles_at(
+                self.x if x is None else x, self.y if y is None else y):
+            effect = self.terrain_effects.get(obstacle.type)
+            if effect:
+                factor = min(factor, float(effect.get(key, 1.0)))
+        return max(0.0, factor)
+
+    def effective_speed(self, battlefield: Battlefield,
+                        x: float | None = None, y: float | None = None) -> float:
+        """当前地形下的实际移动步长（山地/建筑内减速）。"""
+        return self.speed * self.terrain_factor(battlefield, "speed_factor", x, y)
+
     def move_towards(self, target_x: float, target_y: float, battlefield: Battlefield) -> None:
         """向指定坐标移动一步。"""
         if self.speed <= 0 or self.is_destroyed or self.domain == UnitDomain.COMMAND:
@@ -125,7 +148,7 @@ class Unit(Entity):
         distance = hypot(dx, dy)
         if distance == 0:
             return
-        step = min(self.speed, distance)
+        step = min(self.effective_speed(battlefield), distance)
         next_x = self.x + dx / distance * step
         next_y = self.y + dy / distance * step
         self.try_move(next_x, next_y, battlefield)
@@ -138,8 +161,9 @@ class Unit(Entity):
         distance = hypot(dx, dy)
         if distance == 0:
             dx, dy, distance = 1.0, 0.0, 1.0
-        next_x = self.x + dx / distance * self.speed
-        next_y = self.y + dy / distance * self.speed
+        step = self.effective_speed(battlefield)
+        next_x = self.x + dx / distance * step
+        next_y = self.y + dy / distance * step
         self.try_move(next_x, next_y, battlefield)
 
     def patrol(self, battlefield: Battlefield, direction: tuple[float, float]) -> None:
@@ -150,15 +174,17 @@ class Unit(Entity):
         distance = hypot(dx, dy)
         if distance == 0:
             return
-        next_x = self.x + dx / distance * self.speed
-        next_y = self.y + dy / distance * self.speed
+        step = self.effective_speed(battlefield)
+        next_x = self.x + dx / distance * step
+        next_y = self.y + dy / distance * step
         self.try_move(next_x, next_y, battlefield)
 
     def try_move(self, next_x: float, next_y: float, battlefield: Battlefield) -> None:
         """执行带平台差异的移动。
 
-        空中单位只受地图边界限制，可以越过普通障碍物；地面单位不能进入障碍物；
-        指挥节点不移动。
+        空中单位只受地图边界限制，可以越过普通障碍物；地面单位只能进入
+        unit_config.json 中 terrain_effects 列出的地形（山地/建筑会减速并降低命中率），
+        其余障碍物仍然阻挡；指挥节点不移动。
         """
         if self.domain == UnitDomain.COMMAND:
             return
@@ -167,7 +193,7 @@ class Unit(Entity):
             self.x, self.y = next_x, next_y
             return
 
-        if battlefield.can_move_to(next_x, next_y, self.domain):
+        if battlefield.can_move_to(next_x, next_y, self):
             self.x, self.y = next_x, next_y
             return
 
@@ -182,7 +208,7 @@ class Unit(Entity):
             candidate_x, candidate_y = battlefield.clamp_position(candidate_x, candidate_y)
             if (candidate_x, candidate_y) == (self.x, self.y):
                 continue
-            if battlefield.can_move_to(candidate_x, candidate_y, self.domain):
+            if battlefield.can_move_to(candidate_x, candidate_y, self):
                 self.x, self.y = candidate_x, candidate_y
                 return
 
@@ -192,7 +218,7 @@ def _unit_defaults(unit_type: str) -> dict:
 
     第十阶段：反应延迟和攻击冷却在配置范围内随机取值。
     """
-    from core.unit_config_loader import get_unit_stats
+    from core.unit_config_loader import get_terrain_effects, get_unit_stats
     cfg = get_unit_stats(unit_type)
     rxn_min = cfg.get("reaction_delay_min", 2)
     rxn_max = cfg.get("reaction_delay_max", 5)
@@ -214,6 +240,7 @@ def _unit_defaults(unit_type: str) -> dict:
         reaction_delay=random.randint(rxn_min, rxn_max),
         attack_cooldown=random.randint(cd_min, cd_max),
         base_hit_prob=cfg.get("base_hit_prob", 0.8),
+        terrain_effects=get_terrain_effects(unit_type),
     )
 
 

@@ -19,6 +19,7 @@ from config import (
 )
 from core.battlefield import Battlefield, Obstacle
 from core.obstacle_editor import MapEditor
+from core.unit_config_loader import get_terrain_effects
 from core.unit_factory import UnitFactory
 from core.units import Unit, UnitDomain
 
@@ -268,8 +269,7 @@ class DeploymentManager:
         elif self._hit_type == "unit":
             unit_idx = self._hit_index
             unit = self.deploy_units[unit_idx] if unit_idx is not None and unit_idx < len(self.deploy_units) else None
-            domain = unit.domain if unit else "ground"
-            self._editor.finish_drag_unit(domain, self.deploy_units, unit_idx)
+            self._editor.finish_drag_unit(unit or "ground", self.deploy_units, unit_idx)
         elif self._hit_type == "base":
             self._editor.finish_drag_base()
         elif self._hit_type == "empty":
@@ -325,8 +325,16 @@ class DeploymentManager:
         if not self.battlefield.in_bounds(x, y):
             self.last_message = "放置失败：不能部署在地图外"
             return False
-        if self._editor.check_in_any_obstacle(x, y):
-            self.last_message = "放置失败：不能放在障碍物上"
+        if domain == UnitDomain.AIR:
+            # 保持既有规则：空中单位部署时不能直接放在障碍物上。
+            blocked = self._editor.check_in_any_obstacle(x, y)
+        else:
+            effects = get_terrain_effects(self.selected_unit_type)
+            blocked = any(
+                obstacle.type not in effects
+                for obstacle in self.battlefield.obstacles_at(x, y))
+        if blocked:
+            self.last_message = "放置失败：该兵种不能进入此地形"
             return False
         if self._editor.check_unit_overlap(x, y, self.deploy_units):
             self.last_message = "放置失败：与已有单位重叠"

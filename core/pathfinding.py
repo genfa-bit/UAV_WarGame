@@ -38,14 +38,14 @@ def move_to(unit: Unit, target_x: float, target_y: float,
     if dist == 0:
         return False
 
-    # 向目标直线方向移动一步
-    step = min(unit.speed, dist)
+    # 向目标直线方向移动一步（山地/建筑内按地形减速）
+    step = min(unit.effective_speed(battlefield), dist)
     nx = unit.x + dx / dist * step
     ny = unit.y + dy / dist * step
     nx, ny = battlefield.clamp_position(nx, ny)
 
     # 直线通畅 → 直接移动，清除绕障状态
-    if battlefield.can_move_to(nx, ny, unit.domain):
+    if battlefield.can_move_to(nx, ny, unit):
         unit.x, unit.y = nx, ny
         _EDGE_FOLLOW.pop(unit.id, None)
         _EDGE_FOLLOW_DURATION.pop(unit.id, None)
@@ -59,6 +59,7 @@ def _follow_edge(unit: Unit, tx: float, ty: float,
                  battlefield: Battlefield) -> bool:
     """沿障碍物边缘移动一步，使用固定绕行方向避免振荡。"""
     side_dir = _EDGE_FOLLOW.get(unit.id)
+    speed = unit.effective_speed(battlefield)
 
     if side_dir is None:
         # 选择绕行方向：尝试左右两个垂直方向。
@@ -77,20 +78,20 @@ def _follow_edge(unit: Unit, tx: float, ty: float,
                             bool, float]] = []
         for label_dir in ((lx, ly), (rx, ry)):
             for mult in (1.5, 1.0, 0.7):
-                cx = unit.x + label_dir[0] * unit.speed * mult
-                cy = unit.y + label_dir[1] * unit.speed * mult
+                cx = unit.x + label_dir[0] * speed * mult
+                cy = unit.y + label_dir[1] * speed * mult
                 cx, cy = battlefield.clamp_position(cx, cy)
-                if battlefield.can_move_to(cx, cy, unit.domain):
+                if battlefield.can_move_to(cx, cy, unit):
                     # 检查是否已能直达目标
                     ndx = tx - cx
                     ndy = ty - cy
                     nd = hypot(ndx, ndy) or 0.001
-                    probe = min(unit.speed * 0.5, nd)
+                    probe = min(speed * 0.5, nd)
                     snx = cx + ndx / nd * probe
                     sny = cy + ndy / nd * probe
                     snx, sny = battlefield.clamp_position(snx, sny)
                     can_go_direct = battlefield.can_move_to(
-                        snx, sny, unit.domain)
+                        snx, sny, unit)
                     dest = (snx, sny) if can_go_direct else (cx, cy)
                     options.append((label_dir, dest, can_go_direct, mult))
                     break
@@ -126,19 +127,19 @@ def _follow_edge(unit: Unit, tx: float, ty: float,
 
     sx, sy = side_dir
     for mult in (1.2, 1.0, 0.8, 0.5):
-        cx = unit.x + sx * unit.speed * mult
-        cy = unit.y + sy * unit.speed * mult
+        cx = unit.x + sx * speed * mult
+        cy = unit.y + sy * speed * mult
         cx, cy = battlefield.clamp_position(cx, cy)
-        if battlefield.can_move_to(cx, cy, unit.domain):
+        if battlefield.can_move_to(cx, cy, unit):
             # 检查是否已能直达目标
             ndx = tx - cx
             ndy = ty - cy
             nd = hypot(ndx, ndy) or 0.001
-            probe = min(unit.speed * 0.5, nd)
+            probe = min(speed * 0.5, nd)
             snx = cx + ndx / nd * probe
             sny = cy + ndy / nd * probe
             snx, sny = battlefield.clamp_position(snx, sny)
-            if battlefield.can_move_to(snx, sny, unit.domain):
+            if battlefield.can_move_to(snx, sny, unit):
                 unit.x, unit.y = snx, sny
                 _EDGE_FOLLOW.pop(unit.id, None)
                 _EDGE_FOLLOW_DURATION.pop(unit.id, None)
@@ -183,12 +184,13 @@ def _corner_escape(unit: Unit, tx: float, ty: float,
             mix_y = 1.0
         else:
             mix_y = -1.0
-    # 尝试反弹
+    # 尝试反弹（山地/建筑内按地形减速）
+    speed = unit.effective_speed(battlefield)
     for step_mult in (1.5, 1.0, 0.7):
-        nx = unit.x + mix_x * unit.speed * step_mult
-        ny = unit.y + mix_y * unit.speed * step_mult
+        nx = unit.x + mix_x * speed * step_mult
+        ny = unit.y + mix_y * speed * step_mult
         nx, ny = battlefield.clamp_position(nx, ny)
-        if battlefield.can_move_to(nx, ny, unit.domain):
+        if battlefield.can_move_to(nx, ny, unit):
             unit.x, unit.y = nx, ny
             return True
     # 完全卡死 → 小幅度跳跃摆脱。方向按“远离地图中线”取，镜像战场上
@@ -196,7 +198,7 @@ def _corner_escape(unit: Unit, tx: float, ty: float,
     jump_x = unit.x + (1 if unit.x < battlefield.width / 2 else -1) * 12
     jump_y = unit.y + 10 * (_STUCK_COUNTERS.get(unit.id, 0) % 3 - 1)
     jump_x, jump_y = battlefield.clamp_position(jump_x, jump_y)
-    if battlefield.can_move_to(jump_x, jump_y, unit.domain):
+    if battlefield.can_move_to(jump_x, jump_y, unit):
         unit.x, unit.y = jump_x, jump_y
     return True
 

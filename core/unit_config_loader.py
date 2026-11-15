@@ -13,12 +13,14 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from config import COOPERATIVE_ASSIGNMENT_DEFAULTS
+from config import COOPERATIVE_ASSIGNMENT_DEFAULTS, OBSTACLE_TYPES
 
 
 _CONFIG: dict[str, Any] | None = None
 _CONFIG_PATH = Path(__file__).resolve().parent.parent / "data" / "unit_config.json"
 _COOPERATIVE_WARNINGS: set[str] = set()
+_TERRAIN_WARNINGS: set[str] = set()
+_TERRAIN_FACTOR_KEYS = ("speed_factor", "attack_hit_factor", "cover_hit_factor")
 
 
 def _strip_comments(json_text: str) -> str:
@@ -53,11 +55,56 @@ def get_unit_stats(unit_type: str) -> dict[str, Any]:
     return cfg[unit_type]
 
 
+def get_terrain_effects(unit_type: str) -> dict[str, dict[str, float]]:
+    """读取兵种可通行的地形类型及其修正倍率。
+
+    返回 ``{地形类型: {"speed_factor": 0.5, "attack_hit_factor": 0.7,
+    "cover_hit_factor": 0.75}}``。出现在返回字典中的地形表示该兵种可以进入；
+    未列出的地形仍然阻挡该兵种。非法配置会回退为 1.0（不修正）并给出一次警告。
+    """
+    stats = get_unit_stats(unit_type)
+    raw = stats.get("terrain_effects", {})
+    if raw in (None, {}):
+        return {}
+    if not isinstance(raw, dict):
+        _warn_terrain_once(unit_type, "terrain_effects 必须是对象")
+        return {}
+
+    effects: dict[str, dict[str, float]] = {}
+    for terrain_type, values in raw.items():
+        if terrain_type not in OBSTACLE_TYPES:
+            _warn_terrain_once(
+                f"{unit_type}:type:{terrain_type}",
+                f"{unit_type} 的 terrain_effects 含未知地形类型 {terrain_type}")
+            continue
+        if not isinstance(values, dict):
+            _warn_terrain_once(
+                f"{unit_type}:value:{terrain_type}",
+                f"{unit_type} 的 terrain_effects.{terrain_type} 必须是对象")
+            continue
+        effect: dict[str, float] = {}
+        for key in _TERRAIN_FACTOR_KEYS:
+            value = values.get(key, 1.0)
+            valid = _is_number(value) and 0 <= float(value) <= 1
+            if key == "speed_factor" and valid and float(value) <= 0:
+                valid = False
+            if not valid:
+                _warn_terrain_once(
+                    f"{unit_type}:{terrain_type}:{key}",
+                    f"{unit_type} 的 terrain_effects.{terrain_type}.{key} "
+                    "必须是 0~1 之间的数字")
+                value = 1.0
+            effect[key] = float(value)
+        effects[terrain_type] = effect
+    return effects
+
+
 def clear_config_cache() -> None:
     """清空配置缓存（测试或运行时重载配置时使用）。"""
     global _CONFIG
     _CONFIG = None
     _COOPERATIVE_WARNINGS.clear()
+    _TERRAIN_WARNINGS.clear()
 
 
 def _warn_once(key: str, message: str) -> None:
@@ -65,6 +112,14 @@ def _warn_once(key: str, message: str) -> None:
         return
     _COOPERATIVE_WARNINGS.add(key)
     warnings.warn(f"协同分配配置无效，已使用缺省值：{message}",
+                  RuntimeWarning, stacklevel=3)
+
+
+def _warn_terrain_once(key: str, message: str) -> None:
+    if key in _TERRAIN_WARNINGS:
+        return
+    _TERRAIN_WARNINGS.add(key)
+    warnings.warn(f"地形配置无效，已忽略该设置：{message}",
                   RuntimeWarning, stacklevel=3)
 
 

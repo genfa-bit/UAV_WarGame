@@ -89,6 +89,8 @@ Windows 推荐用 `powershell -ExecutionPolicy Bypass -File .\build_windows.ps1`
 
 2026-11-15 验证（RDMA v2 基地战略目标）：基地通过独立战略目标池进入 RDMA，按基地 `role_fit` 列、打击包上限/下限（默认 2/1）和承诺窗口（默认 8 步）分配；Demand 改为效果型 `F_j(D)=min(1, D/(q_j·H_j))`，出价加入边际效果、过杀惩罚与弹药成本；RDMA 启用时基地攻击统一走“分配目标 = 交战目标 = 可见且可攻击”的授权，关闭时仍保留旧基地攻击通道。新增基地侦察/分配/攻击/失效与旧路径回归 8 项，全量 `python -m pytest -q` 为 **489 passed**（0 失败、0 跳过）。5 种子 × 5 场景 × ≤200 步对比见 [cooperative-benchmark-base-2026-11-15.json](docs/verification/cooperative-benchmark-base-2026-11-15.json)：`base_rush` 的基地分配单位步占比 53.3%（Baseline 5.9%），首次基地分配第 5 步；RDMA 单位任务利用率仍低于 Baseline，基地总伤害 153 也低于旧旁路的 243，说明本轮完成的是机制接入与可观察性，尚未形成战斗收益。详见 [测试报告](docs/测试报告.md#基地战略目标与效应型wta2026-11-15) 与 [详细设计](docs/详细设计.md#基地战略目标与效应型wta2026-11-15)。
 
+2026-11-15 验证（山地/建筑通行与地形修正）：`ground_vehicle`、`missile_vehicle` 可按 `data/unit_config.json` 的 `terrain_effects` 进入山地/建筑，`restricted` 与默认 `obstacle` 仍阻挡；进入后移动速度按 `speed_factor`、攻击命中按 `attack_hit_factor`、被命中按 `cover_hit_factor` 修正，双方倍率可叠加且不与视线遮挡重复惩罚。配置删除某项地形即恢复不可进入，非法倍率回退 1.0 并只警告一次。新增 `tests/test_terrain_effects.py` 31 项，全量 `python -m pytest -q` 为 **531 passed**（0 失败、0 跳过）。详见 [测试报告](docs/测试报告.md#2026-11-15-验证山地建筑通行与地形修正) 与 [详细设计](docs/详细设计.md#山地建筑通行与地形修正2026-11-15)。
+
 `.github/workflows/verify.yml` 提供 Windows 自动测试；手动触发还会构建并保存 EXE。源码压缩包需要提交到自己的 GitHub 仓库后，工作流才会执行。
 
 ## 代码结构

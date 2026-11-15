@@ -939,6 +939,12 @@ class SimulationController:
                 "killer_name": destruction.get("killer_name") or "",
                 "engagement": engagement,
                 "engagement_label": engagement,
+                "terrain_type": "",
+                "terrain_label": "",
+                "speed_factor": 1.0,
+                "attack_hit_factor": 1.0,
+                "cover_hit_factor": 1.0,
+                "effective_speed": meta.get("speed", 0),
             })
         return rows
 
@@ -1049,6 +1055,36 @@ class SimulationController:
             "engagement_label": unit.engagement_state.phase_name,
         }
 
+    @staticmethod
+    def _terrain_snapshot(unit: Unit, battlefield) -> dict[str, Any]:
+        """当前所处可通行地形及修正倍率，供单位详情面板显示。"""
+        default = {
+            "terrain_type": "",
+            "terrain_label": "",
+            "speed_factor": 1.0,
+            "attack_hit_factor": 1.0,
+            "cover_hit_factor": 1.0,
+            "effective_speed": unit.speed,
+        }
+        if battlefield is None or not unit.terrain_effects:
+            return default
+        terrain = next(
+            (obstacle for obstacle in battlefield.obstacles_at(unit.x, unit.y)
+             if unit.can_traverse(obstacle.type)),
+            None)
+        if terrain is None:
+            return default
+        return {
+            "terrain_type": terrain.type,
+            "terrain_label": OBSTACLE_TYPE_LABELS.get(terrain.type, terrain.type),
+            "speed_factor": unit.terrain_factor(battlefield, "speed_factor"),
+            "attack_hit_factor": unit.terrain_factor(
+                battlefield, "attack_hit_factor"),
+            "cover_hit_factor": unit.terrain_factor(
+                battlefield, "cover_hit_factor"),
+            "effective_speed": unit.effective_speed(battlefield),
+        }
+
     def _units_snapshot(self, units: list[Unit]) -> list[dict[str, Any]]:
         destroyed = {row["unit_id"]: row for row in self.simulator.destroyed_units} if self.simulator else {}
         rows = []
@@ -1057,8 +1093,10 @@ class SimulationController:
                            if self.simulator else None)
             assigned_name = (self.simulator.assigned_target_name(unit.id)
                              if self.simulator and assigned_id else "")
-            rows.append(self._unit_snapshot(
-                unit, destroyed.get(unit.id), assigned_id or "", assigned_name))
+            row = self._unit_snapshot(
+                unit, destroyed.get(unit.id), assigned_id or "", assigned_name)
+            row.update(self._terrain_snapshot(unit, self.battlefield))
+            rows.append(row)
         return rows
 
     def _attack_event_snapshot(self) -> list[dict[str, Any]]:

@@ -882,7 +882,7 @@ class Simulator:
         if unit.domain == UnitDomain.AIR:
             unit.x, unit.y = target_x, target_y
             return
-        if self.battlefield.can_move_to(target_x, target_y, unit.domain):
+        if self.battlefield.can_move_to(target_x, target_y, unit):
             unit.x, unit.y = target_x, target_y
 
     def _attack_phase(self) -> None:
