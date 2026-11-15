@@ -1,4 +1,4 @@
-# 无人装备战争游戏仿真系统
+# 无人装备战争仿真系统
 
 Python + PySide6/QML 二维桌面仿真。保留五类单位、地图编辑、侦察与目标共享、交战状态机、同步伤害结算和统计，按课程验收优化操作流程。仿真参数为教学抽象值。
 
@@ -85,6 +85,8 @@ Windows 推荐用 `powershell -ExecutionPolicy Bypass -File .\build_windows.ps1`
 
 2026-10-16 验证：新增左键拖动平移，放大后按下即拖动即可平移（无需先长按），平移增量取场景坐标以保证逐步跟随光标不抖动，本机 420 项测试通过（新增 13 项 QML 鼠标事件与取消回归，含逐步跟随的抖动回归）；平移不放置、移动或选中对象，适应地图（1×）时该手势不生效。该次未重新生成打包产物与 XML 证据，真实桌面鼠标验收仍待人工。
 
+2026-11-15 验证：新增角色约束动态边际拍卖（RDMA）协同分配，`RoleFit` 按 `unit_type × target_type` 配置驱动，`can_engage()` 作为硬约束；未分配单位不再回退 `focus_target` 或最近敌人进行普通攻击，仅侦察/巡逻并保留紧急自卫；分配目标与交战目标同步，换目标重新进入反应期、冷却计时保留。全量 `python -m pytest -q` 为 **481 passed**（新增 16 项 RDMA 专项用例，0 失败、0 跳过）。固定种子 Baseline/RDMA 对比见 [cooperative-benchmark.json](docs/verification/cooperative-benchmark.json)：RDMA 的目标覆盖数与分配稳定性提高、单次分配约 0.08 ms，但本组场景更保守、单位任务利用率下降，且未提高胜率；因此该结果用于机制验证和调参，不作为胜率结论。详见 [测试报告](docs/测试报告.md#协同动态边际拍卖rdma2026-11-15) 与 [详细设计](docs/详细设计.md#协同动态边际拍卖rdma2026-11-15)。
+
 `.github/workflows/verify.yml` 提供 Windows 自动测试；手动触发还会构建并保存 EXE。源码压缩包需要提交到自己的 GitHub 仓库后，工作流才会执行。
 
 ## 代码结构
@@ -93,7 +95,8 @@ Windows 推荐用 `powershell -ExecutionPolicy Bypass -File .\build_windows.ps1`
 | --- | --- |
 | main.py / ui/qt_app.py | QML 主程序入口与初始化 |
 | core/controller.py | 部署、加载、保存、运行、重跑和结果导出 |
-| core/simulator.py | 侦察、共享、移动、攻击、补给与胜负 |
+| core/simulator.py | 侦察、共享、RDMA 分配同步、移动、攻击、补给与胜负 |
+| core/cooperative_allocator.py | 角色约束动态边际拍卖：RoleFit、Demand、出价与迟滞分配 |
 | core/target_pool.py | 目标延迟交付与超时清理 |
 | core/map_persistence.py / scenario_loader.py | 持久化、场景读写与验证 |
 | core/terrain_catalog.py | 地图背景、中文标题与按世界尺寸缩放的地标数据 |

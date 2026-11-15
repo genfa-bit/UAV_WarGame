@@ -13,7 +13,7 @@ import itertools
 import random
 from dataclasses import dataclass, field
 
-from config import STATUS_ATTACK
+from config import CRIT_CHANCE, CRIT_DAMAGE_MULTIPLIER, STATUS_ATTACK
 from core.units import Unit
 
 
@@ -164,8 +164,9 @@ class CombatSystem:
         attacker.status = STATUS_ATTACK
         hit_prob = calculate_hit_probability(
             attacker, target, battlefield, is_evading)
-        is_critical = random.random() < 0.1
-        damage = attacker.attack_power * 1.5 if is_critical else float(attacker.attack_power)
+        is_critical = random.random() < CRIT_CHANCE
+        damage = (attacker.attack_power * CRIT_DAMAGE_MULTIPLIER
+                  if is_critical else float(attacker.attack_power))
 
         intent = AttackIntent(
             attacker_id=attacker.id,

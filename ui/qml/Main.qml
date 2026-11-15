@@ -26,7 +26,7 @@ ApplicationWindow {
     palette.highlight: Theme.selection
     palette.highlightedText: Theme.text
     palette.mid: Theme.border
-    title: "无人装备战争游戏仿真系统"
+    title: "无人装备战争仿真系统"
 
     property var snap: viewModel.snapshot
     readonly property bool deploymentMode: snap.game_state === "deployment"
@@ -300,7 +300,7 @@ ApplicationWindow {
             anchors.rightMargin: 16
             spacing: 12
             Text {
-                text: "无人装备战争游戏仿真系统"
+                text: "无人装备战争仿真系统"
                 color: Theme.text
                 font.family: Theme.fontFamily
                 font.pixelSize: root.width < 1100 ? 15 : 17
@@ -1583,6 +1583,22 @@ ApplicationWindow {
                                 text: "集火  " + root.snap.statistics.red_focus
                                       + " / " + root.snap.statistics.blue_focus
                                 color: Theme.text
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 11
+                                elide: Text.ElideRight
+                                width: parent.width
+                            }
+                            Text {
+                                objectName: "cooperativeAssignmentSummary"
+                                visible: !root.replayMode
+                                         && !!root.snap.statistics.cooperative_enabled
+                                text: "协同  红 " + (root.snap.statistics.red_assigned || 0)
+                                      + " 已分配 / " + (root.snap.statistics.red_unassigned || 0)
+                                      + " 未分配 · 主 " + (root.snap.statistics.red_assignment_primary || "无")
+                                      + "    蓝 " + (root.snap.statistics.blue_assigned || 0)
+                                      + " 已分配 / " + (root.snap.statistics.blue_unassigned || 0)
+                                      + " 未分配 · 主 " + (root.snap.statistics.blue_assignment_primary || "无")
+                                color: Theme.muted
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 11
                                 elide: Text.ElideRight

@@ -117,6 +117,18 @@ Rectangle {
             wrapMode: Text.Wrap
         }
         Text {
+            objectName: "unitAssignedTarget"
+            Layout.fillWidth: true
+            visible: !!detail.unit.assigned_target_name
+            text: "分配目标  " + (detail.unit.assigned_target_name || "无")
+                + (detail.unit.assigned_target_id
+                   ? " (" + detail.unit.assigned_target_id + ")" : "")
+            color: Theme.muted
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSize
+            elide: Text.ElideRight
+        }
+        Text {
             objectName: "unitDestructionTime"
             Layout.fillWidth: true
             visible: !!detail.unit.destroyed && detail.unit.destroyed_step !== undefined && detail.unit.destroyed_step !== null

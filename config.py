@@ -102,6 +102,60 @@ BASE_REPAIR_RADIUS = 80       # 基地补给半径
 BASE_REPAIR_PER_STEP = 4      # 每帧补给量（血量+弹药）
 COMM_DELAY_FACTOR = 0.15      # 通信延迟系数（步/像素距离）
 
+# ── 协同动态边际拍卖（RDMA）────────────────────────────────────
+# 以下缺省值仅用于配置缺项/非法值兜底；实际运行参数以
+# data/unit_config.json 的 cooperative_assignment 段为准。
+CRIT_CHANCE = 0.1
+CRIT_DAMAGE_MULTIPLIER = 1.5
+BASE_DEFENSE_RADIUS = 250.0
+EVADE_ATTACK_RANGE_FACTOR = 0.55
+MIN_ASSIGNMENT_DEMAND = 1
+
+COOPERATIVE_ROLE_FIT_DEFAULTS = {
+    "scout_drone": {
+        "scout_drone": 0.70, "strike_drone": 0.55, "ground_vehicle": 0.45,
+        "missile_vehicle": 0.55, "command_node": 0.35,
+    },
+    "strike_drone": {
+        "scout_drone": 0.95, "strike_drone": 0.65, "ground_vehicle": 0.75,
+        "missile_vehicle": 0.70, "command_node": 0.80,
+    },
+    "ground_vehicle": {
+        "scout_drone": 0.55, "strike_drone": 0.65, "ground_vehicle": 0.85,
+        "missile_vehicle": 0.75, "command_node": 0.70,
+    },
+    "missile_vehicle": {
+        "scout_drone": 0.40, "strike_drone": 0.65, "ground_vehicle": 0.80,
+        "missile_vehicle": 0.70, "command_node": 0.95,
+    },
+    "command_node": {
+        "scout_drone": 0.40, "strike_drone": 0.40, "ground_vehicle": 0.40,
+        "missile_vehicle": 0.40, "command_node": 0.40,
+    },
+    "base": {
+        "scout_drone": 0.40, "strike_drone": 0.40, "ground_vehicle": 0.40,
+        "missile_vehicle": 0.40, "command_node": 0.40,
+    },
+}
+
+COOPERATIVE_ASSIGNMENT_DEFAULTS = {
+    "enabled": True,
+    "replan_interval_steps": 5,
+    "max_assignments_per_target": 3,
+    "min_assignment_bid": 0.05,
+    "switch_penalty": 0.10,
+    "reassign_margin": 0.12,
+    "overload_penalty": 0.12,
+    "demand_horizon_steps": 10,
+    "target_priority_weights": {"type_threat": 0.65, "low_hp": 0.35},
+    "unit_readiness_weights": {"health": 0.60, "ammo": 0.40},
+    "bid_weights": {
+        "target_priority": 0.40, "role_fit": 0.25, "readiness": 0.20,
+        "freshness": 0.15, "distance_cost": 0.20,
+    },
+    "role_fit": COOPERATIVE_ROLE_FIT_DEFAULTS,
+}
+
 
 class SimState:
     DEPLOYMENT = "deployment"

@@ -82,11 +82,11 @@ class Unit(Entity):
         """判断能否探测到另一个单位。"""
         return self.is_alive() and other.is_alive() and self.team != other.team and self.distance_to(other) <= self.detect_range
 
-    def can_attack(self, other: "Unit") -> bool:
-        """判断能否攻击另一个单位。
+    def can_engage(self, other: "Unit") -> bool:
+        """判断是否具备交战资格，不检查当前距离。
 
-        本阶段所有作战单位默认可攻击空中和地面目标，但保留 can_attack_air /
-        can_attack_ground 字段，为后续防空和对地能力扩展预留接口。
+        协同学说中 RoleFit 只负责“打谁更合适”，兵种/域限制属于硬约束；
+        机动接近目标由移动阶段完成，因此分配阶段不能因暂时超距而排除单位。
         """
         if not self.is_alive() or not other.is_alive():
             return False
@@ -95,6 +95,16 @@ class Unit(Entity):
         if other.domain == UnitDomain.AIR and not self.can_attack_air:
             return False
         if other.domain in (UnitDomain.GROUND, UnitDomain.COMMAND) and not self.can_attack_ground:
+            return False
+        return True
+
+    def can_attack(self, other: "Unit") -> bool:
+        """判断能否攻击另一个单位。
+
+        本阶段所有作战单位默认可攻击空中和地面目标，但保留 can_attack_air /
+        can_attack_ground 字段，为后续防空和对地能力扩展预留接口。
+        """
+        if not self.can_engage(other):
             return False
         return self.distance_to(other) <= self.attack_range
 

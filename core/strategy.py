@@ -141,7 +141,18 @@ class StrategyEngine:
         target: Unit | None,
         visible_enemies: Iterable[Unit],
         all_enemies: Iterable[Unit],
+        *,
+        target_mode: str | None = None,
+        emergency_target: Unit | None = None,
     ) -> bool:
+        """执行移动决策。
+
+        target_mode:
+        - None：旧行为，保持 focus/最近敌人回退；
+        - "assigned"：只围绕协同分配目标行动，不切换到其他敌人；
+        - "unassigned"：RDMA 下未分配单位，禁止普通攻击候选，仅允许
+          emergency_target 触发的基地防御/自卫移动。
+        """
         if unit.is_destroyed:
             return False
 
@@ -159,20 +170,29 @@ class StrategyEngine:
 
         candidates: list[tuple[Behavior, callable]] = []
 
-        # 基地防御（敌方在250px内→全员防御，无论血量弹药）
+        # 基地防御（敌方在250px内→全员防御，无论血量弹药）。
+        # 协同分配单位不参与通用基地防御，避免把火力从分配目标引开。
         base_x, base_y = battlefield.base_for_team(unit.team)
         enemies_near_base = [e for e in enemies
                              if ((e.x - base_x) ** 2 + (e.y - base_y) ** 2) ** 0.5 < 250]
-        if enemies_near_base and (unit.can_attack(enemies_near_base[0]) or unit.ammo > 0):
-            defender = enemies_near_base[0] if unit.can_attack(enemies_near_base[0]) else \
-                       min(enemies_near_base, key=lambda e: unit.distance_to(e))
+        defender = emergency_target if emergency_target is not None else (
+            enemies_near_base[0] if enemies_near_base and unit.can_attack(enemies_near_base[0])
+            else (min(enemies_near_base, key=lambda e: unit.distance_to(e))
+                  if enemies_near_base else None))
+        assigned_defender_ok = (target_mode == "assigned" and target is not None
+                                and defender is not None
+                                and defender.id == target.id)
+        if ((target_mode != "assigned" or assigned_defender_ok)
+                and enemies_near_base and defender is not None
+                and (emergency_target is not None or unit.can_attack(defender)
+                     or unit.ammo > 0)):
             candidates.append((Behavior.ATTACK,
                                lambda: self._move_with_role(unit, defender, battlefield,
                                                             visible, enemies)))
 
-        # 增援：队友正在交火，我状态OK → 去帮忙
+        # 增援：队友正在交火，我状态OK → 去帮忙。未分配单位不做普通增援。
         reinforce_pt = self._check_reinforce(unit, visible, enemies, battlefield)
-        if reinforce_pt and not enemies_near_base:
+        if reinforce_pt and not enemies_near_base and target_mode != "unassigned":
             rx, ry = reinforce_pt
             candidates.append((Behavior.ATTACK,
                                lambda: self._do_move_to_point(unit, rx, ry, battlefield)))
@@ -223,9 +243,15 @@ class StrategyEngine:
                                lambda: ev(unit, nearest_vis, battlefield)))
 
         # Attack（集火目标 或 面前最近的可攻击敌人）
-        # 第十阶段：只有交战状态机允许攻击时才能加入 ATTACK 候选
+        # 第十阶段：只有交战状态机允许攻击时才能加入 ATTACK 候选。
+        # RDMA 下 assigned 只认分配目标，unassigned 不生成普通攻击候选。
         attack_target = None
-        if target and not target.is_destroyed and unit.can_attack(target):
+        if target_mode == "unassigned":
+            attack_target = None
+        elif target_mode == "assigned":
+            if target and not target.is_destroyed and unit.can_attack(target):
+                attack_target = target
+        elif target and not target.is_destroyed and unit.can_attack(target):
             attack_target = target
         else:
             for e in sorted(visible, key=unit.distance_to):

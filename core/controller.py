@@ -811,11 +811,21 @@ class SimulationController:
         track = self._replay
         if track is not None:
             cursor = self._replay_cursor
+            replay_statistics = track.statistics(cursor)
+            replay_statistics.setdefault("cooperative_enabled", False)
+            replay_statistics.setdefault("red_assigned", 0)
+            replay_statistics.setdefault("blue_assigned", 0)
+            replay_statistics.setdefault("red_unassigned", 0)
+            replay_statistics.setdefault("blue_unassigned", 0)
+            replay_statistics.setdefault("red_assignment_primary", "无")
+            replay_statistics.setdefault("blue_assignment_primary", "无")
+            replay_statistics.setdefault("red_assignment_primary_id", None)
+            replay_statistics.setdefault("blue_assignment_primary_id", None)
             dynamic = {
                 "map": self._replay_map_snapshot(),
                 "units": self._replay_units_snapshot(),
                 "attack_events": track.attack_events(cursor),
-                "statistics": track.statistics(cursor),
+                "statistics": replay_statistics,
                 "logs": track.logs_up_to(cursor),
             }
         else:
@@ -920,6 +930,8 @@ class SimulationController:
                 "detect_range": meta.get("detect_range", 0),
                 "attack_range": meta.get("attack_range", 0),
                 "target_id": "",
+                "assigned_target_id": "",
+                "assigned_target_name": "",
                 "destroyed": bool(values[6]),
                 "destroyed_step": destruction.get("step"),
                 "destroyed_elapsed_seconds": destruction.get("elapsed_seconds"),
@@ -1000,7 +1012,9 @@ class SimulationController:
         }
 
     @staticmethod
-    def _unit_snapshot(unit: Unit, destruction: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _unit_snapshot(unit: Unit, destruction: dict[str, Any] | None = None,
+                       assigned_target_id: str = "",
+                       assigned_target_name: str = "") -> dict[str, Any]:
         max_ammo = get_unit_stats(unit.unit_type).get("ammo", unit.ammo)
         destruction = destruction or {}
         return {
@@ -1024,6 +1038,8 @@ class SimulationController:
             "detect_range": unit.detect_range,
             "attack_range": unit.attack_range,
             "target_id": unit.target_id or "",
+            "assigned_target_id": assigned_target_id,
+            "assigned_target_name": assigned_target_name,
             "destroyed": unit.is_destroyed,
             "destroyed_step": destruction.get("step"),
             "destroyed_elapsed_seconds": destruction.get("elapsed_seconds"),
@@ -1035,7 +1051,15 @@ class SimulationController:
 
     def _units_snapshot(self, units: list[Unit]) -> list[dict[str, Any]]:
         destroyed = {row["unit_id"]: row for row in self.simulator.destroyed_units} if self.simulator else {}
-        return [self._unit_snapshot(unit, destroyed.get(unit.id)) for unit in units]
+        rows = []
+        for unit in units:
+            assigned_id = (self.simulator.assigned_target_id(unit.id)
+                           if self.simulator else None)
+            assigned_name = (self.simulator.assigned_target_name(unit.id)
+                             if self.simulator and assigned_id else "")
+            rows.append(self._unit_snapshot(
+                unit, destroyed.get(unit.id), assigned_id or "", assigned_name))
+        return rows
 
     def _attack_event_snapshot(self) -> list[dict[str, Any]]:
         if not self.simulator:
@@ -1110,6 +1134,15 @@ class SimulationController:
             "blue_detected": 0,
             "red_focus": "无",
             "blue_focus": "无",
+            "cooperative_enabled": False,
+            "red_assigned": 0,
+            "blue_assigned": 0,
+            "red_unassigned": len(red_units),
+            "blue_unassigned": len(blue_units),
+            "red_assignment_primary": "无",
+            "blue_assignment_primary": "无",
+            "red_assignment_primary_id": None,
+            "blue_assignment_primary_id": None,
             "red_evading": 0,
             "blue_evading": 0,
             "evading_units": "",

@@ -11,21 +11,25 @@ from __future__ import annotations
 import math
 from numbers import Real
 
-from config import (BASE_REPAIR_PER_STEP, BASE_REPAIR_RADIUS, COMM_DELAY_FACTOR,
-                     DETECTION_TIMEOUT_STEPS, MAX_CONFIGURABLE_STEPS,
+from config import (BASE_DEFENSE_RADIUS, BASE_REPAIR_PER_STEP, BASE_REPAIR_RADIUS,
+                     COMM_DELAY_FACTOR, DETECTION_TIMEOUT_STEPS,
+                     EVADE_ATTACK_RANGE_FACTOR, MAX_CONFIGURABLE_STEPS,
                      MAX_SIMULATION_STEPS, MAX_STEP_DURATION_SECONDS,
                      MIN_STEP_DURATION_SECONDS, SIMULATION_INTERVAL_MS,
-                     STATUS_DESTROYED, STATUS_EVADE, TARGET_LOCK_TIME, TEAM_BLUE, TEAM_RED)
+                     STATUS_DESTROYED, STATUS_EVADE, TARGET_LOCK_TIME,
+                     TEAM_BLUE, TEAM_RED)
 from core.battlefield import Battlefield
 from core.behavior import BEHAVIOR_LABELS
 from core.combat import AttackEvent, CombatSystem
+from core.cooperative_allocator import AssignmentResult, CooperativeAllocator
 from core.engagement import EngagementPhase
 from core.pathfinding import cleanup_destroyed
 from core.replay import BASE_IDS, FrameBuffer
 from core.strategy import StrategyEngine
 from core.target_pool import TargetPool
 from core.threat import priority_targets, situation_label, tactics_label, team_strength
-from core.unit_config_loader import get_unit_stats
+from core.unit_config_loader import (get_cooperative_assignment_config,
+                                     get_unit_stats)
 from core.units import Unit
 
 
@@ -83,6 +87,18 @@ class Simulator:
         self._destruction_ids: set[str] = set()
         self._unit_tactical_state: dict[str, tuple] = {}
         self._team_tactical_state: dict[str, tuple] = {}
+        # 协同动态边际拍卖（RDMA）。分配结果只约束移动/攻击授权；旧
+        # focus_targets 仍保留给 UI 和兼容路径。
+        self.cooperative_config = get_cooperative_assignment_config()
+        self.cooperative_enabled = bool(self.cooperative_config.get("enabled", True))
+        self.allocator = CooperativeAllocator(self.cooperative_config)
+        self.assignments: dict[str, AssignmentResult] = {
+            TEAM_RED: AssignmentResult(), TEAM_BLUE: AssignmentResult()}
+        # 只有本步真正执行过分配，才允许 RDMA 路由；直接调用旧阶段方法的
+        # 测试/兼容代码没有这个标记，会自然回退到旧目标选择。
+        self._assignment_ready_step: dict[str, int | None] = {
+            TEAM_RED: None, TEAM_BLUE: None}
+        self._assignment_synced_step: dict[str, int] = {}
         # 逐帧采样供运行记录回放；基地不在 self.units 里，单独追加在队尾。
         self.frame_buffer = FrameBuffer([unit.id for unit in self.units] + list(BASE_IDS))
         self._capture_replay_frame()
@@ -162,6 +178,7 @@ class Simulator:
         self._cleanup_target_pools()
         self._reconnaissance_phase()
         self._record_shared_deliveries()
+        self._update_assignments()
         self._update_engagement_states()
         self._record_unit_tactical_changes()
         self._select_focus_targets()
@@ -182,6 +199,160 @@ class Simulator:
         self._capture_replay_frame()
 
     # ═══════════════════════════════════════════════════════════
+    #  协同分配（RDMA）
+    # ═══════════════════════════════════════════════════════════
+
+    def _assignment_mode_active(self, team: str) -> bool:
+        """本步是否已执行 RDMA 分配。
+
+        直接调用旧阶段方法的兼容代码不会设置该标记，因此仍走旧目标逻辑；
+        Simulator.step() 中完成分配后，移动和攻击严格按分配授权。
+        """
+        return (self.cooperative_enabled
+                and self._assignment_ready_step.get(team) == self.time_step)
+
+    def _assigned_target_id(self, unit: Unit) -> str | None:
+        if not self._assignment_mode_active(unit.team):
+            return None
+        return self.assignments[unit.team].assignments.get(unit.id)
+
+    def _visible_target_ids_by_unit(self) -> dict[str, set[str]]:
+        """每个单位自己的可见目标集合：本单位观测 ∪ 已送达共享池。"""
+        delivered = {
+            team: {target.id for target in pool.values_available(self.time_step)}
+            for team, pool in self.shared_targets.items()
+        }
+        return {
+            unit.id: set(self._own_sightings.get(unit.id, set()))
+            | delivered[unit.team]
+            for unit in self.active_units()
+        }
+
+    def _update_assignments(self) -> None:
+        """按重规划周期执行 RDMA，并同步每个单位的交战目标。"""
+        if not self.cooperative_enabled:
+            self._assignment_ready_step = {TEAM_RED: None, TEAM_BLUE: None}
+            return
+
+        visible_by_unit = self._visible_target_ids_by_unit()
+        unit_map = {unit.id: unit for unit in self.units}
+        interval = int(self.cooperative_config["replan_interval_steps"])
+
+        for team in (TEAM_RED, TEAM_BLUE):
+            previous = self.assignments[team]
+            invalid = False
+            for unit_id, target_id in list(previous.assignments.items()):
+                unit = unit_map.get(unit_id)
+                target = unit_map.get(target_id)
+                visible = target_id in visible_by_unit.get(unit_id, set())
+                if (unit is None or unit.is_destroyed or unit.status == STATUS_EVADE
+                        or target is None or target.is_destroyed or not visible
+                        or not unit.can_engage(target)):
+                    invalid = True
+                    if (unit is not None
+                            and unit.engagement_state.current_target_id == target_id):
+                        unit.engagement_state.on_target_lost()
+
+            has_visible = any(
+                visible_by_unit.get(unit.id) for unit in self.active_units(team))
+            # 首次发现目标时不能等到下一个重规划周期，否则会空转数步。
+            newly_detected = not previous.assignments and has_visible
+            due = (previous.updated_step == 0
+                   or invalid
+                   or newly_detected
+                   or self.time_step - previous.updated_step >= interval)
+            if due:
+                result = self.allocator.allocate(
+                    self.active_units(team),
+                    list(self.shared_targets[team].records()),
+                    self.time_step,
+                    self.battlefield,
+                    previous=previous,
+                    visible_ids_by_unit=visible_by_unit,
+                )
+            else:
+                result = previous
+
+            old_assignments = dict(previous.assignments)
+            self.assignments[team] = result
+
+            # 分配目标变化时，让交战状态机重新进入 REACTING/ATTACK；
+            # 不继承旧目标反应进度，冷却期保留冷却计时。
+            for unit in self.active_units(team):
+                eng = unit.engagement_state
+                new_target_id = result.assignments.get(unit.id)
+                if new_target_id:
+                    if eng.current_target_id != new_target_id:
+                        eng.on_assignment_changed(new_target_id)
+                        if (eng.current_target_id == new_target_id
+                                and eng.phase != EngagementPhase.COOLDOWN):
+                            self._assignment_synced_step[unit.id] = self.time_step
+                else:
+                    old_target_id = old_assignments.get(unit.id)
+                    if (old_target_id
+                            and eng.current_target_id == old_target_id):
+                        eng.on_target_lost()
+
+            self._assignment_ready_step[team] = self.time_step
+            if due and old_assignments != result.assignments:
+                self._log_assignment_change(team, previous, result)
+
+    def _log_assignment_change(self, team: str, previous: AssignmentResult,
+                               result: AssignmentResult) -> None:
+        target_names = {unit.id: unit.name for unit in self.units}
+        changed = sorted(set(previous.assignments) | set(result.assignments))
+        for unit_id in changed:
+            old_id = previous.assignments.get(unit_id)
+            new_id = result.assignments.get(unit_id)
+            if old_id == new_id:
+                continue
+            self.record_event(
+                "coordination",
+                f"{team.title()} {unit_id} 协同目标："
+                f"{target_names.get(old_id, old_id) if old_id else '无'} → "
+                f"{target_names.get(new_id, new_id) if new_id else '无'}",
+                event="assignment_changed", team=team, unit_id=unit_id,
+                previous_target_id=old_id, target_id=new_id,
+                reason=result.reasons.get(unit_id),
+            )
+        primary = target_names.get(result.primary_target_id or "",
+                                   result.primary_target_id)
+        self._add_log(
+            "Assign",
+            f"{team.title()} assignment updated: {len(result.assignments)} assigned, "
+            f"primary={primary or 'none'}",
+            record_category="coordination", event="assignment_updated",
+            team=team, assigned_count=len(result.assignments),
+            unassigned_count=len(self.active_units(team)) - len(result.assignments),
+            primary_target_id=result.primary_target_id,
+            replanned=True,
+        )
+
+    def _emergency_attack_target(self, unit: Unit,
+                                 visible: list[Unit]) -> Unit | None:
+        """RDMA 启用时未分配单位仅保留两类紧急自卫目标。
+
+        1. 规避状态下面临极近距离威胁；
+        2. 敌方单位逼近己方基地 250 px。
+        普通 focus/最近敌人回退被明确禁止。
+        """
+        if unit.status == STATUS_EVADE:
+            nearest = self.strategy.nearest_enemy(unit, visible)
+            if (nearest and unit.attack_range > 0
+                    and unit.distance_to(nearest)
+                    <= unit.attack_range * EVADE_ATTACK_RANGE_FACTOR
+                    and unit.can_attack(nearest)):
+                return nearest
+        own_base = self.battlefield.base_obj(unit.team)
+        near_base = [
+            enemy for enemy in visible
+            if unit.can_attack(enemy)
+            and math.hypot(enemy.x - own_base.x, enemy.y - own_base.y)
+            <= BASE_DEFENSE_RADIUS
+        ]
+        return min(near_base, key=unit.distance_to) if near_base else None
+
+    # ═══════════════════════════════════════════════════════════
     #  交战状态更新
     # ═══════════════════════════════════════════════════════════
 
@@ -191,17 +362,43 @@ class Simulator:
             eng = unit.engagement_state
             visible = self._visible_targets_for(unit)
             visible_ids = {target.id for target in visible}
+            assignment_active = self._assignment_mode_active(unit.team)
+            assigned_id = self._assigned_target_id(unit)
             enemy_base = self.battlefield.base_obj(
                 TEAM_BLUE if unit.team == TEAM_RED else TEAM_RED)
             if eng.phase in (EngagementPhase.REACTING, EngagementPhase.ATTACK) and eng.current_target_id:
                 tid = eng.current_target_id
-                # 基地是固定战略目标，发现后保持有效，直到被摧毁。
-                base_known = tid == enemy_base.id and not enemy_base.is_destroyed
-                if not base_known and tid not in visible_ids:
-                    eng.reset_to_search()
-            eng.tick()
+                # 基地是固定战略目标，发现后保持有效，直到被摧毁。RDMA
+                # 分配目标时不再让基地占用 assigned 单位的交战状态。
+                base_known = (not assigned_id and tid == enemy_base.id
+                              and not enemy_base.is_destroyed)
+                assigned_mismatch = bool(assignment_active and assigned_id
+                                         and tid != assigned_id)
+                if assigned_mismatch or (not base_known and tid not in visible_ids):
+                    eng.on_target_lost()
+            if self._assignment_synced_step.get(unit.id) != self.time_step:
+                eng.tick()
             if eng.phase == EngagementPhase.SEARCH:
-                if not enemy_base.is_destroyed and unit.distance_to(enemy_base) <= unit.detect_range:
+                target = None
+                if assignment_active and assigned_id:
+                    target = next((t for t in visible if t.id == assigned_id), None)
+                elif assignment_active:
+                    target = self._emergency_attack_target(unit, visible)
+                    if target is None and not enemy_base.is_destroyed and \
+                            unit.distance_to(enemy_base) <= unit.detect_range:
+                        target = enemy_base
+                    elif target is None and visible:
+                        focus = self.focus_targets.get(unit.team)
+                        target = (focus if focus and focus.id in visible_ids
+                                  else min(visible, key=unit.distance_to))
+                elif not enemy_base.is_destroyed and \
+                        unit.distance_to(enemy_base) <= unit.detect_range:
+                    target = enemy_base
+                elif visible:
+                    focus = self.focus_targets.get(unit.team)
+                    target = focus if focus and focus.id in visible_ids else min(visible, key=unit.distance_to)
+
+                if target is enemy_base:
                     sighting_key = (unit.id, enemy_base.id)
                     if sighting_key not in self._base_sightings:
                         self._base_sightings.add(sighting_key)
@@ -212,10 +409,7 @@ class Simulator:
                                       source_name=unit.name, team=unit.team,
                                       target_id=enemy_base.id, target_name=enemy_base.name,
                                       target_team=enemy_base.team, is_base=True)
-                    eng.on_target_spotted(enemy_base.id)
-                elif visible:
-                    focus = self.focus_targets.get(unit.team)
-                    target = focus if focus and focus.id in visible_ids else min(visible, key=unit.distance_to)
+                if target is not None:
                     eng.on_target_spotted(target.id)
 
     # ═══════════════════════════════════════════════════════════
@@ -442,12 +636,29 @@ class Simulator:
                 self.enemy_units(team), self.active_units(team))
 
     def _movement_phase(self) -> None:
-        """移动阶段：集火推进、战术规避或巡逻。"""
+        """移动阶段：协同目标推进、战术规避或巡逻。"""
+        unit_map = {unit.id: unit for unit in self.units}
         for unit in self.active_units():
-            target = self.focus_targets.get(unit.team)
             visible_for_me = self._visible_targets_for(unit)
-            if target and target.id not in {enemy.id for enemy in visible_for_me}:
-                target = None
+            visible_ids = {enemy.id for enemy in visible_for_me}
+            assignment_active = self._assignment_mode_active(unit.team)
+            target_mode = None
+            emergency_target = None
+            if assignment_active:
+                assigned_id = self.assignments[unit.team].assignments.get(unit.id)
+                target = unit_map.get(assigned_id or "")
+                if target is not None and target.id in visible_ids and not target.is_destroyed:
+                    target_mode = "assigned"
+                else:
+                    # 分配目标暂时不可见时，只做侦察/巡逻，不回退到其他敌人。
+                    target = None
+                    target_mode = "unassigned"
+                    emergency_target = self._emergency_attack_target(
+                        unit, visible_for_me)
+            else:
+                target = self.focus_targets.get(unit.team)
+                if target and target.id not in visible_ids:
+                    target = None
             was_evading = unit.id in self._evading_units
             is_evading = self.strategy.move_unit(
                 unit=unit,
@@ -455,6 +666,8 @@ class Simulator:
                 target=target,
                 visible_enemies=visible_for_me,
                 all_enemies=visible_for_me,
+                target_mode=target_mode,
+                emergency_target=emergency_target,
             )
 
             if is_evading and not was_evading:
@@ -462,7 +675,8 @@ class Simulator:
                     f"{unit.team.title()} {unit.name} enters evade mode",
                     record_category="tactical", event="evade_started",
                     unit_id=unit.id, team=unit.team,
-                    target_id=target.id if target else None)
+                    target_id=(target.id if target else
+                               emergency_target.id if emergency_target else None))
                 self._evading_units.add(unit.id)
             elif not is_evading:
                 self._evading_units.discard(unit.id)
@@ -487,8 +701,34 @@ class Simulator:
                 unit.engagement_state.reset_to_search()
 
     def _attack_target_for(self, unit: Unit) -> Unit | None:
-        """根据单位状态确定攻击目标，确保目标可被该单位攻击。"""
+        """根据单位状态确定攻击目标，确保目标可被该单位攻击。
+
+        RDMA 启用且本步已分配时：
+        - 已分配：只允许 attack 分配目标，且必须与 EngagementState 当前
+          目标一致；
+        - 未分配：只允许 _emergency_attack_target() 给出的自卫目标。
+        """
         visible = self._visible_targets_for(unit)
+        visible_ids = {target.id for target in visible}
+        eng = unit.engagement_state
+
+        if self._assignment_mode_active(unit.team):
+            assigned_id = self.assignments[unit.team].assignments.get(unit.id)
+            if assigned_id:
+                if eng.current_target_id != assigned_id:
+                    return None
+                target = next((e for e in visible if e.id == assigned_id), None)
+                if target is not None and unit.can_attack(target):
+                    return target
+                return None
+            emergency = self._emergency_attack_target(unit, visible)
+            if (emergency is not None
+                    and eng.current_target_id == emergency.id
+                    and emergency.id in visible_ids):
+                return emergency
+            return None
+
+        # 兼容路径：RDMA 未启用或本步未执行分配时保持旧逻辑。
         if unit.status == STATUS_EVADE:
             nearest = self.strategy.nearest_enemy(unit, visible)
             if nearest and unit.attack_range > 0 and unit.distance_to(nearest) <= unit.attack_range * 0.55:
@@ -544,7 +784,9 @@ class Simulator:
             behavior = self.strategy.behavior_mgr.current_behavior(unit.id)
             phase = unit.engagement_state.phase.name
             target_id = unit.engagement_state.current_target_id or unit.target_id
-            state = (unit.status, phase, target_id, behavior, unit.target_id)
+            assigned_id = self._assigned_target_id(unit)
+            state = (unit.status, phase, target_id, behavior, unit.target_id,
+                     assigned_id)
             previous = self._unit_tactical_state.get(unit.id)
             if state == previous:
                 continue
@@ -560,6 +802,7 @@ class Simulator:
                               previous_target_id=previous[2] if previous else None,
                               behavior_label=BEHAVIOR_LABELS.get(behavior, "巡逻"),
                               command_target_id=unit.target_id,
+                              assigned_target_id=assigned_id,
                               initial=initial)
 
     def _record_team_tactical_changes(self, initial: bool = False) -> None:
@@ -594,6 +837,13 @@ class Simulator:
             target_base = blue_base if unit.team == TEAM_RED else red_base
             if target_base.is_destroyed:
                 continue
+            # RDMA 已分配单位不得绕过分配去打基地；未分配单位保留旧基地
+            # 攻击路径，但要求交战状态机的当前目标确实是该基地。
+            if self._assignment_mode_active(unit.team):
+                if self.assignments[unit.team].assignments.get(unit.id):
+                    continue
+                if unit.engagement_state.current_target_id != target_base.id:
+                    continue
             if not unit.can_attack(target_base):
                 continue
             intent = self.combat.queue_attack(
@@ -727,6 +977,33 @@ class Simulator:
             return "无"
         return target.name
 
+    def assigned_target_id(self, unit_id: str) -> str | None:
+        """返回单位的协同分配目标 ID（未启用/未分配时为 None）。"""
+        for team in (TEAM_RED, TEAM_BLUE):
+            target_id = self.assignments[team].assignments.get(unit_id)
+            if target_id is not None:
+                return target_id
+        return None
+
+    def assigned_target_name(self, unit_id: str) -> str:
+        target_id = self.assigned_target_id(unit_id)
+        if target_id is None:
+            return "无"
+        for unit in self.units:
+            if unit.id == target_id:
+                return unit.name
+        return target_id
+
+    def _primary_assignment_name(self, team: str) -> str:
+        result = self.assignments.get(team)
+        target_id = result.primary_target_id if result else None
+        if not target_id:
+            return "无"
+        for unit in self.units:
+            if unit.id == target_id:
+                return unit.name
+        return target_id
+
     def _add_log(self, category: str, message: str, *,
                  record_category: str | None = None, **fields) -> None:
         """保留兼容日志标签；全部文本另存为带模拟时间的结构化历史。"""
@@ -736,7 +1013,7 @@ class Simulator:
         self.combat_logs = self.combat_logs[-12:]
         categories = {"Scout": "scout", "TargetPool": "sharing", "Destroyed": "destroyed",
                       "Focus": "tactical", "Evade": "tactical", "Result": "result",
-                      "Attack": "combat"}
+                      "Attack": "combat", "Assign": "coordination"}
         self.record_event(record_category or categories.get(category, "combat"), message,
                           log_category=category, **fields)
 
@@ -778,6 +1055,21 @@ class Simulator:
             "blue_detected": len(self.blue_detected_targets),
             "red_focus": self.focus_target_name(TEAM_RED),
             "blue_focus": self.focus_target_name(TEAM_BLUE),
+            "cooperative_enabled": self.cooperative_enabled,
+            "red_assigned": len(self.assignments[TEAM_RED].assignments),
+            "blue_assigned": len(self.assignments[TEAM_BLUE].assignments),
+            "red_unassigned": len({
+                unit.id for unit in red_active
+                if unit.attack_power > 0 and unit.unit_type != "command_node"
+            } - set(self.assignments[TEAM_RED].assignments)),
+            "blue_unassigned": len({
+                unit.id for unit in blue_active
+                if unit.attack_power > 0 and unit.unit_type != "command_node"
+            } - set(self.assignments[TEAM_BLUE].assignments)),
+            "red_assignment_primary": self._primary_assignment_name(TEAM_RED),
+            "blue_assignment_primary": self._primary_assignment_name(TEAM_BLUE),
+            "red_assignment_primary_id": self.assignments[TEAM_RED].primary_target_id,
+            "blue_assignment_primary_id": self.assignments[TEAM_BLUE].primary_target_id,
             "red_evading": len([u for u in self.active_units(TEAM_RED) if u.status == STATUS_EVADE]),
             "blue_evading": len([u for u in self.active_units(TEAM_BLUE) if u.status == STATUS_EVADE]),
             "evading_units": ", ".join(u.name for u in self.active_units() if u.status == STATUS_EVADE),
