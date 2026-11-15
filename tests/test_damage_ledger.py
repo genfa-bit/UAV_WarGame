@@ -123,6 +123,33 @@ def test_is_saturated_respects_ratio():
     assert ledger.is_saturated("t1", 100, ratio=2.0) is True
 
 
+def test_would_overkill_allows_the_first_finisher():
+    # 账本为空时必须允许第一发收掉残血目标。
+    ledger = DamageLedger()
+    assert ledger.would_overkill("t1", 5, 34) is False
+
+
+def test_would_overkill_blocks_a_crossing_shot():
+    ledger = DamageLedger()
+    ledger.reserve("r1", "t1", 10)
+    # 已有 10 点预约，再加 34 点会越过 5 点血阈值。
+    assert ledger.would_overkill("t1", 5, 34) is True
+
+
+def test_would_overkill_allows_a_shot_that_still_fits():
+    ledger = DamageLedger()
+    ledger.reserve("r1", "t1", 10)
+    assert ledger.would_overkill("t1", 100, 10) is False
+
+
+def test_would_overkill_respects_the_ratio():
+    ledger = DamageLedger()
+    ledger.reserve("r1", "t1", 100)
+    assert ledger.would_overkill("t1", 100, 10) is True
+    assert ledger.would_overkill(
+        "t1", 100, 10, ratio=2.0) is False
+
+
 def test_clear_target_drops_reservations_and_history():
     ledger = DamageLedger()
     ledger.reserve("r1", "t1", 30)

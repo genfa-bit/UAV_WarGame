@@ -101,8 +101,16 @@ def test_tot_waits_at_least_one_step():
     assert plan_tot(10, [], 6) == 11
 
 
-def test_tot_is_capped_by_wave_length():
+def test_tot_is_capped_by_the_explicit_horizon():
+    # 第三参数是时间视野而不是波次长度；超出视野的 ETA 才被截断。
     assert plan_tot(10, [40], 6) == 16
+
+
+def test_tot_is_not_capped_by_wave_length_when_horizon_is_larger():
+    # 慢速单位 40 步的 ETA 在 60 步视野内应得到真实 TOT，而不是被
+    # 6 步的波次长度提前截断。
+    assert plan_tot(10, [40], 60) == 50
+    assert plan_tot(10, [61], 60) == 70
 
 
 def test_tot_negative_etas_are_clamped():

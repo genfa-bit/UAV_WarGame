@@ -34,7 +34,12 @@
       "doctrine_disadvantage_ratio": 0.80,
       "distributed_fallback": false,
       "max_tasks_per_wave": 6,
-      "planning_horizon_waves": 3
+      "planning_horizon_waves": 3,
+      "tot_horizon_steps": 60,
+      "plan_persistence": true,
+      "late_fire_policy": "strict",
+      "late_fire_hold_steps": 6,
+      "overshoot_penalty": 0.15
     },
 
     "replan_interval_steps": 5,

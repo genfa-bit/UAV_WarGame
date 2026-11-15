@@ -180,12 +180,23 @@ class StrikePlanner:
         # discount = wave / (wave + ETA) 对“单位-目标”对的效用打折，并规定
         # ETA 超过 planning_horizon_waves 个波次的目标不进入本波次任务束。
         etas: dict[tuple[str, str], int] = {}
+        travel_etas: dict[tuple[str, str], int] = {}
         for pair in bids:
             unit = unit_by_id.get(pair[0])
             target = target_by_id.get(pair[1])
             if unit is not None and target is not None:
-                etas[pair] = estimate_eta(unit, target, battlefield)
-        horizon = wave_length * max(1, int(cfg.get("planning_horizon_waves", 3)))
+                # 时间维必须包含“单位何时能开火”，而不只是“何时进入
+                # 射程”：反应/冷却中的单位即使已经在射程内，也要等完
+                # 剩余的射击周期。否则任务会在单位实际无法开火时到点。
+                travel = estimate_eta(unit, target, battlefield)
+                ready_delay = max(0, self._ready_step(unit, step) - step)
+                travel_etas[pair] = travel
+                etas[pair] = max(travel, ready_delay)
+        # 时间视野：任务束的可行性上界与 TOT 的上界统一使用
+        # tot_horizon_steps（至少一个波次），避免“ETA 视野 18 步、TOT
+        # 视野 6 步、就绪时刻不封顶”三套口径。planning_horizon_waves 仅
+        # 保留为兼容配置，不再单独形成第二套时间视野。
+        horizon = max(wave_length, int(cfg.get("tot_horizon_steps", 60)))
 
         def time_discount(eta: int) -> float:
             return wave_length / (wave_length + max(0, int(eta)))
@@ -289,20 +300,35 @@ class StrikePlanner:
                 shot_damage = self._shot_damage(unit, target, battlefield)
                 if shot_damage <= 0:
                     continue
+                # 补刀路由（finisher routing）：任务需求较小时，按“超出
+                # 需求的期望伤害 / 目标血量”扣分，使刚好够用的单位排在
+                # 高伤害单位之前，减少单发弹药的过杀浪费。
+                need_left = max(0.0, task.required_damage - planned)
+                overshoot = max(0.0, shots * shot_damage - need_left)
+                overshoot_cost = (float(cfg.get("overshoot_penalty", 0.15))
+                                  * overshoot / max(1.0, float(target.hp)))
                 effect_gain = self.allocator.marginal_effect(
                     target, planned, shots * shot_damage)
-                score = ((bids[pair]
-                          + float(self.config.get("marginal_utility_weight", 1.0))
-                          * target_values.get(target.id, 0.0) * effect_gain)
-                         * time_discount(eta))
+                # 时间折扣衡量“值不值得为这个目标机动”，用纯机动 ETA；
+                # 冷却/反应等待不改变距离价值，只在可行性上限制任务。
+                discount_eta = travel_etas.get(pair, eta)
+                score = (((bids[pair]
+                           + float(self.config.get("marginal_utility_weight", 1.0))
+                           * target_values.get(target.id, 0.0) * effect_gain)
+                          * time_discount(discount_eta))
+                         - overshoot_cost)
                 candidates.append((score, shot_damage, shots, unit))
 
             candidates.sort(key=lambda item: (-item[0], -item[1], item[3].id))
             for score, shot_damage, shots, unit in candidates:
                 if len(task.members) >= capacity:
                     break
-                if planned >= task.required_damage:
+                remaining = max(0.0, task.required_damage - planned)
+                if remaining <= 0.0:
                     break
+                # 每位成员的承诺发数不超过“补齐剩余需求”所需发数，避免
+                # 多个单位各自按满需求计算后叠加成倍过杀。
+                shots = min(shots, max(1, math.ceil(remaining / shot_damage)))
                 contribution = shots * shot_damage
                 task.members.append(unit.id)
                 task.shots[unit.id] = shots
@@ -311,11 +337,13 @@ class StrikePlanner:
                 unit_tasks.setdefault(unit.id, []).append(task.task_id)
 
             task.planned_damage = planned
-            member_etas = [etas.get((uid, target.id),
-                                    estimate_eta(unit_by_id[uid], target,
-                                                 battlefield))
-                           for uid in task.members]
-            tot = plan_tot(step, member_etas, wave_length)
+            member_etas = [etas.get(
+                (uid, target.id),
+                max(estimate_eta(unit_by_id[uid], target, battlefield),
+                    max(0, self._ready_step(unit_by_id[uid], step) - step)))
+                for uid in task.members]
+            # 使用与任务可行性相同的时间视野，不再按波次长度封顶。
+            tot = plan_tot(step, member_etas, horizon)
             if task.members:
                 # 不得早于任一成员完成前序任务的时刻。
                 tot = max(tot, max(unit_ready[uid] for uid in task.members))

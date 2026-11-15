@@ -40,7 +40,8 @@ def test_htcs_defaults_cover_every_documented_knob():
         "sead_suppression_steps", "sead_defense_radius", "doctrine",
         "doctrine_advantage_ratio", "doctrine_disadvantage_ratio",
         "distributed_fallback", "max_tasks_per_wave",
-        "planning_horizon_waves",
+        "planning_horizon_waves", "tot_horizon_steps", "plan_persistence",
+        "late_fire_policy", "late_fire_hold_steps", "overshoot_penalty",
     }
     assert set(HTCS_DEFAULTS) == expected
 
@@ -77,7 +78,9 @@ def test_partial_htcs_block_deep_merges_with_defaults(monkeypatch):
 
 @pytest.mark.parametrize("key", ["wave_length_steps", "bundle_size",
                                  "max_tasks_per_wave",
-                                 "planning_horizon_waves"])
+                                 "planning_horizon_waves",
+                                 "tot_horizon_steps",
+                                 "late_fire_hold_steps"])
 @pytest.mark.parametrize("bad", [0, -3, 2.5, True, "6"])
 def test_positive_int_knobs_fall_back(monkeypatch, key, bad):
     with pytest.warns(RuntimeWarning):
@@ -100,6 +103,7 @@ def test_nonnegative_int_knobs_fall_back(monkeypatch, key):
     ("bda_delivery_ratio", 2.0),
     ("overkill_fire_ratio", 0.5),
     ("tot_tolerance_steps", 1.5),
+    ("overshoot_penalty", -0.1),
 ])
 def test_bounded_numbers_fall_back(monkeypatch, key, value):
     with pytest.warns(RuntimeWarning):
@@ -109,11 +113,22 @@ def test_bounded_numbers_fall_back(monkeypatch, key, value):
 
 @pytest.mark.parametrize("key", ["fire_discipline", "opportunity_fire",
                                  "bda_enabled", "sead_enabled",
-                                 "distributed_fallback"])
+                                 "distributed_fallback", "plan_persistence"])
 def test_boolean_knobs_reject_non_bool(monkeypatch, key):
     with pytest.warns(RuntimeWarning):
         config = _load(monkeypatch, {"htcs": {key: "yes"}})
     assert config["htcs"][key] is HTCS_DEFAULTS[key]
+
+
+def test_late_fire_policy_enum_rejects_unknown_value(monkeypatch):
+    with pytest.warns(RuntimeWarning, match="late_fire_policy"):
+        config = _load(monkeypatch, {"htcs": {"late_fire_policy": "patient"}})
+    assert config["htcs"]["late_fire_policy"] == "strict"
+
+
+def test_late_fire_policy_accepts_lenient(monkeypatch):
+    config = _load(monkeypatch, {"htcs": {"late_fire_policy": "lenient"}})
+    assert config["htcs"]["late_fire_policy"] == "lenient"
 
 
 def test_doctrine_enum_rejects_unknown_value(monkeypatch):

@@ -187,6 +187,24 @@ HTCS_DEFAULTS = {
     # wave_length / (wave_length + ETA) 折扣，避免部队为遥远目标放弃
     # 眼前目标（例如放着射程内的敌基地不打，横穿战场去追散兵）。
     "planning_horizon_waves": 3,
+    # ── 时间维修正（2026-11-15）─────────────────────────────────
+    # TOT 时间视野：任务内 ETA 的最大可承诺步数。此前 TOT 被
+    # wave_length_steps（6 步）封顶，而导弹发射车一个“反应 + 冷却”周期
+    # 就有 39–61 步，计划在真正到点前就被下一波次整体替换。现在 TOT 以
+    # 该视野为上界，默认 60 步覆盖最慢单位的射击周期。
+    "tot_horizon_steps": 60,
+    # 火力计划跨波次保持：目标与角色未变、且尚未过期的计划继续沿用，
+    # 重规划只追加新任务，不再把远超一个波次的 TOT 计划整体丢弃。
+    "plan_persistence": True,
+    # 迟到射击策略：strict = 超过 late_until 的计划被硬性拦截（消耗计划、
+    # 记录 fire_window_missed 并转入停火保持）；lenient = 保留旧行为。
+    "late_fire_policy": "strict",
+    # 迟到计划被拦截后，同一单位在多少步内不得对同一目标机会射击，
+    # 防止“计划被拦→下一步机会射击补枪”绕过火力门。
+    "late_fire_hold_steps": 6,
+    # 任务束超额伤害惩罚：候选得分减去 penalty × 超出需求 / 目标血量，
+    # 让低血量目标优先由“刚好够用”的单位补刀，而不是高伤害单位过杀。
+    "overshoot_penalty": 0.15,
 }
 
 COOPERATIVE_ASSIGNMENT_DEFAULTS = {

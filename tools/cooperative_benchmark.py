@@ -216,8 +216,16 @@ def _assignment_snapshot(simulator: Simulator, cooperative: bool
 
 
 def _overallocation(simulator: Simulator, assignments: dict[str, str],
-                    target_by_id: dict[str, Unit]) -> bool:
+                    target_by_id: dict[str, Unit],
+                    min_shooters: int = 1) -> bool:
+    """本步是否存在“分配给同一目标的期望伤害显著超过其血量”。
+
+    ``min_shooters=1`` 统计全部超额（含单发弹药的固有量子浪费）；
+    ``min_shooters=2`` 只统计**多个单位叠加**造成的过杀，用于把
+    “多射手交叉射击”与“一发导弹打 5 点血”的弹药量子区分开。
+    """
     expected: dict[str, float] = {}
+    shooters: dict[str, int] = {}
     for unit_id, target_id in assignments.items():
         unit = next((u for u in simulator.active_units() if u.id == unit_id), None)
         target = target_by_id.get(target_id)
@@ -226,9 +234,12 @@ def _overallocation(simulator: Simulator, assignments: dict[str, str],
         value = simulator.allocator._expected_damage(
             unit, target, simulator.battlefield)
         expected[target_id] = expected.get(target_id, 0.0) + value
+        shooters[target_id] = shooters.get(target_id, 0) + 1
     for target_id, damage in expected.items():
         target = target_by_id.get(target_id)
-        if target is not None and damage > OVERALLOCATION_RATIO * max(1, target.hp):
+        if target is None or shooters.get(target_id, 0) < min_shooters:
+            continue
+        if damage > OVERALLOCATION_RATIO * max(1, target.hp):
             return True
     return False
 
@@ -277,6 +288,7 @@ def run_once(scenario: str, seed: int, variant: str,
     assigned_steps = 0
     switch_count = 0
     overallocated_steps = 0
+    stacked_overallocated_steps = 0
     target_steps = 0
     base_detection_step: dict[str, int | None] = {"red": None, "blue": None}
     base_first_assignment_step: dict[str, int | None] = {
@@ -299,6 +311,9 @@ def run_once(scenario: str, seed: int, variant: str,
                 target_steps += 1
                 if _overallocation(simulator, assignments, target_by_id):
                     overallocated_steps += 1
+                if _overallocation(
+                        simulator, assignments, target_by_id, min_shooters=2):
+                    stacked_overallocated_steps += 1
             for team in ("red", "blue"):
                 enemy_base = bases["blue" if team == "red" else "red"]
                 if base_detection_step[team] is None:
@@ -361,11 +376,25 @@ def run_once(scenario: str, seed: int, variant: str,
             overkill_unit += excess
     overkill = overkill_unit + overkill_base
 
+    # 名义过杀：实际扣血被 take_damage 截断，因此上面按记录伤害求出的
+    # overkill 在结构上恒为 0。这里用事件里的 nominal_damage - damage，
+    # 才能看到“34 点打在 5 点血上”的弹药浪费。
+    nominal_unit_overkill = 0
+    nominal_base_overkill = 0
+    for event in simulator.attack_events:
+        if event.overkill <= 0:
+            continue
+        if event.target_id in ("red_base", "blue_base"):
+            nominal_base_overkill += event.overkill
+        else:
+            nominal_unit_overkill += event.overkill
+    nominal_overkill = nominal_unit_overkill + nominal_base_overkill
+
     coordination_events = {
         event: sum(1 for row in simulator.records
                    if row.get("event") == event)
         for event in ("bda_completed", "reattack_required", "sead_suppressed",
-                      "fire_discipline_hold")
+                      "fire_discipline_hold", "fire_window_missed")
     }
 
     return {
@@ -403,9 +432,14 @@ def run_once(scenario: str, seed: int, variant: str,
         "overkill": overkill,
         "unit_overkill": overkill_unit,
         "base_overkill": overkill_base,
+        "nominal_overkill": nominal_overkill,
+        "nominal_unit_overkill": nominal_unit_overkill,
+        "nominal_base_overkill": nominal_base_overkill,
         "target_coverage": coverage_steps / max(1, simulator.time_step),
         "unit_utilization": assigned_steps / max(1, available_steps),
         "overallocation_rate": overallocated_steps / max(1, target_steps),
+        "stacked_overallocation_rate": (
+            stacked_overallocated_steps / max(1, target_steps)),
         "switches_per_100_steps": (switch_count / max(1, available_steps)) * 100.0,
         "allocation_ms": (statistics.mean(allocation_times)
                           if allocation_times else 0.0),
@@ -418,6 +452,7 @@ def run_once(scenario: str, seed: int, variant: str,
         "reattack_required": coordination_events["reattack_required"],
         "sead_suppressed": coordination_events["sead_suppressed"],
         "fire_discipline_holds": coordination_events["fire_discipline_hold"],
+        "fire_window_missed": coordination_events["fire_window_missed"],
     }
 
 
@@ -446,6 +481,8 @@ def _aggregate(runs: list[dict]) -> dict:
         "avg_unit_utilization": statistics.mean(run["unit_utilization"] for run in runs),
         "avg_overallocation_rate": statistics.mean(run["overallocation_rate"]
                                                    for run in runs),
+        "avg_stacked_overallocation_rate": statistics.mean(
+            run["stacked_overallocation_rate"] for run in runs),
         "avg_switches_per_100_steps": statistics.mean(
             run["switches_per_100_steps"] for run in runs),
         "avg_allocation_ms": statistics.mean(run["allocation_ms"] for run in runs),
@@ -463,6 +500,11 @@ def _aggregate(runs: list[dict]) -> dict:
         "total_overkill": sum(run["overkill"] for run in runs),
         "total_unit_overkill": sum(run["unit_overkill"] for run in runs),
         "total_base_overkill": sum(run["base_overkill"] for run in runs),
+        "total_nominal_overkill": sum(run["nominal_overkill"] for run in runs),
+        "total_nominal_unit_overkill": sum(
+            run["nominal_unit_overkill"] for run in runs),
+        "total_nominal_base_overkill": sum(
+            run["nominal_base_overkill"] for run in runs),
         "total_red_base_damage": sum(run["red_base_damage"] for run in runs),
         "total_blue_base_damage": sum(run["blue_base_damage"] for run in runs),
         "red_base_destroyed": sum(run["red_base_destroyed"] for run in runs),
@@ -476,6 +518,8 @@ def _aggregate(runs: list[dict]) -> dict:
         "total_sead_suppressed": sum(run["sead_suppressed"] for run in runs),
         "total_fire_discipline_holds": sum(
             run["fire_discipline_holds"] for run in runs),
+        "total_fire_window_missed": sum(
+            run["fire_window_missed"] for run in runs),
         "doctrine_mix": _sum_counters(run["htcs_doctrines"] for run in runs),
     }
 

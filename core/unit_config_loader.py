@@ -280,6 +280,7 @@ def _role_fit(config: dict[str, Any],
 _COOPERATIVE_MODES = ("rdma_v2", "htcs")
 _HTCS_DOCTRINES = ("adaptive", "balanced", "attrition", "decapitation",
                    "base_pressure")
+_HTCS_LATE_FIRE_POLICIES = ("strict", "lenient")
 
 
 def _cooperative_mode(config: dict[str, Any]) -> None:
@@ -318,7 +319,8 @@ def _htcs_config(config: dict[str, Any]) -> None:
     merged = _deep_merge(defaults, provided)
 
     for key in ("wave_length_steps", "bundle_size", "max_tasks_per_wave",
-                "planning_horizon_waves"):
+                "planning_horizon_waves", "tot_horizon_steps",
+                "late_fire_hold_steps"):
         _positive_int(merged, key, defaults[key])
     for key in ("tot_tolerance_steps", "tot_late_steps",
                 "reattack_delay_steps", "sead_suppression_steps"):
@@ -329,6 +331,8 @@ def _htcs_config(config: dict[str, Any]) -> None:
                  defaults["ammo_reserve_ratio"], minimum=0.0, maximum=1.0)
     _htcs_number(merged, "overkill_fire_ratio",
                  defaults["overkill_fire_ratio"], minimum=1.0)
+    _htcs_number(merged, "overshoot_penalty",
+                 defaults["overshoot_penalty"], minimum=0.0)
     _htcs_number(merged, "reattack_bonus",
                  defaults["reattack_bonus"], minimum=0.0)
     _htcs_number(merged, "bda_delivery_ratio",
@@ -342,12 +346,18 @@ def _htcs_config(config: dict[str, Any]) -> None:
     _htcs_number(merged, "doctrine_disadvantage_ratio",
                  defaults["doctrine_disadvantage_ratio"], minimum=0.0)
     for key in ("fire_discipline", "opportunity_fire", "bda_enabled",
-                "sead_enabled", "distributed_fallback"):
+                "sead_enabled", "distributed_fallback", "plan_persistence"):
         value = merged.get(key, defaults[key])
         if not isinstance(value, bool):
             _warn_once(f"htcs.{key}",
                        f"htcs.{key}={value!r} 必须是布尔值")
             merged[key] = defaults[key]
+    policy = merged.get("late_fire_policy", defaults["late_fire_policy"])
+    if policy not in _HTCS_LATE_FIRE_POLICIES:
+        _warn_once("htcs.late_fire_policy",
+                   f"htcs.late_fire_policy={policy!r} 必须是 "
+                   f"{_HTCS_LATE_FIRE_POLICIES} 之一")
+        merged["late_fire_policy"] = defaults["late_fire_policy"]
     doctrine = merged.get("doctrine", defaults["doctrine"])
     if doctrine not in _HTCS_DOCTRINES:
         _warn_once("htcs.doctrine",

@@ -108,6 +108,27 @@ class DamageLedger:
         threshold = max(1.0, float(hp) * float(desired_effect))
         return self.reserved(target_id) >= max(1.0, threshold * ratio)
 
+    def would_overkill(self, target_id: str, hp: float, incoming: float,
+                       desired_effect: float = 1.0,
+                       ratio: float = 1.0) -> bool:
+        """本发攻击是否会在已有预约之上造成过杀（交叉射击纪律）。
+
+        与 ``is_saturated`` 的区别：后者只看**已经登记**的预约，因此每个
+        排队单位都认为“账本还没满”，同一帧仍会把多发病害压到同一目标。
+        这里把当前准备排队的这一发也算进去：
+
+        - 账本没有任何预约时返回 False —— 总要有第一发去收掉残血目标，
+          否则低血量目标会永远无人补刀；
+        - 已有预约时，``已预约 + 本发`` 超过阈值即视为过杀，由调用方
+          停火等待本帧结算。
+        """
+        reserved = self.reserved(target_id)
+        if reserved <= 0.0:
+            return False
+        threshold = max(1.0, float(hp) * float(desired_effect))
+        return reserved + max(0.0, float(incoming)) > max(
+            1.0, threshold * float(ratio))
+
     # ── 清理 ────────────────────────────────────────────────────
     def clear_target(self, target_id: str) -> None:
         """目标被摧毁或离开战场后清空其预约与累计伤害。"""

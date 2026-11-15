@@ -46,16 +46,18 @@ def estimate_eta(unit, target, battlefield=None, *, include_reaction=True,
     return max(0, min(_HORIZON_CAP, eta))
 
 
-def plan_tot(step: int, etas, wave_length_steps: int) -> int:
+def plan_tot(step: int, etas, horizon_steps: int) -> int:
     """由一组 ETA 生成共同打击时刻。
 
     取任务内最晚的到达者作为 TOT，使先到单位短暂待机、后到单位到达即
-    开火，形成近似同时到达。TOT 最多推迟一个波次长度，超出部分按迟到
-    处理（迟到宽限内仍可开火），避免远距离目标无限推迟本波次。
+    开火，形成近似同时到达。``horizon_steps`` 是**时间视野**，不再是
+    波次长度：HTCS 用 ``tot_horizon_steps``（默认 60 步）为上界，使
+    反应 + 冷却周期 39–61 步的导弹发射车也能获得真实可执行的 TOT。
+    超出视野的 ETA 才被截断，避免远距离目标无限推迟本波次。
     """
     values = [int(eta) for eta in etas] or [0]
     latest = max(0, max(values))
-    horizon = max(1, int(wave_length_steps))
+    horizon = max(1, int(horizon_steps))
     return int(step) + max(1, min(horizon, latest))
 
 

@@ -12,16 +12,16 @@ import math
 from numbers import Real
 
 from config import (BASE_DEFENSE_RADIUS, BASE_REPAIR_PER_STEP, BASE_REPAIR_RADIUS,
-                     COMM_DELAY_FACTOR, DETECTION_TIMEOUT_STEPS,
-                     EVADE_ATTACK_RANGE_FACTOR, MAX_CONFIGURABLE_STEPS,
-                     MAX_SIMULATION_STEPS, MAX_STEP_DURATION_SECONDS,
-                     MIN_STEP_DURATION_SECONDS, SIMULATION_INTERVAL_MS,
-                     STATUS_DESTROYED, STATUS_EVADE, TARGET_LOCK_TIME,
-                     TEAM_BLUE, TEAM_RED, UNIT_SEPARATION_DISTANCE,
-                     UNIT_SEPARATION_PUSH)
+                     COMM_DELAY_FACTOR, CRIT_CHANCE, CRIT_DAMAGE_MULTIPLIER,
+                     DETECTION_TIMEOUT_STEPS, EVADE_ATTACK_RANGE_FACTOR,
+                     MAX_CONFIGURABLE_STEPS, MAX_SIMULATION_STEPS,
+                     MAX_STEP_DURATION_SECONDS, MIN_STEP_DURATION_SECONDS,
+                     SIMULATION_INTERVAL_MS, STATUS_DESTROYED, STATUS_EVADE,
+                     TARGET_LOCK_TIME, TEAM_BLUE, TEAM_RED,
+                     UNIT_SEPARATION_DISTANCE, UNIT_SEPARATION_PUSH)
 from core.battlefield import Battlefield
 from core.behavior import BEHAVIOR_LABELS
-from core.combat import AttackEvent, CombatSystem
+from core.combat import AttackEvent, CombatSystem, calculate_hit_probability
 from core.cooperative_allocator import AssignmentResult, CooperativeAllocator
 from core.damage_ledger import DamageLedger
 from core.engagement import EngagementPhase
@@ -77,6 +77,9 @@ class Simulator:
         self.attack_count = {TEAM_RED: 0, TEAM_BLUE: 0}
         self.hit_count = {TEAM_RED: 0, TEAM_BLUE: 0}
         self.total_damage = {TEAM_RED: 0, TEAM_BLUE: 0}
+        # 名义伤害超出剩余血量的部分（过杀）。total_damage 只累计实际扣血，
+        # 单看它无法发现“34 点打 5 点血”的浪费。
+        self.overkill_damage = {TEAM_RED: 0, TEAM_BLUE: 0}
         self.winner: str | None = None
         self.finish_reason: str | None = None
         self.attack_events: list[AttackEvent] = []
@@ -126,6 +129,10 @@ class Simulator:
             TEAM_RED: [], TEAM_BLUE: []}
         self._bda_assessed: set[str] = set()
         self._htcs_hold_logged: set[tuple[str, str, int]] = set()
+        # 迟到计划被拦截后，单位在 hold_until 之前不得对同一目标机会
+        # 射击，防止“计划超时→下一步补枪”绕过火力门。
+        self._htcs_target_hold: dict[tuple[str, str], int] = {}
+        self._htcs_miss_logged: set[str] = set()
         self.assignments: dict[str, AssignmentResult] = {
             TEAM_RED: AssignmentResult(), TEAM_BLUE: AssignmentResult()}
         # 只有本步真正执行过分配，才允许 RDMA 路由；直接调用旧阶段方法的
@@ -537,9 +544,18 @@ class Simulator:
 
     def _install_fire_plans(self, team: str,
                             result: AssignmentResult) -> None:
-        """把任务束展开为单位级火力计划（每发一个 FirePlan）。"""
+        """把任务束展开为单位级火力计划（每发一个 FirePlan）。
+
+        重规划不再整体替换所有计划：TOT 可能远在一个波次之后（慢速单位
+        的反应 + 冷却周期可达 61 步），若每次波次边界都把未执行的计划
+        丢弃，计划永远等不到自己的窗口。``plan_persistence`` 打开时，
+        只保留“目标与角色仍在新任务束中”的旧计划，再追加新任务；目标
+        或角色已变化的旧计划照常被替换。
+        """
         tolerance = int(self.htcs_config.get("tot_tolerance_steps", 1))
         late = int(self.htcs_config.get("tot_late_steps", 3))
+        persist = bool(self.htcs_config.get("plan_persistence", True))
+        previous_plans = self.fire_plans.get(team, {})
         plans: dict[str, list[FirePlan]] = {}
         for unit in self.active_units(team):
             unit_plans: list[FirePlan] = []
@@ -563,8 +579,30 @@ class Simulator:
                         role=task.role,
                         window=window,
                     ))
+            if persist:
+                unit_plans = self._merge_fire_plans(
+                    previous_plans.get(unit.id, []), unit_plans)
             plans[unit.id] = unit_plans
         self.fire_plans[team] = plans
+
+    def _merge_fire_plans(self, old: list[FirePlan],
+                          new: list[FirePlan]) -> list[FirePlan]:
+        """保留仍然有效的旧计划，只追加新任务的火力计划。
+
+        旧计划按 ``(目标, 角色)`` 与新任务束对齐。仍被计划的旧任务继续
+        使用原来的 TOT 序列（承诺不因重规划漂移）；新任务（例如本波次
+        才出现的 SEAD 目标）追加在后面。同一 ``(目标, 角色)`` 不会同时
+        保留新旧两份计划，避免重复扣弹药。
+        """
+        if not old or not new:
+            return new
+        new_keys = {(plan.target_id, plan.role) for plan in new}
+        kept = [plan for plan in old if (plan.target_id, plan.role) in new_keys]
+        if not kept:
+            return new
+        kept_keys = {(plan.target_id, plan.role) for plan in kept}
+        return kept + [plan for plan in new
+                       if (plan.target_id, plan.role) not in kept_keys]
 
     def _prune_fire_plans(self, team: str) -> None:
         """非重规划步：丢弃目标已摧毁/消失的队首计划。"""
@@ -621,10 +659,12 @@ class Simulator:
 
     def _htcs_head_plan(self, unit: Unit,
                         visible_ids: set[str]) -> FirePlan | None:
-        """返回单位当前有效队首计划，顺带清理失效计划。"""
+        """返回单位当前有效队首计划，顺带清理失效/迟到计划。"""
         plans = self.fire_plans.get(unit.team, {}).get(unit.id)
         if not plans:
             return None
+        strict = str(self.htcs_config.get(
+            "late_fire_policy", "strict")) == "strict"
         while plans:
             plan = plans[0]
             target = self._entity(plan.target_id)
@@ -632,34 +672,78 @@ class Simulator:
                     or plan.target_id not in visible_ids):
                 self._htcs_consume_plan(unit, plan)
                 continue
+            if strict and plan.window.expired(self.time_step):
+                # 硬性拦截：超过 late_until 的计划不再补射。消耗计划并
+                # 对同一目标设置停火保持，防止下一步从机会射击通道打出去。
+                self._htcs_miss_plan(unit, plan, target)
+                continue
             return plan
         return None
+
+    def _htcs_miss_plan(self, unit: Unit, plan: FirePlan, target: Unit) -> None:
+        """拦截一条迟到计划：记录事件、设置保持，然后消耗该计划。"""
+        hold = max(1, int(self.htcs_config.get("late_fire_hold_steps", 6)))
+        self._htcs_target_hold[(unit.id, plan.target_id)] = (
+            self.time_step + hold)
+        if plan.task_id not in self._htcs_miss_logged:
+            self._htcs_miss_logged.add(plan.task_id)
+            self.record_event(
+                "coordination",
+                f"{unit.team.title()} {unit.name} 迟到射击被拦截："
+                f"{target.name} 的火力窗口已于第 {plan.late_until} 步结束",
+                event="fire_window_missed", team=unit.team,
+                unit_id=unit.id, target_id=target.id,
+                task_id=plan.task_id, tot=plan.tot,
+                late_until=plan.late_until, hold_until=self.time_step + hold)
+        self._htcs_consume_plan(unit, plan)
 
     def _desired_effect(self, target: Unit) -> float:
         return float(self.cooperative_config.get(
             "desired_effect_by_type", {}).get(target.unit_type, 1.0))
 
-    def _htcs_fire_allowed(self, unit: Unit, target: Unit) -> bool:
-        """火力纪律：账本已覆盖目标效果时停火，等待本波次结算。"""
+    def _htcs_expected_damage(self, unit: Unit, target: Unit) -> float:
+        """本发攻击的期望伤害（含暴击期望），用于交叉射击纪律。"""
+        hit_prob = calculate_hit_probability(
+            unit, target, self.battlefield,
+            is_evading=(unit.status == STATUS_EVADE))
+        crit_factor = 1.0 + CRIT_CHANCE * (CRIT_DAMAGE_MULTIPLIER - 1.0)
+        return max(0.0, hit_prob * unit.attack_power * crit_factor)
+
+    def _htcs_fire_allowed(self, unit: Unit, target: Unit,
+                           incoming: float | None = None) -> bool:
+        """火力纪律：账本已覆盖目标效果时停火，等待本波次结算。
+
+        ``incoming`` 给出**本发**的期望伤害时，还会做交叉射击检查：
+        已有别人预约、且加上本发会超过过杀阈值时同样停火。这样同一帧
+        多个单位不会各自认为“账本还没满”而叠加过杀；账本为空时仍允许
+        第一发收掉残血目标。
+        """
         if not bool(self.htcs_config.get("fire_discipline", True)):
             return True
+        desired = self._desired_effect(target)
+        ratio = float(self.htcs_config.get("overkill_fire_ratio", 1.0))
         saturated = self.damage_ledger.is_saturated(
-            target.id, target.hp, self._desired_effect(target),
-            float(self.htcs_config.get("overkill_fire_ratio", 1.0)))
-        if saturated:
+            target.id, target.hp, desired, ratio)
+        crossing = (not saturated and incoming is not None
+                    and self.damage_ledger.would_overkill(
+                        target.id, target.hp, incoming, desired, ratio))
+        if saturated or crossing:
             key = (unit.id, target.id, self.time_step // max(
                 1, int(self.htcs_config.get("wave_length_steps", 6))))
             if key not in self._htcs_hold_logged:
                 self._htcs_hold_logged.add(key)
+                reason = "已覆盖效果" if saturated else "会造成交叉射击过杀"
                 self.record_event(
                     "coordination",
                     f"{unit.team.title()} {unit.name} 火力纪律："
-                    f"{target.name} 的在途期望伤害已覆盖效果，暂缓射击",
+                    f"{target.name} 的在途期望伤害{reason}，暂缓射击",
                     event="fire_discipline_hold", team=unit.team,
                     unit_id=unit.id, target_id=target.id,
                     reserved=self.damage_ledger.reserved(target.id),
+                    incoming=round(float(incoming), 2)
+                    if incoming is not None else None,
                     target_hp=target.hp)
-        return not saturated
+        return not (saturated or crossing)
 
     def _htcs_opportunity_target(self, unit: Unit,
                                  visible: list[Unit]) -> Unit | None:
@@ -675,6 +759,8 @@ class Simulator:
         candidates = [
             target for target in visible
             if not target.is_destroyed and unit.can_attack(target)
+            and self._htcs_target_hold.get(
+                (unit.id, target.id), -1) < self.time_step
             and self.damage_ledger.remaining_need(
                 target.id, target.hp, self._desired_effect(target)) > 0.0
         ]
@@ -691,6 +777,10 @@ class Simulator:
             if not base.is_destroyed:
                 active_ids.add(base.id)
         self.damage_ledger.prune(active_ids)
+        # 清理已经过期的迟到停火保持，避免字典无限增长。
+        self._htcs_target_hold = {
+            key: until for key, until in self._htcs_target_hold.items()
+            if until >= self.time_step}
 
         newly_destroyed = set(self._destruction_ids) - self._bda_assessed
         for target_id in sorted(newly_destroyed):
@@ -894,6 +984,8 @@ class Simulator:
             team = attacker.team if attacker else "unknown"
             if team in self.attack_count:
                 self.attack_count[team] += 1
+            if event.overkill > 0 and team in self.overkill_damage:
+                self.overkill_damage[team] += event.overkill
             if event.is_miss:
                 self._add_log("Attack",
                     f"{team.title()} {attacker.name if attacker else event.attacker_id} "
@@ -929,7 +1021,9 @@ class Simulator:
                     source_id=attacker.id, source_name=attacker.name,
                     target_id=target.id, target_name=target.name,
                     team=team, damage=event.damage, target_hp=event.target_hp,
-                    is_critical=event.is_critical)
+                    is_critical=event.is_critical,
+                    nominal_damage=event.nominal_damage,
+                    overkill=event.overkill)
                 if event.target_destroyed and target.id not in self._kill_credit_record:
                     self.kill_count[team] += 1
                     self._kill_credit_record.add(target.id)
@@ -1335,7 +1429,8 @@ class Simulator:
                 return
             if eng.current_target_id != target.id:
                 return
-            if not self._htcs_fire_allowed(unit, target):
+            if not self._htcs_fire_allowed(
+                    unit, target, self._htcs_expected_damage(unit, target)):
                 return
             intent = self.combat.queue_attack(
                 unit, target, self.battlefield,
@@ -1361,7 +1456,8 @@ class Simulator:
         if target is None or target.is_destroyed:
             eng.reset_to_search()
             return
-        if not self._htcs_fire_allowed(unit, target):
+        if not self._htcs_fire_allowed(
+                unit, target, self._htcs_expected_damage(unit, target)):
             return
         intent = self.combat.queue_attack(
             unit, target, self.battlefield,

@@ -177,6 +177,46 @@ def test_wave_shot_capacity_uses_cycle():
     assert capacity == {"r1": 1, "r2": 6}
 
 
+def test_cooldown_delay_extends_tot_beyond_wave_length():
+    # 冷却中的导弹类单位要等完整个射击周期；TOT 必须按时间视野而不是
+    # 波次长度计算，否则任务会在单位实际无法开火时到点。
+    planner = _planner(wave_length_steps=6, tot_horizon_steps=60)
+    red = _drone(x=100.0, reaction_delay=5, attack_cooldown=50)
+    red.engagement_state.phase = EngagementPhase.COOLDOWN
+    red.engagement_state.cooldown_progress = 0
+    blue = _drone("t1", team="blue", x=250.0)
+    result = planner.plan([red], [_sighting(blue)], 0,
+                          context=_balanced_context())
+    task = result.tasks["t1:strike:0"]
+    assert task.members == ["r1"]
+    assert task.tot_step >= 50 + 5 + 1
+
+
+def test_unit_ready_beyond_the_horizon_is_not_tasked():
+    planner = _planner(tot_horizon_steps=20)
+    red = _drone(x=100.0, reaction_delay=5, attack_cooldown=100)
+    red.engagement_state.phase = EngagementPhase.COOLDOWN
+    red.engagement_state.cooldown_progress = 0
+    blue = _drone("t1", team="blue", x=250.0)
+    result = planner.plan([red], [_sighting(blue)], 0,
+                          context=_balanced_context())
+    task = result.tasks["t1:strike:0"]
+    assert task.members == []
+
+
+def test_finisher_caps_shots_to_remaining_need():
+    # 5 点血目标只需 1 发；不能因为波次容量/弹药充足就承诺 6 发。
+    planner = _planner()
+    red = _drone(x=100.0)
+    blue = _drone("t1", team="blue", x=250.0, hp=5)
+    result = planner.plan([red], [_sighting(blue)], 0,
+                          context=_balanced_context())
+    task = result.tasks["t1:strike:0"]
+    assert task.shots["r1"] == 1
+    assert task.planned_damage == pytest.approx(
+        planner._shot_damage(red, blue, None))
+
+
 def test_shot_damage_is_positive_and_scales_with_power():
     planner = _planner()
     target = _drone("t1", team="blue")
@@ -302,9 +342,10 @@ def test_distant_but_reachable_target_is_still_tasked():
 
 
 def test_target_beyond_horizon_gets_no_members():
-    planner = _planner(wave_length_steps=6, planning_horizon_waves=1)
+    # 时间视野统一由 tot_horizon_steps 决定；这里压到 6 步复现旧行为。
+    planner = _planner(wave_length_steps=6, tot_horizon_steps=6)
     red = _drone(x=100.0)
-    far = _drone("tfar", team="blue", x=300.0)     # ETA ≈ 24 > 6
+    far = _drone("tfar", team="blue", x=300.0)     # ETA ≈ 25 > 6
     result = planner.plan([red], [_sighting(far)], 0,
                           context=_balanced_context())
     task = result.tasks["tfar:strike:0"]

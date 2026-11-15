@@ -156,6 +156,89 @@ def test_fire_discipline_allows_fire_below_the_overkill_ratio():
     assert simulator._htcs_fire_allowed(red, target) is True
 
 
+def test_fire_discipline_blocks_a_crossing_shot():
+    # 只剩 40 点血、已预约 10 点；再加 34 点会越过阈值（10 本身未饱和）。
+    red, target = _drone(), _target(hp=40)
+    simulator = _sim([red, target])
+    simulator.damage_ledger.reserve("r2", "b1", 10)
+    assert simulator._htcs_fire_allowed(
+        red, target, incoming=34.0) is False
+    assert _events(simulator, "fire_discipline_hold")
+
+
+def test_fire_discipline_allows_the_first_finisher():
+    # 账本为空时，即使单发伤害远大于残血也必须允许开火。
+    red, target = _drone(), _target(hp=5)
+    simulator = _sim([red, target])
+    assert simulator._htcs_fire_allowed(red, target, incoming=34.0) is True
+
+
+# ── 迟到射击硬性拦截 ────────────────────────────────────────────
+def _expired_plan() -> FirePlan:
+    return FirePlan(task_id="b1:strike:0", target_id="b1", wave=0,
+                    role="strike",
+                    window=FireWindow(tot=0, tolerance=0, late=0))
+
+
+def test_expired_plan_is_hard_intercepted():
+    simulator = _sim([_drone(), _target()])
+    simulator.step()
+    simulator.fire_plans["red"]["r1"] = [_expired_plan()]
+    red = simulator.units[0]
+    red.engagement_state.phase = EngagementPhase.ATTACK
+    red.engagement_state.current_target_id = "b1"
+    simulator.combat.clear_intents()
+    simulator._attack_phase()
+    assert not [i for i in simulator.combat._intents
+                if i.attacker_id == "r1"]
+    missed = _events(simulator, "fire_window_missed")
+    assert missed and missed[0]["target_id"] == "b1"
+    assert not simulator.fire_plans["red"]["r1"]
+
+
+def test_late_fire_hold_blocks_opportunity_fire():
+    red, target = _drone(), _target(x=350.0)
+    simulator = _sim([red, target])
+    simulator._htcs_target_hold[("r1", "b1")] = simulator.time_step + 5
+    assert simulator._htcs_opportunity_target(red, [target]) is None
+
+
+def test_late_fire_hold_expires():
+    red, target = _drone(), _target(x=350.0)
+    simulator = _sim([red, target])
+    simulator._htcs_target_hold[("r1", "b1")] = simulator.time_step - 1
+    assert simulator._htcs_opportunity_target(red, [target]) is target
+
+
+def test_lenient_policy_keeps_legacy_late_fire(monkeypatch):
+    monkeypatch.setattr("core.combat.random.random", lambda: 0.0)
+    simulator = _sim([_drone(), _target()], late_fire_policy="lenient")
+    simulator.step()
+    simulator.fire_plans["red"]["r1"] = [_expired_plan()]
+    red = simulator.units[0]
+    red.engagement_state.phase = EngagementPhase.ATTACK
+    red.engagement_state.current_target_id = "b1"
+    simulator.combat.clear_intents()
+    simulator._attack_phase()
+    assert [i for i in simulator.combat._intents
+            if i.attacker_id == "r1"]
+    assert not _events(simulator, "fire_window_missed")
+
+
+# ── 名义伤害与过杀记录 ──────────────────────────────────────────
+def test_resolve_records_nominal_damage_and_overkill(monkeypatch):
+    monkeypatch.setattr("core.combat.random.random", lambda: 0.0)
+    red, target = _drone(), _target(hp=5)
+    simulator = _sim([red, target])
+    simulator.combat.queue_attack(red, target, simulator.battlefield)
+    simulator._resolve_attacks()
+    event = simulator.attack_events[-1]
+    assert event.nominal_damage > 5
+    assert event.damage == 5
+    assert event.overkill == event.nominal_damage - event.damage
+    assert simulator.overkill_damage["red"] == event.overkill
+
+
 # ── BDA 与再攻击 ────────────────────────────────────────────────
 def _ready_task(simulator, team="red"):
     """返回本队第一个 ready 状态的 HTCS 任务。"""

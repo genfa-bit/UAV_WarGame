@@ -37,6 +37,12 @@ class AttackEvent:
     event_id: int = field(default_factory=lambda: next(_attack_event_ids))
     # HTCS 任务角色（sead/strike/base/opportunity）；旧路径留空。
     role: str = ""
+    # 名义伤害与过杀：damage 是扣血后的**实际**伤害（受剩余血量截断），
+    # nominal_damage 是命中时应造成的伤害；overkill 是二者之差。旧路径
+    # 只统计实际伤害，因此基准中的 overkill 永远为 0，无法观察单发弹药
+    # 打在残血目标上的浪费。
+    nominal_damage: int = 0
+    overkill: int = 0
 
 
 @dataclass
@@ -225,8 +231,9 @@ class CombatSystem:
                 continue
 
             if random.random() < intent.hit_probability:
+                nominal_damage = int(intent.damage)
                 if hasattr(target, 'take_damage'):
-                    actual_damage = target.take_damage(int(intent.damage))
+                    actual_damage = target.take_damage(nominal_damage)
                 else:
                     actual_damage = 0
                 event = AttackEvent(
@@ -240,6 +247,8 @@ class CombatSystem:
                     is_critical=intent.is_critical,
                     is_miss=False,
                     role=intent.role,
+                    nominal_damage=nominal_damage,
+                    overkill=max(0, nominal_damage - actual_damage),
                 )
             else:
                 event = AttackEvent(
