@@ -71,7 +71,10 @@ Dialog {
             objectName: "finishReasonLabel"
             Layout.fillWidth: true
             visible: !!dialog.stats.finish_reason
-            text: dialog.stats.finish_reason === "step_limit" ? "达到时间步上限，双方平局"
+            text: dialog.stats.finish_reason === "step_limit"
+                ? (dialog.stats.winner === "draw"
+                   ? "达到时间步上限，双方平局"
+                   : "达到时间步上限，按剩余战力判定胜负")
                 : dialog.stats.finish_reason === "base_destroyed" ? "基地被摧毁"
                 : dialog.stats.finish_reason === "elimination" ? "一方单位全灭" : ""
             color: Theme.muted

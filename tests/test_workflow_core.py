@@ -245,7 +245,8 @@ def test_new_run_with_same_unit_id_does_not_inherit_previous_obstacle_route():
     assert pathfinding.move_to(new_unit, 120, 200, new_field)
     assert pathfinding.move_to(reference, 120, 200, new_field)
     assert (new_unit.x, new_unit.y) == (reference.x, reference.y)
-    assert new_unit.x < 120 and new_unit.y == 99
+    # 绕行方向由对称化后的候选比较决定；本步应侧移绕障而不是直行。
+    assert new_unit.x != 120 and new_unit.y == 99
     pathfinding.cleanup_destroyed(set())
 
 

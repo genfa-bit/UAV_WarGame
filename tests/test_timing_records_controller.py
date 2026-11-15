@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from config import GAME_DEPLOYMENT, GAME_FINISHED, GAME_PAUSED, GAME_RUNNING
+from config import (GAME_DEPLOYMENT, GAME_FINISHED, GAME_PAUSED, GAME_RUNNING,
+                    MAX_SIMULATION_STEPS)
 from core.controller import DEFAULT_SCENARIO_PATH, SimulationController
 from core.map_persistence import GZIP_MAGIC, read_json_document
 
@@ -24,7 +25,8 @@ def saved_payload(controller):
 def test_default_timing_keeps_existing_speed_intervals_and_snapshot_serializable():
     controller = SimulationController()
     snapshot = controller.snapshot()
-    assert snapshot["timing"] == {"step_duration_seconds": 0.22, "max_steps": 2000, "editable": True}
+    assert snapshot["timing"] == {"step_duration_seconds": 0.22,
+                                  "max_steps": MAX_SIMULATION_STEPS, "editable": True}
     for index, interval in enumerate((220, 110, 55, 0)):
         assert controller.set_speed(index).ok
         assert controller.speed_interval_ms == interval
@@ -159,7 +161,7 @@ def test_full_export_is_not_truncated_to_recent_rows_and_filter_preserves_other_
     assert len(data["records"]) == total
     assert [row["seq"] for row in data["records"]] == list(range(1, total + 1))
     assert data["records"][0]["step"] == 0
-    assert data["settings"]["max_steps"] == 2000
+    assert data["settings"]["max_steps"] == MAX_SIMULATION_STEPS
     assert "history" in data and "destroyed_units" in data and "units" in data and "result" in data
     filtered = tmp_path / "shared.json"
     assert controller.export_records(filtered, "sharing").ok

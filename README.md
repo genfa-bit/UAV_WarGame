@@ -18,7 +18,7 @@ Python + PySide6/QML 二维桌面仿真。保留五类单位、地图编辑、�
 - “回放”把任意一局已保存的对战按帧重放：结算对话框的“回放本局”、“运行记录”历史行末尾的“回放”，或底部工具栏的“载入回放…”（部署、运行、暂停与已结束状态都可用，刚启动即可看旧记录）。进入回放默认停在第一帧（部署帧），进度条、累计时间与运行记录都从开头起算；回放中可播放/暂停、单步前后、拖动进度滑块定位与变速，运行记录面板和战场统计同步到那一刻；回放只读记录文件，不会新建或覆盖 `runs` 下的任何文件，从部署阶段进入时退出后仍回到正在编辑的布局。详见 [时间设置与运行记录](docs/时间设置与运行记录说明.md#回放)。
 - “再来一局”恢复本次开跑前的部署并清理旧局选择；运行后的“返回部署/重置”也恢复该部署供修改。
 - 内置预设只读，自定义场景默认保存到用户目录。
-- “时间设置”可在部署或暂停时修改单步时长（0.01–60 秒）与最大运行步数（1–10,000）；默认 0.22 秒、2000 步。暂停后的上限须大于已运行步数，到上限仍未分胜负则结算平局。当前完整运行记录采用内存保留与原子保存，因此设置了有界上限。
+- “时间设置”可在部署或暂停时修改单步时长（0.01–60 秒）与最大运行步数（1–10,000）；默认 0.22 秒、1200 步。暂停后的上限须大于已运行步数。到上限仍未分胜负时按剩余战力、敌方基地剩余血量、存活数的顺序裁定胜方，三项完全持平才结算平局，避免长期僵持的每一局都判平。当前完整运行记录采用内存保留与原子保存，因此设置了有界上限。
 
 ## 安装与启动
 
@@ -87,6 +87,8 @@ Windows 推荐用 `powershell -ExecutionPolicy Bypass -File .\build_windows.ps1`
 
 2026-11-15 验证：新增角色约束动态边际拍卖（RDMA）协同分配，`RoleFit` 按 `unit_type × target_type` 配置驱动，`can_engage()` 作为硬约束；未分配单位不再回退 `focus_target` 或最近敌人进行普通攻击，仅侦察/巡逻并保留紧急自卫；分配目标与交战目标同步，换目标重新进入反应期、冷却计时保留。全量 `python -m pytest -q` 为 **481 passed**（新增 16 项 RDMA 专项用例，0 失败、0 跳过）。固定种子 Baseline/RDMA 对比见 [cooperative-benchmark.json](docs/verification/cooperative-benchmark.json)：RDMA 的目标覆盖数与分配稳定性提高、单次分配约 0.08 ms，但本组场景更保守、单位任务利用率下降，且未提高胜率；因此该结果用于机制验证和调参，不作为胜率结论。详见 [测试报告](docs/测试报告.md#协同动态边际拍卖rdma2026-11-15) 与 [详细设计](docs/详细设计.md#协同动态边际拍卖rdma2026-11-15)。
 
+2026-11-15 验证（RDMA v2 基地战略目标）：基地通过独立战略目标池进入 RDMA，按基地 `role_fit` 列、打击包上限/下限（默认 2/1）和承诺窗口（默认 8 步）分配；Demand 改为效果型 `F_j(D)=min(1, D/(q_j·H_j))`，出价加入边际效果、过杀惩罚与弹药成本；RDMA 启用时基地攻击统一走“分配目标 = 交战目标 = 可见且可攻击”的授权，关闭时仍保留旧基地攻击通道。新增基地侦察/分配/攻击/失效与旧路径回归 8 项，全量 `python -m pytest -q` 为 **489 passed**（0 失败、0 跳过）。5 种子 × 5 场景 × ≤200 步对比见 [cooperative-benchmark-base-2026-11-15.json](docs/verification/cooperative-benchmark-base-2026-11-15.json)：`base_rush` 的基地分配单位步占比 53.3%（Baseline 5.9%），首次基地分配第 5 步；RDMA 单位任务利用率仍低于 Baseline，基地总伤害 153 也低于旧旁路的 243，说明本轮完成的是机制接入与可观察性，尚未形成战斗收益。详见 [测试报告](docs/测试报告.md#基地战略目标与效应型wta2026-11-15) 与 [详细设计](docs/详细设计.md#基地战略目标与效应型wta2026-11-15)。
+
 `.github/workflows/verify.yml` 提供 Windows 自动测试；手动触发还会构建并保存 EXE。源码压缩包需要提交到自己的 GitHub 仓库后，工作流才会执行。
 
 ## 代码结构
@@ -96,7 +98,7 @@ Windows 推荐用 `powershell -ExecutionPolicy Bypass -File .\build_windows.ps1`
 | main.py / ui/qt_app.py | QML 主程序入口与初始化 |
 | core/controller.py | 部署、加载、保存、运行、重跑和结果导出 |
 | core/simulator.py | 侦察、共享、RDMA 分配同步、移动、攻击、补给与胜负 |
-| core/cooperative_allocator.py | 角色约束动态边际拍卖：RoleFit、Demand、出价与迟滞分配 |
+| core/cooperative_allocator.py | 角色约束动态边际拍卖：RoleFit、效果型 Demand、边际出价、基地打击包与承诺窗口 |
 | core/target_pool.py | 目标延迟交付与超时清理 |
 | core/map_persistence.py / scenario_loader.py | 持久化、场景读写与验证 |
 | core/terrain_catalog.py | 地图背景、中文标题与按世界尺寸缩放的地标数据 |
@@ -105,6 +107,7 @@ Windows 推荐用 `powershell -ExecutionPolicy Bypass -File .\build_windows.ps1`
 | ui/qml/TerrainLayer.qml / MapOverview.qml | 底图、地标及小地图，复用主界面相机坐标 |
 | ui/assets/maps/ | 两张参考地图原图及素材来源、哈希记录 |
 | data/unit_config.json | 五类单位的教学参数 |
+| tools/cooperative_benchmark.py | 固定种子 Baseline/RDMA 对比，含基地场景与基地指标 |
 | tests/ | 核心与界面回归测试 |
 | docs/ | 需求、设计、操作、工作流和测试记录 |
 

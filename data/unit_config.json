@@ -1,5 +1,5 @@
 {
-  "version": "1.4",
+  "version": "1.5",
 
   "_comment_全局": "反先手机制：反应延迟/冷却减半，基础命中率提高，配合温和距离衰减",
 
@@ -12,7 +12,29 @@
     "reassign_margin": 0.12,
     "overload_penalty": 0.12,
     "demand_horizon_steps": 10,
-    "target_priority_weights": {"type_threat": 0.65, "low_hp": 0.35},
+    "desired_effect_by_type": {
+      "scout_drone": 1.0,
+      "strike_drone": 1.0,
+      "ground_vehicle": 1.0,
+      "missile_vehicle": 1.0,
+      "command_node": 1.0,
+      "base": 1.0
+    },
+    "marginal_utility_weight": 1.0,
+    "effect_overkill_penalty": 0.25,
+    "ammo_cost_weight": 0.02,
+    "overkill_release_ratio": 1.20,
+    "base_target_value": 0.90,
+    "late_game_bonus": 0.50,
+    "late_game_unit_threshold": 2,
+    "base_max_assignments": 2,
+    "base_min_assignments": 1,
+    "base_commitment_steps": 8,
+    "target_priority_weights": {
+      "type_threat": 0.65,
+      "low_hp": 0.35,
+      "base_bonus": 0.15
+    },
     "unit_readiness_weights": {"health": 0.60, "ammo": 0.40},
     "bid_weights": {
       "target_priority": 0.40,
@@ -24,27 +46,27 @@
     "role_fit": {
       "scout_drone": {
         "scout_drone": 0.70, "strike_drone": 0.55, "ground_vehicle": 0.45,
-        "missile_vehicle": 0.55, "command_node": 0.35
+        "missile_vehicle": 0.55, "command_node": 0.35, "base": 0.30
       },
       "strike_drone": {
         "scout_drone": 0.95, "strike_drone": 0.65, "ground_vehicle": 0.75,
-        "missile_vehicle": 0.70, "command_node": 0.80
+        "missile_vehicle": 0.70, "command_node": 0.80, "base": 0.95
       },
       "ground_vehicle": {
         "scout_drone": 0.55, "strike_drone": 0.65, "ground_vehicle": 0.85,
-        "missile_vehicle": 0.75, "command_node": 0.70
+        "missile_vehicle": 0.75, "command_node": 0.70, "base": 0.75
       },
       "missile_vehicle": {
         "scout_drone": 0.40, "strike_drone": 0.65, "ground_vehicle": 0.80,
-        "missile_vehicle": 0.70, "command_node": 0.95
+        "missile_vehicle": 0.70, "command_node": 0.95, "base": 1.00
       },
       "command_node": {
         "scout_drone": 0.40, "strike_drone": 0.40, "ground_vehicle": 0.40,
-        "missile_vehicle": 0.40, "command_node": 0.40
+        "missile_vehicle": 0.40, "command_node": 0.40, "base": 0.00
       },
       "base": {
         "scout_drone": 0.40, "strike_drone": 0.40, "ground_vehicle": 0.40,
-        "missile_vehicle": 0.40, "command_node": 0.40
+        "missile_vehicle": 0.40, "command_node": 0.40, "base": 0.00
       }
     }
   },

@@ -10,7 +10,7 @@ PANEL_WIDTH = SCREEN_WIDTH - MAP_WIDTH
 # ── 仿真参数 ──────────────────────────────────────────────────
 FPS = 60
 SIMULATION_INTERVAL_MS = 220
-MAX_SIMULATION_STEPS = 2000  # 教学演示上限，持续僵持时以平局结束
+MAX_SIMULATION_STEPS = 1200  # 教学演示上限；到上限仍未分胜负时按剩余战力裁定
 MIN_STEP_DURATION_SECONDS = 0.01
 MAX_STEP_DURATION_SECONDS = 60.0
 # Complete journals are retained in memory and atomically rewritten.  Keep the
@@ -100,6 +100,8 @@ TARGET_LOCK_TIME = 5          # 目标锁定帧数
 BASE_MAX_HP = 300             # 基地最大血量
 BASE_REPAIR_RADIUS = 80       # 基地补给半径
 BASE_REPAIR_PER_STEP = 4      # 每帧补给量（血量+弹药）
+UNIT_SEPARATION_DISTANCE = 12.0  # 单位间最小间距，低于此值逐步推开
+UNIT_SEPARATION_PUSH = 2.0    # 每帧最多推开的距离
 COMM_DELAY_FACTOR = 0.15      # 通信延迟系数（步/像素距离）
 
 # ── 协同动态边际拍卖（RDMA）────────────────────────────────────
@@ -114,27 +116,27 @@ MIN_ASSIGNMENT_DEMAND = 1
 COOPERATIVE_ROLE_FIT_DEFAULTS = {
     "scout_drone": {
         "scout_drone": 0.70, "strike_drone": 0.55, "ground_vehicle": 0.45,
-        "missile_vehicle": 0.55, "command_node": 0.35,
+        "missile_vehicle": 0.55, "command_node": 0.35, "base": 0.30,
     },
     "strike_drone": {
         "scout_drone": 0.95, "strike_drone": 0.65, "ground_vehicle": 0.75,
-        "missile_vehicle": 0.70, "command_node": 0.80,
+        "missile_vehicle": 0.70, "command_node": 0.80, "base": 0.95,
     },
     "ground_vehicle": {
         "scout_drone": 0.55, "strike_drone": 0.65, "ground_vehicle": 0.85,
-        "missile_vehicle": 0.75, "command_node": 0.70,
+        "missile_vehicle": 0.75, "command_node": 0.70, "base": 0.75,
     },
     "missile_vehicle": {
         "scout_drone": 0.40, "strike_drone": 0.65, "ground_vehicle": 0.80,
-        "missile_vehicle": 0.70, "command_node": 0.95,
+        "missile_vehicle": 0.70, "command_node": 0.95, "base": 1.00,
     },
     "command_node": {
         "scout_drone": 0.40, "strike_drone": 0.40, "ground_vehicle": 0.40,
-        "missile_vehicle": 0.40, "command_node": 0.40,
+        "missile_vehicle": 0.40, "command_node": 0.40, "base": 0.00,
     },
     "base": {
         "scout_drone": 0.40, "strike_drone": 0.40, "ground_vehicle": 0.40,
-        "missile_vehicle": 0.40, "command_node": 0.40,
+        "missile_vehicle": 0.40, "command_node": 0.40, "base": 0.00,
     },
 }
 
@@ -147,7 +149,26 @@ COOPERATIVE_ASSIGNMENT_DEFAULTS = {
     "reassign_margin": 0.12,
     "overload_penalty": 0.12,
     "demand_horizon_steps": 10,
-    "target_priority_weights": {"type_threat": 0.65, "low_hp": 0.35},
+    # 效果型 WTA：F_j(D)=min(1, D/(q_j*H_j))。q_j 默认 1.0，
+    # 保持原有“覆盖当前血量”的行为；基地固定为 1.0，必须被摧毁。
+    "desired_effect_by_type": {
+        "scout_drone": 1.0, "strike_drone": 1.0, "ground_vehicle": 1.0,
+        "missile_vehicle": 1.0, "command_node": 1.0, "base": 1.0,
+    },
+    "marginal_utility_weight": 1.0,
+    "effect_overkill_penalty": 0.25,
+    "ammo_cost_weight": 0.02,
+    "overkill_release_ratio": 1.20,
+    # 基地作为战略目标：独立价值、打击包上限/下限与承诺窗口。
+    "base_target_value": 0.90,
+    "late_game_bonus": 0.50,
+    "late_game_unit_threshold": 2,
+    "base_max_assignments": 2,
+    "base_min_assignments": 1,
+    "base_commitment_steps": 8,
+    "target_priority_weights": {
+        "type_threat": 0.65, "low_hp": 0.35, "base_bonus": 0.15,
+    },
     "unit_readiness_weights": {"health": 0.60, "ammo": 0.40},
     "bid_weights": {
         "target_priority": 0.40, "role_fit": 0.25, "readiness": 0.20,

@@ -6,10 +6,12 @@ EngagementState。
 
 关键设计：
 - RoleFit 由 unit_type × target_type 配置驱动，can_engage() 只做硬约束。
-- Demand 用“单位-目标对期望伤害”估算，考虑动态命中率、冷却/反应时间、
-  同步结算下的超杀覆盖，而不是简单按目标数量分配。
-- 部分分配优先：先保留旧分配，再以边际收益做贪心补充；换目标需要超过
-  reassign_margin 的收益。
+- 目标效果函数 F_j(D)=min(1, D/(q_j*H_j))；Demand 与出价都使用
+  “新增单位带来的效果增量”，而不是只数目标数量或绝对分数。
+- 期望伤害复用动态命中率、冷却/反应窗口和暴击期望；同步结算下用
+  过杀惩罚限制同一目标的重复堆积。
+- 基地作为战略目标进入同一分配器，但有独立目标价值、打击包上下限和
+  承诺窗口。
 - 每个单位只使用“自身可见 ∪ 已送达共享池”的目标集合，未收到通信的
   单位不会获得队友私有侦察信息。
 """
@@ -94,27 +96,31 @@ class CooperativeAllocator:
         battlefield=None,
         previous: AssignmentResult | None = None,
         visible_ids_by_unit: dict[str, set[str]] | None = None,
+        context: dict | None = None,
     ) -> AssignmentResult:
         """执行一次分配。
 
         visible_ids_by_unit 必须是“每个单位自己的可见目标 ID 集合”
         （自身观测 ∪ 已送达共享信息）。为兼容独立测试，传入 None 时
         退化为使用全部已送达目标；Simulator 始终显式传入。
+        context 可提供 ``enemy_combat_units``，用于基地 late-game 价值。
         """
         cfg = self.config
         unit_list = sorted(list(units), key=lambda u: u.id)
         records = list(sightings or [])
         previous = previous or AssignmentResult()
+        context = context or {}
 
-        # 目标基本信息。只保留存活、非基地且未超时的目标；基地不参与
-        # RDMA v1。超时判定与 TargetPool.cleanup() 保持同一口径。
+        # 目标基本信息。基地是静态战略目标，一经确认就保留到摧毁；
+        # 普通目标仍按 TargetPool 的超时口径过滤。
         target_by_id: dict[str, Unit] = {}
         available_ids: set[str] = set()
         for record in records:
             target = record.target
-            if target.is_destroyed or target.unit_type == "base":
+            if target.is_destroyed:
                 continue
-            if step - record.last_seen_step > DETECTION_TIMEOUT_STEPS:
+            if (target.unit_type != "base"
+                    and step - record.last_seen_step > DETECTION_TIMEOUT_STEPS):
                 continue
             target_by_id[target.id] = target
             if record.available_step <= step:
@@ -132,9 +138,10 @@ class CooperativeAllocator:
                 visible_sets[unit.id] = set(visible_ids_by_unit.get(unit.id, set()))
 
         target_priority = self._target_priorities(target_by_id)
+        target_values = self._target_values(target_by_id, target_priority, context)
         readiness = {unit.id: self._readiness(unit) for unit in unit_list}
 
-        # pair (uid, tid) -> (bid, demand_contribution)
+        # pair (uid, tid) -> 基础出价与窗口期望伤害
         bids: dict[tuple[str, str], float] = {}
         damage: dict[tuple[str, str], float] = {}
         for unit in unit_list:
@@ -149,8 +156,9 @@ class CooperativeAllocator:
                     continue
                 distance_cost = self._distance_cost(unit, target, battlefield)
                 role_fit = self._role_fit(unit.unit_type, target.unit_type)
-                freshness = self._freshness(
-                    records, target_id, step, unit.id, visible_sets[unit.id])
+                freshness = (1.0 if target.unit_type == "base" else
+                             self._freshness(records, target_id, step,
+                                             unit.id, visible_sets[unit.id]))
                 bid = self._bid(unit, target, target_priority[target_id],
                                 role_fit, readiness[unit.id], freshness,
                                 distance_cost)
@@ -171,8 +179,10 @@ class CooperativeAllocator:
                 bids[(unit_id, target_id)] -= switch_penalty
 
         demand = self._demand(target_by_id, damage, unit_list)
+        unit_by_id = {unit.id: unit for unit in unit_list}
         assignments, since, reasons = self._select_assignments(
-            bids, demand, target_priority, previous, step)
+            bids, damage, demand, target_priority, target_values,
+            target_by_id, unit_by_id, previous, step)
 
         target_members: dict[str, list[str]] = {}
         for unit_id, target_id in assignments.items():
@@ -212,9 +222,27 @@ class CooperativeAllocator:
         for target_id, target in targets.items():
             type_norm = 1.0 if high <= low else (raw[target_id] - low) / (high - low)
             low_hp = 1.0 - max(0.0, min(1.0, target.hp_ratio))
-            result[target_id] = (weights["type_threat"] * type_norm
-                                 + weights["low_hp"] * low_hp)
+            value = (weights["type_threat"] * type_norm
+                     + weights["low_hp"] * low_hp)
+            if target.unit_type == "base":
+                value += float(weights.get("base_bonus", 0.0))
+            result[target_id] = min(1.0, value)
         return result
+
+    def _target_values(self, targets: dict[str, Unit],
+                       priorities: dict[str, float],
+                       context: dict) -> dict[str, float]:
+        values = dict(priorities)
+        base = float(self.config.get("base_target_value", 0.9))
+        bonus = 0.0
+        threshold = int(self.config.get("late_game_unit_threshold", 2))
+        enemy_units = context.get("enemy_combat_units")
+        if enemy_units is not None and int(enemy_units) <= threshold:
+            bonus = float(self.config.get("late_game_bonus", 0.0))
+        for target_id, target in targets.items():
+            if target.unit_type == "base":
+                values[target_id] = max(priorities[target_id], base) + bonus
+        return values
 
     def _role_fit(self, attacker_type: str, target_type: str) -> float:
         row = self.config["role_fit"].get(attacker_type, {})
@@ -266,7 +294,23 @@ class CooperativeAllocator:
                 - weights["distance_cost"] * distance_cost)
         return base
 
-    # ── Demand：期望伤害与同步超杀覆盖 ─────────────────────────
+    # ── Demand：期望伤害、效果阈值与同步超杀覆盖 ───────────────
+    def _desired_effect(self, target: Unit) -> float:
+        values = self.config.get("desired_effect_by_type", {})
+        return float(values.get(target.unit_type, 1.0))
+
+    def _effect_threshold(self, target: Unit) -> float:
+        return max(1.0, target.hp * self._desired_effect(target))
+
+    def _effect(self, target: Unit, damage: float) -> float:
+        """目标效果 F_j(D)=min(1, D/(q_j*H_j))。"""
+        return max(0.0, min(1.0, damage / self._effect_threshold(target)))
+
+    def _effect_gain(self, target: Unit, current: float,
+                     addition: float) -> float:
+        return (self._effect(target, current + addition)
+                - self._effect(target, current))
+
     def _expected_damage(self, unit: Unit, target: Unit, battlefield) -> float:
         hit_prob = calculate_hit_probability(
             unit, target, battlefield, is_evading=(unit.status == STATUS_EVADE))
@@ -299,17 +343,22 @@ class CooperativeAllocator:
             return 0
         return 1 + (horizon - 1 - ready_in) // cycle
 
+    def _target_capacity(self, target: Unit) -> int:
+        cap = int(self.config["max_assignments_per_target"])
+        if target.unit_type == "base":
+            cap = min(cap, int(self.config.get("base_max_assignments", cap)))
+        return max(1, cap)
+
     def _demand(self, targets: dict[str, Unit],
                 damage: dict[tuple[str, str], float],
                 units: list[Unit]) -> dict[str, int]:
-        cfg = self.config
-        max_assign = int(cfg["max_assignments_per_target"])
         result: dict[str, int] = {}
         for target_id, target in targets.items():
             pair_values = [
                 damage[(unit.id, target_id)] for unit in units
                 if (unit.id, target_id) in damage
             ]
+            capacity = self._target_capacity(target)
             if not pair_values:
                 result[target_id] = 0
                 continue
@@ -317,50 +366,92 @@ class CooperativeAllocator:
                             reverse=True)
             if not values:
                 # 反应/冷却期较长时本窗口期望伤害可能为 0，但目标仍需
-                # 保留最低需求（而不是把所有可行单位都压上去），避免
-                # “无人接单”与无意义的过度分配。
+                # 保留最低需求，避免“无人接单”与无意义的过度分配。
+                minimum = (int(self.config.get("base_min_assignments", 1))
+                           if target.unit_type == "base"
+                           else MIN_ASSIGNMENT_DEMAND)
                 result[target_id] = min(
-                    max(1, MIN_ASSIGNMENT_DEMAND), max_assign, len(pair_values))
+                    max(1, minimum), capacity, len(pair_values))
                 continue
+            threshold = self._effect_threshold(target)
             covered = 0.0
             k = 0
             for value in values:
                 covered += value
                 k += 1
-                if covered >= target.hp:
+                if covered >= threshold:
                     break
-            k = max(k, MIN_ASSIGNMENT_DEMAND)
-            k = min(k, max_assign, len(values))
+            minimum = (int(self.config.get("base_min_assignments", 1))
+                       if target.unit_type == "base"
+                       else MIN_ASSIGNMENT_DEMAND)
+            k = max(k, minimum)
+            k = min(k, capacity, len(values))
             result[target_id] = max(0, k)
         return result
 
-    # ── 选择：保留 + 迟滞换目标 + 边际贪心 ─────────────────────
+    # ── 选择：保留 + 迟滞换目标 + 边际贪心 + 1-opt ─────────────
     def _select_assignments(
         self,
         bids: dict[tuple[str, str], float],
+        damage: dict[tuple[str, str], float],
         demand: dict[str, int],
         target_priority: dict[str, float],
+        target_values: dict[str, float],
+        targets: dict[str, Unit],
+        unit_by_id: dict[str, Unit],
         previous: AssignmentResult,
         step: int,
     ) -> tuple[dict[str, str], dict[str, int], dict[str, str]]:
         cfg = self.config
         min_bid = float(cfg["min_assignment_bid"])
-        max_assign = int(cfg["max_assignments_per_target"])
         margin = float(cfg["reassign_margin"])
         overload = float(cfg["overload_penalty"])
+        overkill_weight = float(cfg.get("effect_overkill_penalty", 0.0))
+        ammo_weight = float(cfg.get("ammo_cost_weight", 0.0))
+        effect_weight = (float(cfg.get("marginal_utility_weight", 1.0))
+                         * float(cfg["bid_weights"].get("target_priority", 0.0)))
+        commitment = int(cfg.get("base_commitment_steps", 0))
 
         assignments: dict[str, str] = {}
         since: dict[str, int] = {}
         reasons: dict[str, str] = {}
         counts: dict[str, int] = {tid: 0 for tid in demand}
+        accumulated: dict[str, float] = {tid: 0.0 for tid in demand}
 
-        # 1) 保留旧分配（需求容量内）。
+        def committed(unit_id: str, target_id: str) -> bool:
+            target = targets.get(target_id)
+            return (target is not None and target.unit_type == "base"
+                    and commitment > 0
+                    and step - previous.assignment_since.get(unit_id, step)
+                    < commitment)
+
+        def add(unit_id: str, target_id: str, stamp: int, reason: str) -> None:
+            assignments[unit_id] = target_id
+            since[unit_id] = stamp
+            reasons[unit_id] = reason
+            counts[target_id] = counts.get(target_id, 0) + 1
+            accumulated[target_id] = (accumulated.get(target_id, 0.0)
+                                      + damage.get((unit_id, target_id), 0.0))
+
+        def remove(unit_id: str) -> None:
+            target_id = assignments.pop(unit_id)
+            since.pop(unit_id, None)
+            reasons.pop(unit_id, None)
+            counts[target_id] -= 1
+            accumulated[target_id] = max(
+                0.0, accumulated.get(target_id, 0.0)
+                - damage.get((unit_id, target_id), 0.0))
+
+        # 1) 保留旧分配（需求容量内；基地承诺窗口内放宽最低出价）。
         old_by_target: dict[str, list[str]] = {}
         for unit_id, target_id in previous.assignments.items():
-            if (unit_id, target_id) in bids and bids[(unit_id, target_id)] >= min_bid:
+            if (unit_id, target_id) not in bids:
+                continue
+            if (bids[(unit_id, target_id)] >= min_bid
+                    or committed(unit_id, target_id)):
                 old_by_target.setdefault(target_id, []).append(unit_id)
         for target_id in sorted(old_by_target):
-            capacity = min(demand.get(target_id, 0), max_assign)
+            capacity = min(demand.get(target_id, 0), self._target_capacity(targets[target_id]))
             candidates = sorted(
                 old_by_target[target_id],
                 key=lambda uid: (-bids[(uid, target_id)],
@@ -368,40 +459,46 @@ class CooperativeAllocator:
                                  uid),
             )
             for unit_id in candidates[:capacity]:
-                assignments[unit_id] = target_id
-                since[unit_id] = previous.assignment_since.get(unit_id, step)
-                reasons[unit_id] = "retained"
-                counts[target_id] += 1
+                add(unit_id, target_id,
+                    previous.assignment_since.get(unit_id, step), "retained")
 
-        # 2) 迟滞换目标：只有收益超过 reassign_margin 才换。
+        # 2) 迟滞换目标：按“新目标边际效果 - 旧目标边际损失”比较。
         upgrades = []
         for unit_id, old_target in assignments.items():
+            if committed(unit_id, old_target):
+                continue
             for (uid, new_target), bid in bids.items():
                 if uid != unit_id or new_target == old_target:
                     continue
                 if counts.get(new_target, 0) >= demand.get(new_target, 0):
                     continue
-                old_bid = bids.get((unit_id, old_target), 0.0)
-                improvement = bid - old_bid
+                old_damage = damage.get((unit_id, old_target), 0.0)
+                old_loss = effect_weight * target_values.get(old_target, 0.0) * (
+                    self._effect(targets[old_target], accumulated[old_target])
+                    - self._effect(targets[old_target],
+                                   max(0.0, accumulated[old_target] - old_damage)))
+                new_target_obj = targets[new_target]
+                new_gain = effect_weight * target_values.get(new_target, 0.0) * (
+                    self._effect_gain(new_target_obj,
+                                      accumulated.get(new_target, 0.0),
+                                      damage.get((unit_id, new_target), 0.0)))
+                improvement = (bid + new_gain) - (
+                    bids.get((unit_id, old_target), 0.0) + old_loss)
                 if improvement > margin:
-                    upgrades.append((improvement, target_priority.get(new_target, 0.0),
+                    upgrades.append((improvement,
+                                     target_values.get(new_target, 0.0),
                                      unit_id, new_target))
         upgrades.sort(key=lambda item: (-item[0], -item[1], item[2], item[3]))
-        switched: set[str] = set()
-        for improvement, _, unit_id, new_target in upgrades:
-            if unit_id in switched:
-                continue
+        for _, _, unit_id, new_target in upgrades:
             old_target = assignments.get(unit_id)
             if old_target is None or old_target == new_target:
                 continue
+            if committed(unit_id, old_target):
+                continue
             if counts.get(new_target, 0) >= demand.get(new_target, 0):
                 continue
-            counts[old_target] -= 1
-            counts[new_target] += 1
-            assignments[unit_id] = new_target
-            since[unit_id] = step
-            reasons[unit_id] = "switch"
-            switched.add(unit_id)
+            remove(unit_id)
+            add(unit_id, new_target, step, "switch")
 
         # 3) 未分配单位按边际收益贪心补充。
         assigned = set(assignments)
@@ -412,9 +509,25 @@ class CooperativeAllocator:
                     continue
                 if counts.get(target_id, 0) >= demand.get(target_id, 0):
                     continue
-                penalty = overload * (counts.get(target_id, 0)
-                                      / max(1, demand.get(target_id, 0)))
-                marginal = bid - penalty
+                target = targets[target_id]
+                addition = damage.get((unit_id, target_id), 0.0)
+                current = accumulated.get(target_id, 0.0)
+                effect_gain = effect_weight * target_values.get(target_id, 0.0) * (
+                    self._effect_gain(target, current, addition))
+                threshold = self._effect_threshold(target)
+                overkill = max(0.0, current + addition - threshold) / threshold
+                overload_ratio = (counts.get(target_id, 0)
+                                  / max(1, demand.get(target_id, 0)))
+                unit = unit_by_id.get(unit_id)
+                ammo_cost = (ammo_weight / max(1, unit.ammo)) if unit else 0.0
+                marginal = (bid + effect_gain
+                            - overload * overload_ratio
+                            - overkill_weight * overkill
+                            - ammo_cost)
+                # 效果已饱和时不再为同一目标追加单位；全零窗口仍保留
+                # 最低需求，保证有人在下一窗口接单。
+                if current > 0 and addition > 0 and effect_gain <= 1e-9:
+                    continue
                 key = (-marginal, -target_priority.get(target_id, 0.0),
                        unit_id, target_id)
                 if best is None or key < best[0]:
@@ -422,18 +535,70 @@ class CooperativeAllocator:
             if best is None:
                 break
             _, unit_id, target_id = best
-            assignments[unit_id] = target_id
-            since[unit_id] = step
-            reasons[unit_id] = "new"
-            counts[target_id] += 1
+            add(unit_id, target_id, step, "new")
             assigned.add(unit_id)
 
-        # 4) 清理低于最低出价的保留项（例如旧目标被削弱/距离过远）。
-        for unit_id, target_id in list(assignments.items()):
-            if bids.get((unit_id, target_id), 0.0) < min_bid:
-                counts[target_id] -= 1
-                del assignments[unit_id]
-                del since[unit_id]
-                del reasons[unit_id]
+        # 4) 单轮 1-opt：释放并重新填满被过杀保护释放出的容量。
+        for unit_id in sorted(assignments):
+            old_target = assignments[unit_id]
+            if committed(unit_id, old_target):
+                continue
+            old_damage = damage.get((unit_id, old_target), 0.0)
+            old_loss = effect_weight * target_values.get(old_target, 0.0) * (
+                self._effect(targets[old_target], accumulated[old_target])
+                - self._effect(targets[old_target],
+                               max(0.0, accumulated[old_target] - old_damage)))
+            best_swap = None
+            for (uid, new_target), bid in bids.items():
+                if uid != unit_id or new_target == old_target:
+                    continue
+                if counts.get(new_target, 0) >= demand.get(new_target, 0):
+                    continue
+                new_gain = effect_weight * target_values.get(new_target, 0.0) * (
+                    self._effect_gain(targets[new_target],
+                                      accumulated.get(new_target, 0.0),
+                                      damage.get((unit_id, new_target), 0.0)))
+                improvement = (bid + new_gain) - (
+                    bids.get((unit_id, old_target), 0.0) + old_loss)
+                key = (-improvement, -target_values.get(new_target, 0.0),
+                       new_target)
+                if improvement > margin and (best_swap is None or key < best_swap[0]):
+                    best_swap = (key, new_target)
+            if best_swap is not None:
+                remove(unit_id)
+                add(unit_id, best_swap[1], step, "swap")
+
+        # 5) 清理低于最低出价的保留项，避免幽灵分配。
+        for unit_id in sorted(list(assignments), reverse=True):
+            target_id = assignments[unit_id]
+            if (bids.get((unit_id, target_id), 0.0) < min_bid
+                    and not committed(unit_id, target_id)):
+                remove(unit_id)
+
+        # 6) 过杀保护：累计期望伤害超过阈值比例时，释放边际贡献最低的
+        # 非基地承诺成员。同步结算本身不取消已排队攻击，这里只约束下一波。
+        for target_id in sorted(targets):
+            target = targets[target_id]
+            threshold = self._effect_threshold(target)
+            ratio = float(cfg.get("overkill_release_ratio", 1.2))
+            minimum = (int(cfg.get("base_min_assignments", 1))
+                       if target.unit_type == "base" else 1)
+            while (accumulated.get(target_id, 0.0) > ratio * threshold
+                   and counts.get(target_id, 0) > minimum):
+                candidates = [uid for uid, tid in assignments.items()
+                              if tid == target_id
+                              and not committed(uid, target_id)]
+                if not candidates:
+                    break
+                victim = min(
+                    candidates,
+                    key=lambda uid: (
+                        self._effect_gain(
+                            target,
+                            accumulated.get(target_id, 0.0)
+                            - damage.get((uid, target_id), 0.0),
+                            damage.get((uid, target_id), 0.0)),
+                        bids.get((uid, target_id), 0.0), uid))
+                remove(victim)
 
         return assignments, since, reasons

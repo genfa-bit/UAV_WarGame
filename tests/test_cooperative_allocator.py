@@ -10,7 +10,8 @@ from core.cooperative_allocator import CooperativeAllocator
 from core.engagement import EngagementPhase, EngagementState
 from core.target_pool import TargetSighting
 from core.unit_config_loader import get_cooperative_assignment_config
-from core.units import CommandNode, GroundVehicle, ScoutDrone, StrikeDrone
+from core.units import (BaseUnit, CommandNode, GroundVehicle, ScoutDrone,
+                        StrikeDrone)
 
 
 def _config(**overrides):
@@ -267,6 +268,61 @@ def test_expected_damage_reuses_distance_and_cover_factors():
         800, 600, obstacles=[Obstacle(220, 80, 20, 80)])
     assert allocator._expected_damage(far, target, battlefield_with_cover) < \
         allocator._expected_damage(far, target, battlefield)
+
+
+def test_base_enters_rdma_with_role_fit_and_strike_package_cap():
+    units = [
+        StrikeDrone(id=f"r{i}", name=f"R{i}", team="red", x=100 + i * 5,
+                    y=100, speed=0, reaction_delay=0, attack_cooldown=0)
+        for i in range(3)
+    ]
+    base = BaseUnit(id="blue_base", name="Blue Base", team="blue",
+                    x=250, y=100)
+    config = _config(max_assignments_per_target=3,
+                     base_max_assignments=2, base_min_assignments=1,
+                     min_assignment_bid=0.0)
+    result = CooperativeAllocator(config).allocate(
+        units, [_sighting(base)], 1, Battlefield(800, 600),
+        visible_ids_by_unit={unit.id: {"blue_base"} for unit in units})
+
+    assert result.demand["blue_base"] == 2
+    assert len(result.assignments) == 2
+    assert set(result.assignments.values()) == {"blue_base"}
+
+
+def test_confirmed_base_stays_assignable_after_observation_timeout():
+    unit = StrikeDrone(id="r1", name="R1", team="red", x=100, y=100,
+                       speed=0, reaction_delay=0, attack_cooldown=0)
+    base = BaseUnit(id="blue_base", name="Blue Base", team="blue",
+                    x=250, y=100)
+    stale = _sighting(base, step=0, available_step=0)
+    result = CooperativeAllocator(_config(min_assignment_bid=0.0)).allocate(
+        [unit], [stale], DETECTION_TIMEOUT_STEPS + 20,
+        Battlefield(800, 600), visible_ids_by_unit={"r1": {"blue_base"}})
+
+    assert result.assignments == {"r1": "blue_base"}
+
+
+def test_base_target_value_and_effect_keep_minimum_package_when_window_is_zero():
+    cooling = []
+    for index in range(3):
+        unit = StrikeDrone(id=f"r{index}", name=f"R{index}", team="red",
+                           x=100 + index * 5, y=100, speed=0,
+                           reaction_delay=0, attack_cooldown=50)
+        unit.engagement_state.phase = EngagementPhase.COOLDOWN
+        unit.engagement_state.cooldown_progress = 0
+        unit.engagement_state.current_target_id = "blue_base"
+        cooling.append(unit)
+    base = BaseUnit(id="blue_base", name="Blue Base", team="blue",
+                    x=250, y=100)
+    result = CooperativeAllocator(_config(
+        demand_horizon_steps=10, base_max_assignments=2,
+        base_min_assignments=1, min_assignment_bid=0.0)).allocate(
+        cooling, [_sighting(base)], 1, Battlefield(800, 600),
+        visible_ids_by_unit={unit.id: {"blue_base"} for unit in cooling})
+
+    assert result.demand["blue_base"] == 1
+    assert len(result.assignments) == 1
 
 
 def test_engagement_assignment_change_resets_reaction_but_preserves_cooldown():

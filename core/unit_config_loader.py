@@ -96,6 +96,15 @@ def _positive_int(config: dict[str, Any], key: str, default: int) -> None:
         config[key] = value
 
 
+def _nonnegative_int(config: dict[str, Any], key: str, default: int) -> None:
+    value = config.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        _warn_once(f"{key}", f"{key}={value!r} 必须是 >= 0 的整数")
+        config[key] = default
+    else:
+        config[key] = value
+
+
 def _number(config: dict[str, Any], key: str, default: float,
             minimum: float = 0.0) -> None:
     value = config.get(key, default)
@@ -123,6 +132,25 @@ def _weights(config: dict[str, Any], key: str,
         else:
             merged[name] = float(value)
     config[key] = merged
+
+
+def _effect_by_type(config: dict[str, Any],
+                    defaults: dict[str, float]) -> None:
+    provided = config.get("desired_effect_by_type")
+    if not isinstance(provided, dict):
+        _warn_once("desired_effect_by_type", "desired_effect_by_type 必须是字典")
+        config["desired_effect_by_type"] = copy.deepcopy(defaults)
+        return
+    merged = copy.deepcopy(defaults)
+    for unit_type, default in defaults.items():
+        value = provided.get(unit_type, default)
+        if (not _is_number(value) or not 0.0 < float(value) <= 1.0):
+            _warn_once(f"desired_effect_by_type.{unit_type}",
+                       f"desired_effect_by_type.{unit_type}={value!r} 必须在 (0, 1]")
+            merged[unit_type] = float(default)
+        else:
+            merged[unit_type] = float(value)
+    config["desired_effect_by_type"] = merged
 
 
 def _role_fit(config: dict[str, Any],
@@ -184,11 +212,38 @@ def get_cooperative_assignment_config() -> dict[str, Any]:
             COOPERATIVE_ASSIGNMENT_DEFAULTS["reassign_margin"])
     _number(config, "overload_penalty",
             COOPERATIVE_ASSIGNMENT_DEFAULTS["overload_penalty"])
+    _number(config, "marginal_utility_weight",
+            COOPERATIVE_ASSIGNMENT_DEFAULTS["marginal_utility_weight"])
+    _number(config, "effect_overkill_penalty",
+            COOPERATIVE_ASSIGNMENT_DEFAULTS["effect_overkill_penalty"])
+    _number(config, "ammo_cost_weight",
+            COOPERATIVE_ASSIGNMENT_DEFAULTS["ammo_cost_weight"])
+    _number(config, "overkill_release_ratio",
+            COOPERATIVE_ASSIGNMENT_DEFAULTS["overkill_release_ratio"],
+            minimum=1.0)
+    _number(config, "base_target_value",
+            COOPERATIVE_ASSIGNMENT_DEFAULTS["base_target_value"])
+    _number(config, "late_game_bonus",
+            COOPERATIVE_ASSIGNMENT_DEFAULTS["late_game_bonus"])
+    _positive_int(config, "late_game_unit_threshold",
+                  COOPERATIVE_ASSIGNMENT_DEFAULTS["late_game_unit_threshold"])
+    _positive_int(config, "base_max_assignments",
+                  COOPERATIVE_ASSIGNMENT_DEFAULTS["base_max_assignments"])
+    _positive_int(config, "base_min_assignments",
+                  COOPERATIVE_ASSIGNMENT_DEFAULTS["base_min_assignments"])
+    _nonnegative_int(config, "base_commitment_steps",
+                     COOPERATIVE_ASSIGNMENT_DEFAULTS["base_commitment_steps"])
+    if config["base_min_assignments"] > config["base_max_assignments"]:
+        _warn_once("base_min_assignments",
+                   "base_min_assignments 不能大于 base_max_assignments")
+        config["base_min_assignments"] = config["base_max_assignments"]
     _weights(config, "target_priority_weights",
              COOPERATIVE_ASSIGNMENT_DEFAULTS["target_priority_weights"])
     _weights(config, "unit_readiness_weights",
              COOPERATIVE_ASSIGNMENT_DEFAULTS["unit_readiness_weights"])
     _weights(config, "bid_weights",
              COOPERATIVE_ASSIGNMENT_DEFAULTS["bid_weights"])
+    _effect_by_type(config,
+                    COOPERATIVE_ASSIGNMENT_DEFAULTS["desired_effect_by_type"])
     _role_fit(config, COOPERATIVE_ASSIGNMENT_DEFAULTS["role_fit"])
     return config

@@ -73,6 +73,77 @@ def build_scenario(name: str) -> tuple[Battlefield, list[Unit]]:
                                 team="blue", x=680, y=300))
         units += blue
         return battlefield, units
+    if name == "base_rush":
+        # 红方缺少正面兵力，只能依靠基地战略目标打开局面；
+        # 蓝方仅留一个远处单位，避免首步“无单位即判负”。
+        battlefield = Battlefield(800, 600, red_base=(80, 300),
+                                  blue_base=(700, 300), obstacles=[])
+        units = [
+            StrikeDrone(id="red_strike1", name="red-strike1", team="red",
+                        x=560, y=250),
+            StrikeDrone(id="red_strike2", name="red-strike2", team="red",
+                        x=560, y=350),
+            ScoutDrone(id="red_scout", name="red-scout", team="red",
+                       x=500, y=300),
+            CommandNode(id="red_command", name="red-command", team="red",
+                        x=120, y=300),
+            GroundVehicle(id="blue_ground", name="blue-ground", team="blue",
+                          x=160, y=120),
+            CommandNode(id="blue_command", name="blue-command", team="blue",
+                        x=680, y=120),
+        ]
+        return battlefield, units
+    if name == "defended_base":
+        # 蓝方基地有地面与导弹单位掩护，考验分配器在基地与
+        # 护航单位之间的目标价值权衡。
+        battlefield = Battlefield(800, 600, red_base=(80, 300),
+                                  blue_base=(700, 300),
+                                  obstacles=[Obstacle(420, 250, 40, 100,
+                                                      name="中线建筑",
+                                                      type="building")])
+        units = [
+            StrikeDrone(id="red_strike1", name="red-strike1", team="red",
+                        x=380, y=220),
+            StrikeDrone(id="red_strike2", name="red-strike2", team="red",
+                        x=380, y=380),
+            MissileVehicle(id="red_missile", name="red-missile", team="red",
+                           x=360, y=300),
+            ScoutDrone(id="red_scout", name="red-scout", team="red",
+                       x=300, y=300),
+            CommandNode(id="red_command", name="red-command", team="red",
+                        x=120, y=300),
+            GroundVehicle(id="blue_ground1", name="blue-ground1", team="blue",
+                          x=640, y=250),
+            GroundVehicle(id="blue_ground2", name="blue-ground2", team="blue",
+                          x=640, y=350),
+            MissileVehicle(id="blue_missile", name="blue-missile", team="blue",
+                           x=620, y=300),
+            CommandNode(id="blue_command", name="blue-command", team="blue",
+                        x=680, y=120),
+        ]
+        return battlefield, units
+    if name == "asymmetric":
+        # 红方侦察与导弹组合对蓝方地面集群和基地；双方兵力与
+        # 目标类型都不对称。
+        battlefield = Battlefield(800, 600, red_base=(80, 300),
+                                  blue_base=(700, 300), obstacles=obstacles)
+        units = [
+            ScoutDrone(id="red_scout", name="red-scout", team="red",
+                       x=320, y=240),
+            MissileVehicle(id="red_missile1", name="red-missile1", team="red",
+                           x=300, y=300),
+            MissileVehicle(id="red_missile2", name="red-missile2", team="red",
+                           x=300, y=360),
+            CommandNode(id="red_command", name="red-command", team="red",
+                        x=120, y=300),
+        ]
+        for index, (x, y) in enumerate([(560, 260), (580, 300), (560, 340)]):
+            units.append(GroundVehicle(id=f"blue_ground{index}",
+                                       name=f"blue-ground{index}",
+                                       team="blue", x=x, y=y))
+        units.append(CommandNode(id="blue_command", name="blue-command",
+                                 team="blue", x=680, y=120))
+        return battlefield, units
     raise ValueError(f"未知场景: {name}")
 
 
@@ -82,7 +153,13 @@ def _is_available(unit: Unit) -> bool:
 
 
 def _target_map(simulator: Simulator) -> dict[str, Unit]:
-    return {unit.id: unit for unit in simulator.units if not unit.is_destroyed}
+    targets = {unit.id: unit for unit in simulator.units
+               if not unit.is_destroyed}
+    for team in ("red", "blue"):
+        base = simulator.battlefield.base_obj(team)
+        if not base.is_destroyed:
+            targets[base.id] = base
+    return targets
 
 
 def _assignment_snapshot(simulator: Simulator, cooperative: bool
@@ -91,7 +168,8 @@ def _assignment_snapshot(simulator: Simulator, cooperative: bool
 
     Baseline 没有分配器，用旧规则“可见 focus，否则最近可见敌人”近似其有效
     目标；RDMA 使用真实分配结果。两者都只看该单位自己的可见集合，避免把
-    未送达的共享侦察算进 Baseline 的利用率。
+    未送达的共享侦察算进 Baseline 的利用率。旧路径的基地攻击不经过
+    focus_target，因此 Baseline 在攻击射程内时也把敌方基地记为有效目标。
     """
     result: dict[str, str] = {}
     if cooperative:
@@ -100,6 +178,8 @@ def _assignment_snapshot(simulator: Simulator, cooperative: bool
         return result
     for team in ("red", "blue"):
         focus = simulator.focus_targets.get(team)
+        enemy_base = simulator.battlefield.base_obj(
+            "blue" if team == "red" else "red")
         for unit in simulator.active_units(team):
             if not _is_available(unit):
                 continue
@@ -110,6 +190,10 @@ def _assignment_snapshot(simulator: Simulator, cooperative: bool
             elif visible:
                 nearest = min(visible, key=unit.distance_to)
                 result[unit.id] = nearest.id
+            elif (not enemy_base.is_destroyed
+                  and unit.distance_to(enemy_base) <= unit.detect_range
+                  and unit.can_attack(enemy_base)):
+                result[unit.id] = enemy_base.id
     return result
 
 
@@ -152,9 +236,9 @@ def run_once(scenario: str, seed: int, cooperative: bool,
 
     simulator.allocator.allocate = timed_allocate  # type: ignore[method-assign]
 
+    bases = {team: battlefield.base_obj(team) for team in ("red", "blue")}
     initial_hp = {unit.id: unit.hp
-                  for unit in simulator.units + [
-                      battlefield.base_obj("red"), battlefield.base_obj("blue")]}
+                  for unit in simulator.units + [bases["red"], bases["blue"]]}
     initial_ammo = {unit.id: unit.ammo for unit in simulator.units}
     previous_assignments: dict[str, str] = {}
     coverage_steps = 0.0
@@ -163,6 +247,10 @@ def run_once(scenario: str, seed: int, cooperative: bool,
     switch_count = 0
     overallocated_steps = 0
     target_steps = 0
+    base_detection_step: dict[str, int | None] = {"red": None, "blue": None}
+    base_first_assignment_step: dict[str, int | None] = {
+        "red": None, "blue": None}
+    base_assigned_unit_steps = 0
 
     with contextlib.redirect_stdout(io.StringIO()):
         while simulator.winner is None and simulator.time_step < steps:
@@ -180,6 +268,25 @@ def run_once(scenario: str, seed: int, cooperative: bool,
                 target_steps += 1
                 if _overallocation(simulator, assignments, target_by_id):
                     overallocated_steps += 1
+            for team in ("red", "blue"):
+                enemy_base = bases["blue" if team == "red" else "red"]
+                if base_detection_step[team] is None:
+                    if cooperative:
+                        known = any(simulator._base_visible_to(unit)
+                                    for unit in simulator.active_units(team))
+                    else:
+                        known = any(
+                            unit.distance_to(enemy_base) <= unit.detect_range
+                            for unit in simulator.active_units(team))
+                    if known:
+                        base_detection_step[team] = simulator.time_step
+                base_assigned = [
+                    unit_id for unit_id, target_id in assignments.items()
+                    if target_id == enemy_base.id]
+                if base_assigned:
+                    base_assigned_unit_steps += len(base_assigned)
+                    if base_first_assignment_step[team] is None:
+                        base_first_assignment_step[team] = simulator.time_step
             for unit_id, target_id in assignments.items():
                 previous = previous_assignments.get(unit_id)
                 if previous is not None and previous != target_id:
@@ -198,9 +305,17 @@ def run_once(scenario: str, seed: int, cooperative: bool,
             damage_by_target[target_id] = (damage_by_target.get(target_id, 0)
                                            + int(row.get("damage", 0)))
     destroyed_ids = {row["unit_id"] for row in simulator.destroyed_units}
-    overkill = sum(max(0, damage_by_target.get(target_id, 0) - start_hp)
-                   for target_id, start_hp in initial_hp.items()
-                   if target_id in destroyed_ids)
+    overkill_unit = 0
+    overkill_base = 0
+    for target_id, start_hp in initial_hp.items():
+        if target_id not in destroyed_ids:
+            continue
+        excess = max(0, damage_by_target.get(target_id, 0) - start_hp)
+        if target_id in ("red_base", "blue_base"):
+            overkill_base += excess
+        else:
+            overkill_unit += excess
+    overkill = overkill_unit + overkill_base
 
     return {
         "scenario": scenario,
@@ -221,8 +336,22 @@ def run_once(scenario: str, seed: int, cooperative: bool,
         "blue_hits": hits["blue"],
         "red_damage": total_damage["red"],
         "blue_damage": total_damage["blue"],
+        "red_base_hp": bases["blue"].hp,
+        "blue_base_hp": bases["red"].hp,
+        "red_base_destroyed": bases["blue"].is_destroyed,
+        "blue_base_destroyed": bases["red"].is_destroyed,
+        "red_base_damage": damage_by_target.get("blue_base", 0),
+        "blue_base_damage": damage_by_target.get("red_base", 0),
+        "red_base_detection_step": base_detection_step["red"],
+        "blue_base_detection_step": base_detection_step["blue"],
+        "red_base_first_assignment_step": base_first_assignment_step["red"],
+        "blue_base_first_assignment_step": base_first_assignment_step["blue"],
+        "base_assignment_rate": (base_assigned_unit_steps
+                                 / max(1, available_steps)),
         "ammo_spent": ammo_spent,
         "overkill": overkill,
+        "unit_overkill": overkill_unit,
+        "base_overkill": overkill_base,
         "target_coverage": coverage_steps / max(1, simulator.time_step),
         "unit_utilization": assigned_steps / max(1, available_steps),
         "overallocation_rate": overallocated_steps / max(1, target_steps),
@@ -231,6 +360,11 @@ def run_once(scenario: str, seed: int, cooperative: bool,
                           if allocation_times else 0.0),
         "allocation_calls": len(allocation_times),
     }
+
+
+def _mean_known(values: list[int | None]) -> float | None:
+    known = [value for value in values if value is not None]
+    return statistics.mean(known) if known else None
 
 
 def _aggregate(runs: list[dict]) -> dict:
@@ -249,7 +383,23 @@ def _aggregate(runs: list[dict]) -> dict:
             run["switches_per_100_steps"] for run in runs),
         "avg_allocation_ms": statistics.mean(run["allocation_ms"] for run in runs),
         "avg_ammo_spent": statistics.mean(run["ammo_spent"] for run in runs),
+        "avg_base_assignment_rate": statistics.mean(
+            run["base_assignment_rate"] for run in runs),
+        "avg_red_base_detection_step": _mean_known(
+            [run["red_base_detection_step"] for run in runs]),
+        "avg_blue_base_detection_step": _mean_known(
+            [run["blue_base_detection_step"] for run in runs]),
+        "avg_red_base_first_assignment_step": _mean_known(
+            [run["red_base_first_assignment_step"] for run in runs]),
+        "avg_blue_base_first_assignment_step": _mean_known(
+            [run["blue_base_first_assignment_step"] for run in runs]),
         "total_overkill": sum(run["overkill"] for run in runs),
+        "total_unit_overkill": sum(run["unit_overkill"] for run in runs),
+        "total_base_overkill": sum(run["base_overkill"] for run in runs),
+        "total_red_base_damage": sum(run["red_base_damage"] for run in runs),
+        "total_blue_base_damage": sum(run["blue_base_damage"] for run in runs),
+        "red_base_destroyed": sum(run["red_base_destroyed"] for run in runs),
+        "blue_base_destroyed": sum(run["blue_base_destroyed"] for run in runs),
         "total_red_kills": sum(run["red_kills"] for run in runs),
         "total_blue_kills": sum(run["blue_kills"] for run in runs),
     }
@@ -257,7 +407,9 @@ def _aggregate(runs: list[dict]) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Baseline / RDMA 固定种子对比实验")
-    parser.add_argument("--scenario", choices=("mirrored", "clustered", "all"),
+    parser.add_argument("--scenario",
+                        choices=("mirrored", "clustered", "base_rush",
+                                 "defended_base", "asymmetric", "all"),
                         default="all")
     parser.add_argument("--seeds", type=int, default=5)
     parser.add_argument("--steps", type=int, default=200)
@@ -265,8 +417,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="把逐局与汇总结果写入 JSON 文件")
     args = parser.parse_args(argv)
 
-    scenarios = (("mirrored", "clustered") if args.scenario == "all"
-                 else (args.scenario,))
+    scenarios = (("mirrored", "clustered", "base_rush", "defended_base",
+                  "asymmetric") if args.scenario == "all" else (args.scenario,))
     all_runs: list[dict] = []
     output = {}
     for scenario in scenarios:
@@ -293,15 +445,29 @@ def main(argv: list[str] | None = None) -> int:
             ("平均结束步数", "avg_steps", "{:.1f}"),
             ("目标覆盖数", "avg_target_coverage", "{:.2f}"),
             ("单位任务利用率", "avg_unit_utilization", "{:.1%}"),
+            ("基地分配单位步占比", "avg_base_assignment_rate", "{:.1%}"),
             ("过度分配率", "avg_overallocation_rate", "{:.1%}"),
             ("每百单位步切换", "avg_switches_per_100_steps", "{:.2f}"),
             ("平均分配耗时(ms)", "avg_allocation_ms", "{:.3f}"),
             ("平均弹药消耗", "avg_ammo_spent", "{:.1f}"),
+            ("红方发现蓝基地步", "avg_red_base_detection_step", "{:.1f}"),
+            ("红方首次分配基地步", "avg_red_base_first_assignment_step", "{:.1f}"),
+            ("蓝方发现红基地步", "avg_blue_base_detection_step", "{:.1f}"),
+            ("蓝方首次分配基地步", "avg_blue_base_first_assignment_step", "{:.1f}"),
+            ("红方对蓝基地伤害", "total_red_base_damage", "{:.0f}"),
+            ("蓝方对红基地伤害", "total_blue_base_damage", "{:.0f}"),
+            ("蓝基地被摧毁局数", "blue_base_destroyed", "{:.0f}"),
+            ("红基地被摧毁局数", "red_base_destroyed", "{:.0f}"),
+            ("累计单位超杀", "total_unit_overkill", "{:.0f}"),
+            ("累计基地超杀", "total_base_overkill", "{:.0f}"),
             ("累计超杀伤害", "total_overkill", "{:.0f}"),
         ]
         for label, key, fmt in rows:
-            print(f"{label:<24}{fmt.format(baseline[key]):>12}"
-                  f"{fmt.format(rdma[key]):>12}")
+            values = []
+            for aggregate in (baseline, rdma):
+                value = aggregate[key]
+                values.append("-" if value is None else fmt.format(value))
+            print(f"{label:<24}{values[0]:>12}{values[1]:>12}")
 
     payload = {
         "seeds": args.seeds,

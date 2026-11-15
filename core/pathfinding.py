@@ -61,13 +61,20 @@ def _follow_edge(unit: Unit, tx: float, ty: float,
     side_dir = _EDGE_FOLLOW.get(unit.id)
 
     if side_dir is None:
-        # 选择绕行方向：尝试左右两个垂直方向
+        # 选择绕行方向：尝试左右两个垂直方向。
+        #
+        # 不能固定“先左后右”。镜像战场上红蓝的行进方向相反，固定先左会让
+        # 双方绕到障碍的同侧（例如红方绕北、蓝方绕南），点对称态势因此被
+        # 打破。这里把所有可行候选放在一起比较，比较量都关于地图中线镜像
+        # 不变：能否立即直行 → 到目标的距离 → 到中线的距离 → y 坐标。
         dx = tx - unit.x
         dy = ty - unit.y
         dist = hypot(dx, dy) or 1.0
         lx, ly = -dy / dist, dx / dist   # 左侧垂直
         rx, ry = dy / dist, -dx / dist    # 右侧垂直
 
+        options: list[tuple[tuple[float, float], tuple[float, float],
+                            bool, float]] = []
         for label_dir in ((lx, ly), (rx, ry)):
             for mult in (1.5, 1.0, 0.7):
                 cx = unit.x + label_dir[0] * unit.speed * mult
@@ -82,15 +89,33 @@ def _follow_edge(unit: Unit, tx: float, ty: float,
                     snx = cx + ndx / nd * probe
                     sny = cy + ndy / nd * probe
                     snx, sny = battlefield.clamp_position(snx, sny)
-                    if battlefield.can_move_to(snx, sny, unit.domain):
-                        unit.x, unit.y = snx, sny
-                        return True
-                    # 进入绕障模式，记录固定方向
-                    _EDGE_FOLLOW[unit.id] = label_dir
-                    _EDGE_FOLLOW_DURATION[unit.id] = 1
-                    unit.x, unit.y = cx, cy
-                    return True
-        return False
+                    can_go_direct = battlefield.can_move_to(
+                        snx, sny, unit.domain)
+                    dest = (snx, sny) if can_go_direct else (cx, cy)
+                    options.append((label_dir, dest, can_go_direct, mult))
+                    break
+        if not options:
+            return False
+
+        center_x = battlefield.width / 2
+        side_dir, (dest_x, dest_y), can_go_direct, _ = min(
+            options,
+            key=lambda item: (
+                0 if item[2] else 1,
+                hypot(tx - item[1][0], ty - item[1][1]),
+                abs(item[1][0] - center_x),
+                item[1][1],
+                item[3],
+            ),
+        )
+        if can_go_direct:
+            unit.x, unit.y = dest_x, dest_y
+            return True
+        # 进入绕障模式，记录固定方向
+        _EDGE_FOLLOW[unit.id] = side_dir
+        _EDGE_FOLLOW_DURATION[unit.id] = 1
+        unit.x, unit.y = dest_x, dest_y
+        return True
 
     # 已有绕障方向 → 沿固定方向继续（不重新计算，避免跨越目标轴时翻转）
     # 绕行过久 → 强制重置方向，尝试另一侧
@@ -166,8 +191,9 @@ def _corner_escape(unit: Unit, tx: float, ty: float,
         if battlefield.can_move_to(nx, ny, unit.domain):
             unit.x, unit.y = nx, ny
             return True
-    # 完全卡死 → 小幅度跳跃摆脱
-    jump_x = unit.x + (1 if unit.team == "red" else -1) * 12
+    # 完全卡死 → 小幅度跳跃摆脱。方向按“远离地图中线”取，镜像战场上
+    # 双方会朝互为镜像的方向跳，不能按红/蓝阵营硬编码左右。
+    jump_x = unit.x + (1 if unit.x < battlefield.width / 2 else -1) * 12
     jump_y = unit.y + 10 * (_STUCK_COUNTERS.get(unit.id, 0) % 3 - 1)
     jump_x, jump_y = battlefield.clamp_position(jump_x, jump_y)
     if battlefield.can_move_to(jump_x, jump_y, unit.domain):

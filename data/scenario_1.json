@@ -13,7 +13,7 @@
       "type": "mountain",
       "x": 330,
       "y": 120,
-      "width": 70,
+      "width": 140,
       "height": 150
     },
     {
@@ -25,9 +25,25 @@
       "height": 120
     },
     {
+      "name": "西侧建筑群",
+      "type": "building",
+      "x": 285,
+      "y": 335,
+      "width": 85,
+      "height": 120
+    },
+    {
       "name": "南部禁行区",
       "type": "restricted",
       "x": 185,
+      "y": 390,
+      "width": 95,
+      "height": 55
+    },
+    {
+      "name": "东南禁行区",
+      "type": "restricted",
+      "x": 520,
       "y": 390,
       "width": 95,
       "height": 55
@@ -79,8 +95,8 @@
       "name": "蓝-侦察无人机",
       "team": "blue",
       "unit_type": "scout_drone",
-      "x": 710,
-      "y": 115
+      "x": 715,
+      "y": 110
     },
     {
       "id": "B-AD-1",
@@ -88,23 +104,23 @@
       "team": "blue",
       "unit_type": "strike_drone",
       "x": 695,
-      "y": 245
+      "y": 225
     },
     {
       "id": "B-GV-1",
       "name": "蓝-无人战车",
       "team": "blue",
       "unit_type": "ground_vehicle",
-      "x": 650,
-      "y": 355
+      "x": 655,
+      "y": 335
     },
     {
       "id": "B-MV-1",
       "name": "蓝-导弹发射车",
       "team": "blue",
       "unit_type": "missile_vehicle",
-      "x": 655,
-      "y": 480
+      "x": 665,
+      "y": 460
     },
     {
       "id": "B-CMD-1",
@@ -112,7 +128,7 @@
       "team": "blue",
       "unit_type": "command_node",
       "x": 745,
-      "y": 525
+      "y": 520
     }
   ]
 }

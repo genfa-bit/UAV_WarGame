@@ -15,7 +15,7 @@ def test_simulator_initializes_from_scenario():
     assert battlefield.red_base == (80, 300)
     assert battlefield.blue_base == (720, 300)
     assert battlefield.terrain == "mixed_training_area"
-    assert len(battlefield.obstacles) == 3
+    assert len(battlefield.obstacles) == 5
     assert len(simulator.units) == 10
 
 
