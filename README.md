@@ -91,6 +91,8 @@ Windows 推荐用 `powershell -ExecutionPolicy Bypass -File .\build_windows.ps1`
 
 2026-11-15 验证（山地/建筑通行与地形修正）：`ground_vehicle`、`missile_vehicle` 可按 `data/unit_config.json` 的 `terrain_effects` 进入山地/建筑，`restricted` 与默认 `obstacle` 仍阻挡；进入后移动速度按 `speed_factor`、攻击命中按 `attack_hit_factor`、被命中按 `cover_hit_factor` 修正，双方倍率可叠加且不与视线遮挡重复惩罚。配置删除某项地形即恢复不可进入，非法倍率回退 1.0 并只警告一次。新增 `tests/test_terrain_effects.py` 31 项，全量 `python -m pytest -q` 为 **531 passed**（0 失败、0 跳过）。详见 [测试报告](docs/测试报告.md#2026-11-15-验证山地建筑通行与地形修正) 与 [详细设计](docs/详细设计.md#山地建筑通行与地形修正2026-11-15)。
 
+2026-11-15 验证（补充：空中单位地形命中修正）：`scout_drone`、`strike_drone` 也配置山地/建筑 `terrain_effects`，`speed_factor=1.0`、`attack_hit_factor=0.85`、`cover_hit_factor=0.80`；空中单位位于山地/建筑内时命中与被命中各按 ×0.85 / ×0.80 修正，速度保持不变；位于禁行区或默认障碍物内时仍沿用原有 0.3 视线遮挡。新增 5 项测试（`tests/test_terrain_effects.py` 共 36 项），全量 `python -m pytest -q` 为 **536 passed**（0 失败、0 跳过）。详见 [测试报告](docs/测试报告.md#五补充验证空中单位的地形命中修正2026-11-15) 与 [详细设计](docs/详细设计.md#山地建筑通行与地形修正2026-11-15)。
+
 `.github/workflows/verify.yml` 提供 Windows 自动测试；手动触发还会构建并保存 EXE。源码压缩包需要提交到自己的 GitHub 仓库后，工作流才会执行。
 
 ## 代码结构

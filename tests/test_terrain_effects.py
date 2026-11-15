@@ -16,7 +16,7 @@ from core.controller import SimulationController
 from core.deployment import DeploymentManager
 from core.obstacle_editor import MapEditor
 from core.unit_config_loader import clear_config_cache, get_terrain_effects
-from core.units import GroundVehicle, MissileVehicle, ScoutDrone
+from core.units import CommandNode, GroundVehicle, MissileVehicle, ScoutDrone
 
 
 def _mountain(x=50, y=50, width=40, height=40) -> Obstacle:
@@ -61,9 +61,17 @@ def test_missile_vehicle_terrain_effects_loaded_from_config():
     assert effects["mountain"]["speed_factor"] == pytest.approx(0.45)
 
 
-def test_air_and_command_units_have_no_terrain_effects():
-    assert get_terrain_effects("scout_drone") == {}
-    assert get_terrain_effects("strike_drone") == {}
+def test_air_units_have_hit_modifiers_without_speed_penalty():
+    for unit_type in ("scout_drone", "strike_drone"):
+        effects = get_terrain_effects(unit_type)
+        assert set(effects) == {"mountain", "building"}
+        for terrain in ("mountain", "building"):
+            assert effects[terrain]["speed_factor"] == pytest.approx(1.0)
+            assert effects[terrain]["attack_hit_factor"] == pytest.approx(0.85)
+            assert effects[terrain]["cover_hit_factor"] == pytest.approx(0.80)
+
+
+def test_command_unit_has_no_terrain_effects():
     assert get_terrain_effects("command_node") == {}
 
 
@@ -205,7 +213,7 @@ def test_attacker_inside_mountain_reduces_hit_probability():
     empty = Battlefield(200, 200)
     terrain = Battlefield(200, 200, [_mountain(40, 40, 60, 60)])
     attacker = _ground(x=60, y=60, base_hit_prob=0.85, attack_range=200)
-    target = ScoutDrone(id="t", name="目标", team="blue", x=70, y=60, speed=0)
+    target = ScoutDrone(id="t", name="目标", team="blue", x=130, y=60, speed=0)
 
     baseline = _hit_prob(attacker, target, empty)
     reduced = _hit_prob(attacker, target, terrain)
@@ -247,12 +255,53 @@ def test_separate_obstacle_between_units_still_applies_cover():
     assert prob == pytest.approx(baseline * 0.75 * 0.3, rel=1e-6)
 
 
+def test_air_effective_speed_unchanged_inside_terrain():
+    for terrain in (_mountain(50, 50), _building(50, 50)):
+        battlefield = Battlefield(200, 200, [terrain])
+        drone = ScoutDrone(id="d", name="无人机", team="red", x=60, y=60)
+        assert drone.terrain_factor(battlefield, "speed_factor") == pytest.approx(1.0)
+        assert drone.effective_speed(battlefield) == pytest.approx(drone.speed)
+
+
+def test_air_attacker_inside_building_reduces_hit_probability():
+    empty = Battlefield(200, 200)
+    terrain = Battlefield(200, 200, [_building(40, 40, 60, 60)])
+    attacker = ScoutDrone(id="a", name="攻击者", team="red", x=60, y=60,
+                          base_hit_prob=0.85, attack_range=200)
+    target = _ground(x=150, y=60, speed=0)
+
+    baseline = _hit_prob(attacker, target, empty)
+    reduced = _hit_prob(attacker, target, terrain)
+    assert reduced == pytest.approx(baseline * 0.85, rel=1e-6)
+
+
+def test_air_target_inside_mountain_reduces_incoming_hit_probability():
+    empty = Battlefield(200, 200)
+    terrain = Battlefield(200, 200, [_mountain(60, 40, 60, 60)])
+    attacker = _ground(x=20, y=60, base_hit_prob=0.85, attack_range=200)
+    target = ScoutDrone(id="t", name="目标", team="blue", x=70, y=60, speed=0)
+
+    baseline = _hit_prob(attacker, target, empty)
+    reduced = _hit_prob(attacker, target, terrain)
+    assert reduced == pytest.approx(baseline * 0.80, rel=1e-6)
+
+
+def test_air_unit_over_restricted_still_uses_line_of_sight_cover():
+    terrain = Battlefield(200, 200, [_restricted(50, 50, 40, 40)])
+    attacker = ScoutDrone(id="a", name="攻击者", team="red", x=60, y=60,
+                          base_hit_prob=0.85, attack_range=200)
+    target = _ground(x=150, y=60, speed=0)
+    prob = _hit_prob(attacker, target, terrain)
+    baseline = _hit_prob(attacker, target, Battlefield(200, 200))
+    assert prob == pytest.approx(baseline * 0.3, rel=1e-6)
+
+
 def test_units_without_terrain_effects_ignore_terrain_factors():
     """没有 terrain_effects 的兵种不会获得地形命中修正。"""
     terrain = Battlefield(200, 200, [_mountain(40, 40, 60, 60)])
-    drone = ScoutDrone(id="d", name="无人机", team="red", x=60, y=60)
-    assert drone.terrain_factor(terrain, "attack_hit_factor") == pytest.approx(1.0)
-    assert drone.terrain_factor(terrain, "cover_hit_factor") == pytest.approx(1.0)
+    node = CommandNode(id="c", name="指挥节点", team="red", x=60, y=60)
+    assert node.terrain_factor(terrain, "attack_hit_factor") == pytest.approx(1.0)
+    assert node.terrain_factor(terrain, "cover_hit_factor") == pytest.approx(1.0)
 
 
 # ═══════════════════════════════════════════════════════════
