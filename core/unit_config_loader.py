@@ -8,12 +8,16 @@ from __future__ import annotations
 import copy
 import json
 import math
+import os
 import re
 import warnings
 from pathlib import Path
 from typing import Any
 
-from config import COOPERATIVE_ASSIGNMENT_DEFAULTS, OBSTACLE_TYPES
+from config import (COOPERATIVE_ASSIGNMENT_DEFAULTS,
+                    COOPERATIVE_VERSION_ALIASES,
+                    COOPERATIVE_VERSION_PROFILES,
+                    DEFAULT_COOPERATIVE_VERSION, OBSTACLE_TYPES)
 
 
 _CONFIG: dict[str, Any] | None = None
@@ -284,12 +288,39 @@ _HTCS_LATE_FIRE_POLICIES = ("strict", "lenient", "adaptive")
 
 
 def _cooperative_mode(config: dict[str, Any]) -> None:
-    mode = config.get("mode", "rdma_v2")
+    default = COOPERATIVE_ASSIGNMENT_DEFAULTS["mode"]
+    mode = config.get("mode", default)
     if mode not in _COOPERATIVE_MODES:
         _warn_once("mode", f"mode={mode!r} 必须是 {_COOPERATIVE_MODES} 之一")
-        config["mode"] = "rdma_v2"
+        config["mode"] = default
     else:
         config["mode"] = mode
+
+
+def _apply_cooperative_version(config: dict[str, Any], version: Any) -> None:
+    """按版本名一次性设置 mode 与 late_fire_policy。"""
+    normalized = COOPERATIVE_VERSION_ALIASES.get(
+        str(version).strip().lower(), str(version).strip().lower())
+    if normalized not in COOPERATIVE_VERSION_PROFILES:
+        _warn_once("active_version",
+                   f"active_version={version!r} 必须是 "
+                   f"{tuple(COOPERATIVE_VERSION_PROFILES)} 之一")
+        normalized = DEFAULT_COOPERATIVE_VERSION
+    profile = COOPERATIVE_VERSION_PROFILES[normalized]
+    config["active_version"] = normalized
+    config["mode"] = profile["mode"]
+    if "late_fire_policy" in profile:
+        config["htcs"]["late_fire_policy"] = profile["late_fire_policy"]
+
+
+def _infer_cooperative_version(config: dict[str, Any]) -> str:
+    """未显式给版本时，根据 mode/policy 反推版本名供界面与日志显示。"""
+    if config.get("mode") == "rdma_v2":
+        return "rdma_v2"
+    policy = config.get("htcs", {}).get(
+        "late_fire_policy",
+        COOPERATIVE_ASSIGNMENT_DEFAULTS["htcs"]["late_fire_policy"])
+    return f"htcs_{policy}"
 
 
 def _htcs_number(config: dict[str, Any], key: str, default: float,
@@ -392,14 +423,23 @@ def get_cooperative_assignment_config() -> dict[str, Any]:
             _warn_once("cooperative_assignment",
                        "cooperative_assignment 必须是字典")
         raw = {}
+    # 环境变量优先于配置文件，便于不改文件临时切换版本。
+    explicit_version = raw.get("active_version")
+    env_version = os.environ.get("UAV_COOPERATIVE_VERSION", "").strip()
+    if env_version:
+        explicit_version = env_version
     config = _deep_merge(COOPERATIVE_ASSIGNMENT_DEFAULTS, raw)
 
     enabled = config.get("enabled", True)
     if not isinstance(enabled, bool):
         _warn_once("enabled", f"enabled={enabled!r} 必须是布尔值")
         config["enabled"] = True
-    _cooperative_mode(config)
     _htcs_config(config)
+    if explicit_version is not None:
+        _apply_cooperative_version(config, explicit_version)
+    _cooperative_mode(config)
+    if explicit_version is None:
+        config["active_version"] = _infer_cooperative_version(config)
 
     _positive_int(config, "replan_interval_steps",
                   COOPERATIVE_ASSIGNMENT_DEFAULTS["replan_interval_steps"])

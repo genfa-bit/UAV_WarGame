@@ -34,6 +34,48 @@ python -m venv .venv
 
 Windows 单文件程序由构建脚本生成至 `dist/UAV_WarGame.exe`，双击启动，无需另装 Python。源码仓库不提交生成的 EXE；也可手动触发 GitHub Actions，在成功运行的产物中下载程序。本轮已完成 Windows 11 本机 EXE 工作流自检；独立电脑及显示缩放检查见测试报告。
 
+## 协同算法版本切换
+
+**默认版本：`htcs_strict`**（HTCS + strict 迟到策略）。这是 2026-11-16 用 5 场景 × 30 种子 × 200 步对比后选出的版本，依据见 [默认版本对比数据](docs/verification/cooperative-benchmark-default-selection-2026-11-16-30seeds.json)。
+
+| `active_version` | `mode` | `late_fire_policy` | 说明 |
+| --- | --- | --- | --- |
+| `rdma_v2` | `rdma_v2` | 不使用 | RDMA v2 旧路径 |
+| `htcs_strict`（默认） | `htcs` | `strict` | 迟到即拦截；胜率、伤害交换比、弹药效率与过杀控制综合最优 |
+| `htcs_lenient` | `htcs` | `lenient` | 保留旧迟到行为 |
+| `htcs_adaptive` | `htcs` | `adaptive` | 有界再定时/顺延；迟到拦截更少，但标称过杀更高 |
+
+支持简写：`htcs` / `strict` → `htcs_strict`，`lenient` → `htcs_lenient`，`adaptive` → `htcs_adaptive`。
+
+任选一种方式切换（优先级从高到低）：
+
+1. **环境变量（临时，不改文件）**：启动前设置 `UAV_COOPERATIVE_VERSION`，例如 PowerShell：
+
+   ```powershell
+   $env:UAV_COOPERATIVE_VERSION = "rdma_v2"
+   python main.py
+   ```
+
+   cmd 使用 `set UAV_COOPERATIVE_VERSION=rdma_v2` 后再运行。关闭终端后失效。
+
+2. **项目配置（长期）**：修改 `data/unit_config.json` 中
+   `cooperative_assignment.active_version` 的值，保存后重启程序。例如切到 adaptive：
+
+   ```json
+   "cooperative_assignment": {
+     "active_version": "htcs_adaptive"
+   }
+   ```
+
+3. **基准脚本**：`python tools/cooperative_benchmark.py --variants rdma_v2,htcs,htcs_adaptive ...`。
+   其中 `htcs` 固定使用 strict、`htcs_adaptive` 固定使用 adaptive，不受默认版本或环境变量影响。
+
+说明：
+
+- `active_version` 是唯一推荐开关；设置后会自动推导 `mode` 与 `htcs.late_fire_policy`，无需同时改两处。
+- 只有省略 `active_version` 时，才使用 `mode` 和 `htcs.late_fire_policy` 的细粒度配置，以兼容旧配置文件。
+- 环境变量优先于 `data/unit_config.json`；配置文件在进程内缓存，修改后需重启程序。
+
 ## 场景与结果文件
 
 - 标准场景：`data/scenario_1.json`；另提供障碍环境、空白自定义场景，以及 `scenario_valley.json`（山区河谷）和 `scenario_river_city.json`（河谷城镇）。两张新地图均为 1200×800，各有 14 个单位、16 个障碍。
@@ -100,6 +142,8 @@ Windows 推荐用 `powershell -ExecutionPolicy Bypass -File .\build_windows.ps1`
 2026-11-15 验证（分层时相协同打击 HTCS / RDMA v3）：`cooperative_assignment.mode` 新增可选值 `htcs`，缺省仍为 `rdma_v2`，既有对局行为不变。HTCS 在 RDMA v2 的出价之上增加三层结构：滚动波次（每 6 步重规划，任务只承诺本波次可投入的伤害）、任务束（CBBA 风格，每单位 ≤2 个任务、按 ETA 做时间折扣、按最晚到达者定共同 TOT）、火力门（提前待机、窗口内齐射）。配套机制包括伤害账本（排队时刻登记期望伤害、饱和即停火）、BDA 与再攻击加权、SEAD 先导与命中压制、四战法态势自适应（斩首/压基地/消耗/平衡）以及可选的断链降级。新增 `core/time_coordination.py`、`core/damage_ledger.py`、`core/strike_planner.py` 与 23 项 `htcs` 配置（非法值按键回退并只警告一次）。新增 5 个测试文件共 168 项，全量 `python -m pytest -q` 为 **719 passed**（0 失败、0 跳过）。3 种子 × 150 步 × 5 场景 × 3 变体对比见 [cooperative-benchmark-htcs-2026-11-15.json](docs/verification/cooperative-benchmark-htcs-2026-11-15.json)：`mirrored` 红方胜率 66.7%（Baseline 与 RDMA v2 均 33.3%）、弹药 19.3 发（40.7 / 29.3）；`base_rush` 红方对蓝基地伤害 396（270 / 72）；HTCS 单次规划 0.16–0.72 ms；SEAD 与火力纪律在基准场景中未触发，由构造场景的集成测试覆盖。详见 [测试报告](docs/测试报告.md#2026-11-15-验证分层时相协同打击htcs) 与 [详细设计](docs/详细设计.md#分层时相协同打击htcs2026-11-15)。
 
 2026-11-16 验证（HTCS 任务级延期预算与时间一致性）：自适应迟到策略新增 `late_fire_task_delay_max_steps`（缺省 60，0 表示禁止延期），与 `late_fire_retime_max` 分别限制“累计推迟时间”和“再定时次数”，两者先到者生效；重规划、跨波次保留计划与退役任务共用同一份预算，不再重新获得额度。`_htcs_shift_task()` 同步 `FirePlan` 窗口、`StrikeTask.tot_step/window_start/late_until` 与 `assignments.attack_steps`，并受同单位后续任务窗口约束；`reached` 只保留历史语义，实际排队射击前改为按当前射程/可见性/交战目标/压制状态复检；任务取消或挂起时按 `task_id` 释放未结算预约。全量 `python -m pytest -q` 为 **788 passed**（上一版自适应记录 775，新增 13 项，0 失败、0 跳过）。5 场景 × 3 种子 × 200 步固定种子对比见 [cooperative-benchmark-task-budget-2026-11-16.json](docs/verification/cooperative-benchmark-task-budget-2026-11-16.json)：`strict` 各机制指标与修改前逐项一致；`adaptive` 迟到拦截 40 → 33、再定时 37 → 33、挂起 3 → 9、再攻击标记 1694 → 1603、标称过杀 9 → 0。样本较小，胜负数据不作为结论。详见 [测试报告](docs/测试报告.md#htcs-任务级延期预算与时间一致性2026-11-16)；本次实现与测试对比记录在项目上级目录的 `Aiagent.md`。
+
+2026-11-16 默认版本选定（RDMA v2 / HTCS strict / HTCS adaptive）：固定种子 30 × 5 场景 × 200 步 × 3 变体 = 450 局，数据见 [cooperative-benchmark-default-selection-2026-11-16-30seeds.json](docs/verification/cooperative-benchmark-default-selection-2026-11-16-30seeds.json)。红方胜率 `rdma_v2` 45/150（30.0%）、`htcs` strict 46/150（30.7%）、`htcs_adaptive` 45/150（30.0%），差异在抽样误差内；`htcs` strict 的伤害交换比最高（1.319，另两者 1.227 / 1.171）、承受伤害最低（12531，另两者 13712 / 17746）、弹药最少（2704，另两者 2788 / 3663）、标称过杀最低（15，另两者 52 / 60），镜像场景胜率 50.0%（另两者 43.3% / 36.7%）。`htcs_adaptive` 把迟到拦截从 836 降到 336，并产生 402 次再定时、93 次顺延，但未转化为胜率提升且标称过杀更高，保留为可选策略。因此 `cooperative_assignment.mode` 默认改为 `htcs`，`htcs.late_fire_policy` 保持 `strict`；`rdma_v2` 与 `lenient` 仍可显式配置。全量 `python -m pytest -q` 为 **788 passed**（93.43 秒）；RDMA 专属回归测试改为显式固定 `mode="rdma_v2"`。已知权衡：`defended_base` 场景 strict 胜率 3.3%，低于 `rdma_v2` 的 13.3%。默认选择过程记录在项目上级目录的 `Aiagent.md`。
 
 `.github/workflows/verify.yml` 提供 Windows 自动测试；手动触发还会构建并保存 EXE。源码压缩包需要提交到自己的 GitHub 仓库后，工作流才会执行。
 

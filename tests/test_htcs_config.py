@@ -15,6 +15,12 @@ import core.unit_config_loader as loader
 from config import COOPERATIVE_ASSIGNMENT_DEFAULTS, HTCS_DEFAULTS
 
 
+@pytest.fixture(autouse=True)
+def _clear_version_env(monkeypatch):
+    """避免开发机上的环境变量影响配置断言；环境变量用例再单独设置。"""
+    monkeypatch.delenv("UAV_COOPERATIVE_VERSION", raising=False)
+
+
 def _load(monkeypatch, cooperative):
     """注入 cooperative_assignment 配置并返回校验后的副本。"""
     monkeypatch.setattr(
@@ -24,10 +30,65 @@ def _load(monkeypatch, cooperative):
     return loader.get_cooperative_assignment_config()
 
 
-def test_default_mode_is_rdma_v2_and_keeps_legacy_behavior():
+def test_default_mode_is_htcs_strict():
     config = deepcopy(COOPERATIVE_ASSIGNMENT_DEFAULTS)
-    assert config["mode"] == "rdma_v2"
+    assert config["active_version"] == "htcs_strict"
+    assert config["mode"] == "htcs"
+    assert config["htcs"]["late_fire_policy"] == "strict"
     assert config["enabled"] is True
+
+
+def test_active_version_sets_mode_and_policy_in_one_knob(monkeypatch):
+    config = _load(monkeypatch, {"active_version": "htcs_adaptive"})
+    assert config["active_version"] == "htcs_adaptive"
+    assert config["mode"] == "htcs"
+    assert config["htcs"]["late_fire_policy"] == "adaptive"
+
+
+def test_active_version_rdma_v2_ignores_direct_htcs_settings(monkeypatch):
+    config = _load(monkeypatch, {
+        "active_version": "rdma_v2",
+        "mode": "htcs",
+        "htcs": {"late_fire_policy": "adaptive"},
+    })
+    assert config["mode"] == "rdma_v2"
+
+
+def test_active_version_accepts_short_aliases(monkeypatch):
+    assert _load(monkeypatch, {"active_version": "htcs"})["active_version"] == "htcs_strict"
+    config = _load(monkeypatch, {"active_version": "adaptive"})
+    assert config["active_version"] == "htcs_adaptive"
+    assert config["htcs"]["late_fire_policy"] == "adaptive"
+
+
+def test_unknown_active_version_falls_back_to_default(monkeypatch):
+    with pytest.warns(RuntimeWarning, match="active_version"):
+        config = _load(monkeypatch, {"active_version": "v9"})
+    assert config["active_version"] == "htcs_strict"
+    assert config["mode"] == "htcs"
+    assert config["htcs"]["late_fire_policy"] == "strict"
+
+
+def test_env_version_overrides_file_version(monkeypatch):
+    monkeypatch.setenv("UAV_COOPERATIVE_VERSION", "rdma_v2")
+    config = _load(monkeypatch, {"active_version": "htcs_strict"})
+    assert config["active_version"] == "rdma_v2"
+    assert config["mode"] == "rdma_v2"
+
+
+def test_env_version_accepts_alias(monkeypatch):
+    monkeypatch.setenv("UAV_COOPERATIVE_VERSION", "adaptive")
+    config = _load(monkeypatch, {"active_version": "rdma_v2"})
+    assert config["active_version"] == "htcs_adaptive"
+    assert config["mode"] == "htcs"
+    assert config["htcs"]["late_fire_policy"] == "adaptive"
+
+
+def test_omitted_active_version_keeps_direct_policy_config(monkeypatch):
+    config = _load(monkeypatch, {"htcs": {"late_fire_policy": "lenient"}})
+    assert config["active_version"] == "htcs_lenient"
+    assert config["mode"] == "htcs"
+    assert config["htcs"]["late_fire_policy"] == "lenient"
 
 
 def test_htcs_defaults_cover_every_documented_knob():
@@ -55,10 +116,10 @@ def test_mode_htcs_is_accepted(monkeypatch):
     assert config["mode"] == "htcs"
 
 
-def test_unknown_mode_falls_back_to_rdma_v2_with_warning(monkeypatch):
+def test_unknown_mode_falls_back_to_default_with_warning(monkeypatch):
     with pytest.warns(RuntimeWarning, match="mode"):
         config = _load(monkeypatch, {"mode": "swarm_v9"})
-    assert config["mode"] == "rdma_v2"
+    assert config["mode"] == COOPERATIVE_ASSIGNMENT_DEFAULTS["mode"] == "htcs"
 
 
 def test_missing_htcs_block_is_filled_with_defaults(monkeypatch):

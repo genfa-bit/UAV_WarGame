@@ -9,7 +9,8 @@
 
   "cooperative_assignment": {
     "enabled": true,
-    "mode": "rdma_v2",
+    "active_version": "htcs_strict",
+    "mode": "htcs",
 
     "htcs": {
       "wave_length_steps": 6,

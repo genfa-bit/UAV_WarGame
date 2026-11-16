@@ -5,7 +5,15 @@ from __future__ import annotations
 from core.battlefield import Battlefield
 from core.engagement import EngagementPhase
 from core.simulator import Simulator
+from core.unit_config_loader import get_cooperative_assignment_config
 from core.units import CommandNode, GroundVehicle, StrikeDrone
+
+
+def _rdma_config():
+    """本文件回归的是 RDMA 专属授权路径，显式固定旧模式。"""
+    config = get_cooperative_assignment_config()
+    config["mode"] = "rdma_v2"
+    return config
 
 
 def _unit(unit_id, team, x, **kwargs):
@@ -27,7 +35,9 @@ def test_unassigned_unit_does_not_fall_back_to_focus_or_nearest_target():
     assigned = _unit("r1", "red", 350)
     unassigned = _unit("r2", "red", 360)
     target = _target("b1", 400, hp=10)
-    simulator = Simulator(Battlefield(800, 600), [assigned, unassigned, target])
+    simulator = Simulator(Battlefield(800, 600),
+                          [assigned, unassigned, target],
+                          cooperative_config=_rdma_config())
 
     simulator.step()
 
@@ -48,7 +58,9 @@ def test_assignment_change_restarts_reaction_and_authorizes_new_target_only():
     first = _target("b1", 400)
     second = _target("b2", 420)
     third = _target("b3", 440)
-    simulator = Simulator(Battlefield(800, 600), [red, first, second, third])
+    simulator = Simulator(Battlefield(800, 600),
+                          [red, first, second, third],
+                          cooperative_config=_rdma_config())
 
     for _ in range(3):
         simulator.step()
@@ -80,7 +92,8 @@ def test_assignment_change_restarts_reaction_and_authorizes_new_target_only():
 def test_unassigned_counter_excludes_command_nodes():
     command = CommandNode(id="r_cmd", name="R-CMD", team="red", x=100, y=300,
                           speed=0)
-    simulator = Simulator(Battlefield(800, 600), [command])
+    simulator = Simulator(Battlefield(800, 600), [command],
+                          cooperative_config=_rdma_config())
 
     statistics = simulator.status_snapshot()
 
@@ -92,7 +105,8 @@ def test_assignment_targets_are_recomputed_from_per_unit_delivered_view():
     observer = _unit("r1", "red", 100, detect_range=180)
     receiver = _unit("r2", "red", 50, detect_range=5)
     target = _target("b1", 200)
-    simulator = Simulator(Battlefield(800, 600), [observer, receiver, target])
+    simulator = Simulator(Battlefield(800, 600), [observer, receiver, target],
+                          cooperative_config=_rdma_config())
 
     simulator.step()
 
@@ -118,7 +132,8 @@ def _base_attack_simulator(*, units=None, base_max=2):
     dummy = GroundVehicle(id="blue_dummy", name="blue_dummy", team="blue",
                           x=700, y=100, speed=0, attack_power=0, ammo=0,
                           detect_range=0, reaction_delay=0, attack_cooldown=0)
-    simulator = Simulator(battlefield, [*red_units, dummy])
+    simulator = Simulator(battlefield, [*red_units, dummy],
+                          cooperative_config=_rdma_config())
     simulator.cooperative_config["base_max_assignments"] = base_max
     simulator.cooperative_config["base_min_assignments"] = 1
     return simulator, battlefield

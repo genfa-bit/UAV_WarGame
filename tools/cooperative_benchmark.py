@@ -49,8 +49,10 @@ def _cooperative_config(variant: str) -> dict | None:
         return config
     if variant.startswith("htcs"):
         config["mode"] = "htcs"
-        if variant == "htcs_adaptive":
-            config["htcs"]["late_fire_policy"] = "adaptive"
+        # 变体名固定语义：htcs 始终 strict，htcs_adaptive 始终 adaptive，
+        # 不受当前默认版本或 UAV_COOPERATIVE_VERSION 影响。
+        config["htcs"]["late_fire_policy"] = (
+            "adaptive" if variant == "htcs_adaptive" else "strict")
         return config
     config["mode"] = "rdma_v2"
     return config

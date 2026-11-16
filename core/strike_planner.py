@@ -13,7 +13,8 @@ HTCS 在 RDMA v2 的“单位 → 目标”分配之上增加三层结构：
 与 RDMA v2 的关系：复用 ``CooperativeAllocator.score_pairs`` 的出价与
 期望伤害，仅启用三处已知修正（绝对优先级归一化、弹药截断、效果权重
 解耦），并新增伤害账本、BDA/再攻击、SEAD 压制与态势自适应战法。
-``mode`` 缺省仍为 ``rdma_v2``，因此既有行为保持不变。
+``mode`` 缺省为 ``htcs``（2026-11-16 三版本基准选定）；显式设为
+``rdma_v2`` 时仍保持原有 RDMA 行为。
 """
 
 from __future__ import annotations

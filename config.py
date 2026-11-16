@@ -229,10 +229,32 @@ HTCS_DEFAULTS = {
     "overshoot_penalty": 0.15,
 }
 
+# 协同算法版本切换：只需设置 cooperative_assignment.active_version（或环境
+# 变量 UAV_COOPERATIVE_VERSION），无需同时改 mode 与 late_fire_policy。
+# 2026-11-16 的 30 种子基准中，htcs_strict 的胜率、伤害交换比、弹药效率与
+# 过杀控制综合最优，因此设为默认版本。
+DEFAULT_COOPERATIVE_VERSION = "htcs_strict"
+COOPERATIVE_VERSION_PROFILES = {
+    "rdma_v2": {"mode": "rdma_v2"},
+    "htcs_strict": {"mode": "htcs", "late_fire_policy": "strict"},
+    "htcs_lenient": {"mode": "htcs", "late_fire_policy": "lenient"},
+    "htcs_adaptive": {"mode": "htcs", "late_fire_policy": "adaptive"},
+}
+COOPERATIVE_VERSION_ALIASES = {
+    "htcs": "htcs_strict",
+    "strict": "htcs_strict",
+    "lenient": "htcs_lenient",
+    "adaptive": "htcs_adaptive",
+}
+
 COOPERATIVE_ASSIGNMENT_DEFAULTS = {
     "enabled": True,
-    # 算法模式：rdma_v2（默认，角色约束动态边际拍卖）或 htcs（分层时相协同打击）。
-    "mode": "rdma_v2",
+    # 版本开关：rdma_v2 / htcs_strict / htcs_lenient / htcs_adaptive。
+    # 显式设置时优先级最高，mode 与 htcs.late_fire_policy 由版本自动推导；
+    # 省略时才回退到下面的 mode/late_fire_policy 细粒度配置。
+    "active_version": DEFAULT_COOPERATIVE_VERSION,
+    # 算法模式：htcs（默认，分层时相协同打击）或 rdma_v2（角色约束动态边际拍卖）。
+    "mode": "htcs",
     "htcs": HTCS_DEFAULTS,
     "replan_interval_steps": 5,
     "max_assignments_per_target": 3,

@@ -110,9 +110,9 @@ class Simulator:
                                    if cooperative_config is not None
                                    else get_cooperative_assignment_config())
         self.cooperative_enabled = bool(self.cooperative_config.get("enabled", True))
-        # 算法模式由配置决定；缺省 rdma_v2，保证既有行为不变。HTCS 所需的
+        # 算法模式由配置决定；缺省 htcs（2026-11-16 基准选定）。HTCS 所需的
         # 账本、火力计划与再攻击状态只在 htcs 模式下创建和使用。
-        self.cooperative_mode = str(self.cooperative_config.get("mode", "rdma_v2"))
+        self.cooperative_mode = str(self.cooperative_config.get("mode", "htcs"))
         self.htcs_config = dict(self.cooperative_config.get("htcs", {}))
         self._htcs_configured = self.cooperative_mode == "htcs"
         self.allocator = CooperativeAllocator(self.cooperative_config)
