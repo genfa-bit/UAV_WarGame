@@ -192,6 +192,40 @@ class FireWindow:
 
 
 @dataclass
+class TaskDeferralBudget:
+    """任务级延期账本：所有 retime 与临时顺延共用的唯一预算。
+
+    三个记录项分别对应自适应迟到策略的约束：
+
+    - ``original_tot``：任务首次安装时的 TOT，重定时后保持不变；
+    - ``deferred_steps``：累计已推迟的步数（retime 与 temporary 顺延都
+      从这里扣）；
+    - ``deadline_tot``：允许执行的最晚绝对 TOT，由 ``original_tot`` 加上
+      配置的累计延期上限得到。
+
+    ``retimes`` 是任务被再定时的次数，与累计时间预算是两个独立限制：
+    次数先到上限、或累计时间先到上限，都必须停止延期。
+    """
+
+    original_tot: int
+    max_delay_steps: int
+    retimes: int = 0
+    deferred_steps: int = 0
+
+    @property
+    def deadline_tot(self) -> int:
+        return int(self.original_tot) + max(0, int(self.max_delay_steps))
+
+    @property
+    def remaining_steps(self) -> int:
+        return max(0, int(self.max_delay_steps) - int(self.deferred_steps))
+
+    def clamp_delta(self, delta: int) -> int:
+        """把请求的平移量裁剪到剩余时间预算内。"""
+        return max(0, min(int(delta), self.remaining_steps))
+
+
+@dataclass
 class FirePlan:
     """单位的一次计划射击：目标、任务、打击时刻与窗口。"""
 
@@ -202,14 +236,17 @@ class FirePlan:
     window: FireWindow
     # ── 自适应迟到策略（late_fire_policy="adaptive"）使用的执行状态 ──
     # 标称/上界 ETA 在安装计划时冻结，用于计算本计划的迟到宽限；重定时
-    # 会重新估计。``reached`` 表示单位至少一次真正进入过可开火位置，
-    # 用于区分“没赶到”与“赶到了但没打出去”。``retimes`` 是单条计划
-    # 已被推迟的次数，由任务级上限约束。
+    # 会重新估计。``reached`` 只表示单位至少一次真正进入过可开火位置，
+    # 是历史事实，不能用来判断当前是否仍具备开火条件；真正排队射击前
+    # 必须用单位与目标当前状态重新检查射程与可见性。``original_tot`` 是
+    # 任务首次安装时的 TOT，跨重规划保留，供任务级延期预算使用。
+    # ``retimes`` 是单条计划已被推迟的次数，由任务级上限约束。
     eta_nominal: int = 0
     eta_upper: int = 0
     reached: bool = False
     blocked_by_discipline: bool = False
     retimes: int = 0
+    original_tot: int = 0
 
     @property
     def tot(self) -> int:

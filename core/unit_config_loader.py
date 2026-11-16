@@ -324,7 +324,9 @@ def _htcs_config(config: dict[str, Any]) -> None:
         _positive_int(merged, key, defaults[key])
     for key in ("tot_tolerance_steps", "tot_late_steps",
                 "reattack_delay_steps", "sead_suppression_steps",
-                "late_fire_retime_max", "late_fire_late_max_steps"):
+                "late_fire_retime_max", "late_fire_late_max_steps",
+                # 0 是合法值：任务不允许任何延期，过期即挂起/拦截。
+                "late_fire_task_delay_max_steps"):
         _nonnegative_int(merged, key, defaults[key])
     if merged["late_fire_late_max_steps"] < merged["tot_late_steps"]:
         _warn_once("htcs.late_fire_late_max_steps",

@@ -40,6 +40,7 @@
       "late_fire_policy": "strict",
       "late_fire_hold_steps": 6,
       "late_fire_retime_max": 1,
+      "late_fire_task_delay_max_steps": 60,
       "late_fire_retime_horizon_steps": 60,
       "late_fire_late_max_steps": 12,
       "eta_upper_slack_ratio": 1.10,

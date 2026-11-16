@@ -34,8 +34,9 @@ from core.strike_planner import StrikePlanner
 from core.target_pool import TargetPool
 from core.threat import (priority_targets, situation_label, tactics_label,
                          team_strength, threat_score)
-from core.time_coordination import (FirePlan, FireWindow, estimate_eta,
-                                    estimate_eta_interval, staging_standoff)
+from core.time_coordination import (FirePlan, FireWindow, TaskDeferralBudget,
+                                    estimate_eta, estimate_eta_interval,
+                                    staging_standoff)
 from core.unit_config_loader import (get_cooperative_assignment_config,
                                      get_unit_stats)
 from core.units import CommandNode, Unit, UnitDomain
@@ -137,6 +138,10 @@ class Simulator:
         # 自适应迟到策略的分类日志：挂起/再定时每任务只记一次。
         self._htcs_defer_logged: set[str] = set()
         self._htcs_retime_logged: set[str] = set()
+        # 任务级延期账本：按 task_id 记录原始 TOT、累计延期与再定时次数。
+        # 计划跨波次保持时仍使用同一份预算，重定时不会重新获得额度。
+        self._htcs_task_budgets: dict[str, dict[str, TaskDeferralBudget]] = {
+            TEAM_RED: {}, TEAM_BLUE: {}}
         self.assignments: dict[str, AssignmentResult] = {
             TEAM_RED: AssignmentResult(), TEAM_BLUE: AssignmentResult()}
         # 只有本步真正执行过分配，才允许 RDMA 路由；直接调用旧阶段方法的
@@ -578,6 +583,7 @@ class Simulator:
                     unit.id, task.eta_best))
                 eta_upper = int(task.eta_upper_by_unit.get(
                     unit.id, eta_nominal))
+                original_tot = int(task.original_tot or task.tot_step)
                 plan_late = late
                 if adaptive:
                     # 标称 ETA 只负责把 TOT 摆到位；地形/绕障/目标运动
@@ -599,12 +605,15 @@ class Simulator:
                         window=window,
                         eta_nominal=eta_nominal,
                         eta_upper=eta_upper,
+                        original_tot=original_tot,
                     ))
             if persist:
                 unit_plans = self._merge_fire_plans(
                     previous_plans.get(unit.id, []), unit_plans)
             plans[unit.id] = unit_plans
         self.fire_plans[team] = plans
+        if adaptive:
+            self._htcs_sync_plans_and_tasks(team, result)
 
     def _merge_fire_plans(self, old: list[FirePlan],
                           new: list[FirePlan]) -> list[FirePlan]:
@@ -624,6 +633,93 @@ class Simulator:
         kept_keys = {(plan.target_id, plan.role) for plan in kept}
         return kept + [plan for plan in new
                        if (plan.target_id, plan.role) not in kept_keys]
+
+    def _htcs_task_by_id(self, team: str, task_id: str):
+        """按 task_id 查找当前任务，找不到时回退到退役任务。
+
+        跨波次保留的 FirePlan 仍指向旧 task_id；重规划会把旧任务移入
+        ``_htcs_retired``。统一查找保证再定时/挂起能同步到真正的任务对象，
+        而不是丢失字段后让 BDA 用过期的 late_until 判定。
+        """
+        result = self.assignments.get(team)
+        if result is not None and task_id in result.tasks:
+            return result.tasks[task_id]
+        for task in self._htcs_retired.get(team, []):
+            if task.task_id == task_id:
+                return task
+        return None
+
+    def _htcs_budget(self, team: str, plan: FirePlan) -> TaskDeferralBudget:
+        """取得（或创建）某条计划所属任务的延期预算。
+
+        预算按 task_id 持久保存：只要同一条计划跨波次保留，就沿用原来的
+        原始 TOT 与累计延期，重定时不会重新获得完整额度。
+        """
+        table = self._htcs_task_budgets.setdefault(team, {})
+        budget = table.get(plan.task_id)
+        if budget is None:
+            task = self._htcs_task_by_id(team, plan.task_id)
+            original = int(
+                (getattr(task, "original_tot", 0) if task is not None else 0)
+                or plan.original_tot or plan.tot)
+            budget = TaskDeferralBudget(
+                original_tot=original,
+                max_delay_steps=int(self.htcs_config.get(
+                    "late_fire_task_delay_max_steps", 60)))
+            table[plan.task_id] = budget
+        return budget
+
+    def _htcs_sync_plans_and_tasks(self, team: str,
+                                   result: AssignmentResult) -> None:
+        """重规划后把 StrikeTask 与真正保留的 FirePlan 对齐。
+
+        ``plan_persistence`` 可能保留旧计划，而新任务对象带着重新计算的
+        TOT；若不回写，任务窗口会与计划窗口脱节。这里以保留计划为唯一
+        事实来源，同步任务时间字段与 ``attack_steps``。
+        """
+        per_task: dict[str, list[FirePlan]] = {}
+        for plans in self.fire_plans.get(team, {}).values():
+            for plan in plans:
+                per_task.setdefault(plan.task_id, []).append(plan)
+        for task_id, task_plans in per_task.items():
+            task = result.tasks.get(task_id)
+            if task is None:
+                continue
+            base = min(task_plans, key=lambda item: item.tot)
+            task.tot_step = int(base.tot)
+            task.window_start = int(base.window_start)
+            task.late_until = int(base.late_until)
+            budget = self._htcs_budget(team, base)
+            task.original_tot = budget.original_tot
+            task.retimes = budget.retimes
+            task.deferred_steps = budget.deferred_steps
+        for unit_id, plans in self.fire_plans.get(team, {}).items():
+            # 保留计划可能仍属于已退役的旧任务；attack_steps 必须反映
+            # 单位真正会执行的队首计划，而不是新任务对象重新计算的 TOT。
+            if plans:
+                result.attack_steps[unit_id] = int(plans[0].tot)
+
+    def _htcs_shift_headroom(self, team: str, task_id: str) -> int | None:
+        """同一单位后续任务允许本次计划最多后移多少步。
+
+        取所有持有该任务的单位中，最早的一条“后续任务 window_start”与
+        当前任务最后一条计划 ``late_until`` 之间的空隙。返回 None 表示
+        没有后续任务，只受延期预算约束。
+        """
+        room: int | None = None
+        for plans in self.fire_plans.get(team, {}).values():
+            indices = [index for index, item in enumerate(plans)
+                       if item.task_id == task_id]
+            if not indices:
+                continue
+            last = plans[indices[-1]]
+            later = plans[indices[-1] + 1:]
+            if not later:
+                continue
+            candidate = min(item.window_start for item in later) - 1 \
+                - int(last.late_until)
+            room = candidate if room is None else min(room, candidate)
+        return room
 
     def _prune_fire_plans(self, team: str) -> None:
         """非重规划步：丢弃目标已摧毁/消失的队首计划。"""
@@ -777,7 +873,10 @@ class Simulator:
                 return "deliverable"
             # 当前已在射程内：到达过但没打出去，属于执行迟到。
             return "late"
-        return "late" if plan.reached else "infeasible"
+        # 当前 ETA 已超出再定时视野：无论过去是否到过射程，都不能再按
+        # “已到位迟到”拦截。``plan.reached`` 只是历史事实，目标移动后
+        # 可能早已离开射程，这里按当前不可行处理（挂起，等待下波次规划）。
+        return "infeasible"
 
     @staticmethod
     def _htcs_ready_delay(unit: Unit) -> int:
@@ -795,12 +894,18 @@ class Simulator:
 
     def _htcs_try_retime(self, unit: Unit, plan: FirePlan, target: Unit,
                          reason: str) -> bool:
-        """有界推迟任务内的全部火力计划；返回是否成功推迟。"""
-        task = self.assignments.get(unit.team)
-        task = task.tasks.get(plan.task_id) if task is not None else None
-        used = int(task.retimes) if task is not None else int(plan.retimes)
+        """有界推迟任务内的全部火力计划；返回是否成功推迟。
+
+        两个限制同时生效、互相独立：
+
+        - ``late_fire_retime_max``：任务被再定时的**次数**；
+        - ``late_fire_task_delay_max_steps``：任务**累计**延期步数。
+
+        任一用尽都会停止再定时，由调用方转为挂起或迟到拦截。
+        """
+        budget = self._htcs_budget(unit.team, plan)
         max_retimes = int(self.htcs_config.get("late_fire_retime_max", 1))
-        if used >= max_retimes:
+        if budget.retimes >= max_retimes:
             return False
         hold = max(1, int(self.htcs_config.get("late_fire_hold_steps", 6)))
         estimate = estimate_eta_interval(
@@ -828,16 +933,32 @@ class Simulator:
         delta = new_tot - int(plan.tot)
         if delta <= 0:
             return False
-        self._htcs_shift_task(
+        return self._htcs_shift_task(
             unit, plan, delta, reason=reason,
-            eta_nominal=int(estimate.nominal), eta_upper=int(estimate.upper))
-        return True
+            eta_nominal=int(estimate.nominal),
+            eta_upper=int(estimate.upper)) > 0
 
     def _htcs_shift_task(self, unit: Unit, plan: FirePlan, delta: int,
                          *, reason: str, eta_nominal: int,
-                         eta_upper: int) -> None:
-        """把同一任务的所有计划整体平移 ``delta`` 步并同步任务字段。"""
+                         eta_upper: int) -> int:
+        """把同一任务的所有计划整体平移，返回实际平移步数。
+
+        平移量同时受三层约束：
+
+        1. 任务累计延期预算（``late_fire_task_delay_max_steps``）；
+        2. 同一单位后续任务的时间窗，避免延期任务与已承诺任务重叠；
+        3. 只修改 ``task_id`` 完全相同的计划与任务，不触碰无关任务。
+        """
         team = unit.team
+        budget = self._htcs_budget(team, plan)
+        applied = budget.clamp_delta(delta)
+        headroom = self._htcs_shift_headroom(team, plan.task_id)
+        if headroom is not None:
+            applied = min(applied, max(0, headroom))
+        if applied <= 0:
+            return 0
+        budget.deferred_steps += applied
+        budget.retimes += 1
         old_tot = int(plan.tot)
         for unit_id, plans in list(self.fire_plans.get(team, {}).items()):
             for index, item in enumerate(plans):
@@ -846,43 +967,61 @@ class Simulator:
                 plans[index] = replace(
                     item,
                     window=FireWindow(
-                        tot=item.tot + delta,
+                        tot=item.tot + applied,
                         tolerance=item.window.tolerance,
                         late=item.window.late),
-                    retimes=item.retimes + 1)
-        result = self.assignments.get(team)
-        task = result.tasks.get(plan.task_id) if result is not None else None
+                    retimes=item.retimes + 1,
+                    original_tot=item.original_tot or budget.original_tot)
+        # 旧任务可能已经退役；统一查找后再同步时间字段与预算计数。
+        task = self._htcs_task_by_id(team, plan.task_id)
         if task is not None:
-            task.tot_step += delta
-            task.window_start += delta
-            task.late_until += delta
-            task.retimes += 1
+            task.tot_step += applied
+            task.window_start += applied
+            task.late_until += applied
+            task.retimes = budget.retimes
+            task.original_tot = budget.original_tot
+            task.deferred_steps = budget.deferred_steps
+        result = self.assignments.get(team)
         if result is not None:
             for unit_id, plans in self.fire_plans.get(team, {}).items():
                 if plans and plans[0].task_id == plan.task_id:
                     result.attack_steps[unit_id] = plans[0].tot
         if plan.task_id not in self._htcs_retime_logged:
             self._htcs_retime_logged.add(plan.task_id)
+            current_target = self._entity(plan.target_id)
+            in_range_now = bool(current_target is not None
+                                and unit.can_attack(current_target))
             self.record_event(
                 "coordination",
                 f"{team.title()} {unit.name} 火力计划再定时："
                 f"{plan.task_id} 的 TOT 从第 {old_tot} 步推到 "
-                f"第 {old_tot + delta} 步（{reason}）",
+                f"第 {old_tot + applied} 步（{reason}）",
                 event="fire_window_retimed", team=team,
                 unit_id=unit.id, target_id=plan.target_id,
                 task_id=plan.task_id, reason=reason,
-                old_tot=old_tot, new_tot=old_tot + delta,
+                old_tot=old_tot, new_tot=old_tot + applied,
+                original_tot=budget.original_tot,
+                deadline_tot=budget.deadline_tot,
+                deferred_steps=budget.deferred_steps,
+                remaining_steps=budget.remaining_steps,
+                retimes=budget.retimes,
+                ever_in_range=bool(plan.reached),
+                in_range_now=in_range_now,
                 eta_nominal=eta_nominal, eta_upper=eta_upper)
+        return applied
 
     def _htcs_defer_plan(self, unit: Unit, plan: FirePlan,
                          target: Unit, reason: str) -> None:
         """挂起不可执行的任务：不设停火保持，也不触发再攻击。"""
         team = unit.team
-        result = self.assignments.get(team)
-        task = result.tasks.get(plan.task_id) if result is not None else None
+        task = self._htcs_task_by_id(team, plan.task_id)
         if task is not None:
             task.state = "deferred"
             task.deferred = True
+            budget = self._htcs_task_budgets.get(team, {}).get(plan.task_id)
+            if budget is not None:
+                task.retimes = budget.retimes
+                task.deferred_steps = budget.deferred_steps
         if plan.task_id not in self._htcs_defer_logged:
             self._htcs_defer_logged.add(plan.task_id)
             self.record_event(
@@ -893,12 +1032,19 @@ class Simulator:
                 unit_id=unit.id, target_id=target.id,
                 task_id=plan.task_id, reason=reason,
                 eta_nominal=plan.eta_nominal, eta_upper=plan.eta_upper,
-                reached=bool(plan.reached))
+                ever_in_range=bool(plan.reached),
+                in_range_now=unit.can_attack(target))
         self._htcs_cancel_task_plans(unit, plan)
 
     def _htcs_cancel_task_plans(self, unit: Unit, plan: FirePlan) -> None:
-        """取消同一任务的全部剩余计划（不设置停火保持）。"""
+        """取消同一任务的全部剩余计划（不设置停火保持）。
+
+        取消前释放该任务早于当前步、尚未结算的预约伤害；本步已经排队、
+        等待同步结算的攻击不受影响，避免把在途伤害误释放。
+        """
         team = unit.team
+        self.damage_ledger.release_task(
+            plan.task_id, before_step=self.time_step)
         for unit_id, plans in list(self.fire_plans.get(team, {}).items()):
             matching = [item for item in list(plans)
                         if item.task_id == plan.task_id]
@@ -926,6 +1072,8 @@ class Simulator:
                 task_id=plan.task_id, tot=plan.tot,
                 late_until=plan.late_until, hold_until=self.time_step + hold,
                 reason=reason, reached=bool(plan.reached),
+                ever_in_range=bool(plan.reached),
+                in_range_now=unit.can_attack(target),
                 eta_nominal=plan.eta_nominal, eta_upper=plan.eta_upper)
         self._htcs_consume_plan(unit, plan)
 
@@ -1023,6 +1171,9 @@ class Simulator:
             if not base.is_destroyed:
                 active_ids.add(base.id)
         self.damage_ledger.prune(active_ids)
+        # 上一步未结算的预约不应继续占用目标；正常路径会在同步结算时
+        # 逐发 settle，这里只清理异常残留，不影响本步尚未排队的新攻击。
+        self.damage_ledger.release(before_step=self.time_step)
         # 清理已经过期的迟到停火保持，避免字典无限增长。
         self._htcs_target_hold = {
             key: until for key, until in self._htcs_target_hold.items()
@@ -1052,15 +1203,32 @@ class Simulator:
                             planned_damage=round(task.planned_damage, 2),
                             applied_damage=round(applied, 2))
 
-        if not bool(self.htcs_config.get("bda_enabled", True)):
-            return
+        if bool(self.htcs_config.get("bda_enabled", True)):
+            for team in (TEAM_RED, TEAM_BLUE):
+                for task in list(self.assignments[team].tasks.values()):
+                    self._bda_judge(team, task)
+                # 已退役（上一波次被重规划替换）但仍未判定的任务照常核对。
+                self._htcs_retired[team] = [
+                    task for task in self._htcs_retired[team]
+                    if not self._bda_judge(team, task)]
+        self._htcs_prune_budgets()
+
+    def _htcs_prune_budgets(self) -> None:
+        """丢弃不再被任何计划/任务引用的延期预算，避免字典无限增长。"""
         for team in (TEAM_RED, TEAM_BLUE):
-            for task in list(self.assignments[team].tasks.values()):
-                self._bda_judge(team, task)
-            # 已退役（上一波次被重规划替换）但仍未判定的任务照常核对。
-            self._htcs_retired[team] = [
-                task for task in self._htcs_retired[team]
-                if not self._bda_judge(team, task)]
+            table = self._htcs_task_budgets.get(team)
+            if not table:
+                continue
+            referenced = {
+                plan.task_id
+                for plans in self.fire_plans.get(team, {}).values()
+                for plan in plans}
+            referenced.update(self.assignments[team].tasks)
+            referenced.update(
+                task.task_id for task in self._htcs_retired.get(team, []))
+            self._htcs_task_budgets[team] = {
+                task_id: budget for task_id, budget in table.items()
+                if task_id in referenced}
 
     def _bda_judge(self, team: str, task) -> bool:
         """按任务自身的火力窗口判定其承诺是否兑现。
@@ -1659,6 +1827,23 @@ class Simulator:
                 # 防御：攻击加入队列失败，重置状态避免永久卡死
                 unit.engagement_state.reset_to_search()
 
+    def _htcs_plan_fire_ready(self, unit: Unit, plan: FirePlan,
+                              target: Unit | None,
+                              visible_ids: set[str]) -> bool:
+        """真正排队射击前，用当前单位/目标状态重新检查全部开火条件。
+
+        ``plan.reached`` 只记录历史到达，不参与本判断；目标移动后必须按
+        当前距离、可见性、弹药与交战目标重新判定。
+        """
+        return bool(
+            target is not None
+            and not target.is_destroyed
+            and plan.target_id in visible_ids
+            and unit.can_attack(target)
+            and unit.engagement_state.current_target_id == target.id
+            and unit.suppressed_until <= self.time_step
+        )
+
     def _htcs_attack_unit(self, unit: Unit) -> None:
         """HTCS 攻击：火力门 + 伤害账本 + 任务角色。"""
         eng = unit.engagement_state
@@ -1667,15 +1852,13 @@ class Simulator:
         plan = self._htcs_head_plan(unit, visible_ids)
         if plan is not None:
             target = self._entity(plan.target_id)
-            if target is None:
-                return
             if plan.is_early(self.time_step):
                 # 提前到达：保持待机，等待 TOT 窗口。
                 return
-            if not unit.can_attack(target):
-                # 仍在接近；移动阶段负责进入射程，不重置反应状态。
-                return
-            if eng.current_target_id != target.id:
+            if not self._htcs_plan_fire_ready(
+                    unit, plan, target, visible_ids):
+                # 仍在接近/目标已不可见；移动阶段负责重新进入射程，
+                # 不重置反应状态，也不消耗计划。
                 return
             if not self._htcs_fire_allowed(
                     unit, target, self._htcs_expected_damage(unit, target)):
@@ -1690,7 +1873,7 @@ class Simulator:
                 self.damage_ledger.reserve(
                     unit.id, target.id,
                     float(intent.damage) * float(intent.hit_probability),
-                    self.time_step)
+                    self.time_step, task_id=plan.task_id)
                 self._htcs_consume_plan(unit, plan)
             else:
                 eng.reset_to_search()

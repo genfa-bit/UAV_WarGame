@@ -42,7 +42,8 @@ def test_htcs_defaults_cover_every_documented_knob():
         "distributed_fallback", "max_tasks_per_wave",
         "planning_horizon_waves", "tot_horizon_steps", "plan_persistence",
         "late_fire_policy", "late_fire_hold_steps", "overshoot_penalty",
-        "late_fire_retime_max", "late_fire_retime_horizon_steps",
+        "late_fire_retime_max", "late_fire_task_delay_max_steps",
+        "late_fire_retime_horizon_steps",
         "late_fire_late_max_steps", "eta_upper_slack_ratio",
         "eta_detour_factor", "eta_terrain_sample_px",
     }
@@ -96,7 +97,8 @@ def test_positive_int_knobs_fall_back(monkeypatch, key, bad):
                                  "reattack_delay_steps",
                                  "sead_suppression_steps",
                                  "late_fire_retime_max",
-                                 "late_fire_late_max_steps"])
+                                 "late_fire_late_max_steps",
+                                 "late_fire_task_delay_max_steps"])
 def test_nonnegative_int_knobs_fall_back(monkeypatch, key):
     with pytest.warns(RuntimeWarning):
         config = _load(monkeypatch, {"htcs": {key: -1}})
@@ -127,6 +129,13 @@ def test_boolean_knobs_reject_non_bool(monkeypatch, key):
     with pytest.warns(RuntimeWarning):
         config = _load(monkeypatch, {"htcs": {key: "yes"}})
     assert config["htcs"][key] is HTCS_DEFAULTS[key]
+
+
+def test_task_delay_budget_accepts_zero(monkeypatch):
+    config = _load(monkeypatch,
+                   {"htcs": {"late_fire_task_delay_max_steps": 0}})
+    # 0 表示不允许任务延期，是有效配置而不是非法值回退。
+    assert config["htcs"]["late_fire_task_delay_max_steps"] == 0
 
 
 def test_late_fire_policy_enum_rejects_unknown_value(monkeypatch):

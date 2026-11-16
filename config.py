@@ -208,6 +208,11 @@ HTCS_DEFAULTS = {
     # ── 自适应迟到策略（2026-11-16）─────────────────────────────
     # 同一条计划最多被再定时几次；0 表示只分类、不推迟。
     "late_fire_retime_max": 1,
+    # 任务累计延期时间预算（步）：从任务首次 TOT 起，所有 retime 与临时
+    # 顺延共用的上限。次数上限与时间上限是两个独立限制，先到者生效；
+    # 超出后任务转为 deferred 或结束，不能无限延期。默认与
+    # late_fire_retime_horizon_steps 一致，允许一个完整规划视野的推迟。
+    "late_fire_task_delay_max_steps": 60,
     # 再定时/可行性分类的时间视野：标称 ETA 超过该值的计划直接挂起。
     "late_fire_retime_horizon_steps": 60,
     # 自适应迟到宽限的上界：late = base_late + ETA 上界与标称值之差，

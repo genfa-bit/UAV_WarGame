@@ -108,9 +108,12 @@ class StrikeTask:
     # 用二者之差为每条计划设置自适应迟到宽限；上界不参与 TOT 计算。
     eta_by_unit: dict[str, int] = field(default_factory=dict)
     eta_upper_by_unit: dict[str, int] = field(default_factory=dict)
-    # 自适应迟到策略：任务已被推迟的次数与“不可行/挂起”标记。
+    # 自适应迟到策略：任务已被推迟的次数、累计延期步数、
+    # 首次安装时的 TOT（重定时不改变）与“不可行/挂起”标记。
     retimes: int = 0
     deferred: bool = False
+    original_tot: int = 0
+    deferred_steps: int = 0
     # 任务创建时目标已结算伤害的基线：BDA 用它求“本波次实际兑现”。
     applied_at_plan: float = 0.0
 
@@ -131,6 +134,8 @@ class StrikeTask:
             "eta_upper_by_unit": dict(self.eta_upper_by_unit),
             "retimes": self.retimes,
             "deferred": self.deferred,
+            "original_tot": self.original_tot,
+            "deferred_steps": self.deferred_steps,
             "order": self.order,
             "role": self.role,
             "reason": self.reason,
@@ -379,6 +384,7 @@ class StrikePlanner:
                 # 不得早于任一成员完成前序任务的时刻。
                 tot = max(tot, max(unit_ready[uid] for uid in task.members))
             task.tot_step = tot
+            task.original_tot = tot
             tolerance = int(cfg.get("tot_tolerance_steps", 1))
             late = int(cfg.get("tot_late_steps", 3))
             task.window_start = max(step, tot - tolerance)
@@ -520,6 +526,7 @@ class StrikePlanner:
                 tot_step=step,
                 window_start=step,
                 late_until=step,
+                original_tot=step,
                 doctrine=doctrine,
                 applied_at_plan=(ledger.applied(target.id)
                                  if ledger is not None else 0.0),

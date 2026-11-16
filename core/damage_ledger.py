@@ -26,6 +26,7 @@ class Reservation:
     target_id: str
     expected: float
     step: int = 0
+    task_id: str = ""
 
 
 class DamageLedger:
@@ -38,13 +39,17 @@ class DamageLedger:
 
     # ── 排队时刻 ────────────────────────────────────────────────
     def reserve(self, attacker_id: str, target_id: str, expected: float,
-                step: int = 0) -> None:
-        """登记一发已经排队的攻击。期望伤害 <= 0 时不登记。"""
+                step: int = 0, task_id: str = "") -> None:
+        """登记一发已经排队的攻击。期望伤害 <= 0 时不登记。
+
+        ``task_id`` 让预约能归属到具体打击任务；任务被 covered/deferred/
+        取消时，可只释放该任务尚未执行的预约，不影响其他任务的在途火力。
+        """
         value = float(expected)
         if value <= 0.0:
             return
         self._reservations.append(
-            Reservation(attacker_id, target_id, value, step))
+            Reservation(attacker_id, target_id, value, step, task_id))
 
     def settle(self, attacker_id: str, target_id: str,
                actual_damage: float) -> float:
@@ -72,6 +77,38 @@ class DamageLedger:
         elif index is None:
             return 0.0
         return expected
+
+    def release(self, *, attacker_id: str | None = None,
+                target_id: str | None = None,
+                task_id: str | None = None,
+                before_step: int | None = None) -> float:
+        """释放符合条件且尚未结算的预约，返回释放的期望伤害。
+
+        只移除 ``_reservations`` 中仍然在途的登记，``applied`` 与
+        ``_settled_shots`` 不受影响，因此重复调用不会重复释放已经结算的
+        伤害。``before_step`` 用于只清理“早于当前步”的残留预约，避免把
+        本步刚排队、正在等待同步结算的攻击误释放。
+        """
+        kept: list[Reservation] = []
+        released = 0.0
+        for entry in self._reservations:
+            matches = (
+                (attacker_id is None or entry.attacker_id == attacker_id)
+                and (target_id is None or entry.target_id == target_id)
+                and (task_id is None or entry.task_id == task_id)
+                and (before_step is None or entry.step < int(before_step))
+            )
+            if matches:
+                released += entry.expected
+            else:
+                kept.append(entry)
+        self._reservations = kept
+        return released
+
+    def release_task(self, task_id: str,
+                     before_step: int | None = None) -> float:
+        """释放某个任务尚未结算的预约。"""
+        return self.release(task_id=task_id, before_step=before_step)
 
     # ── 查询 ────────────────────────────────────────────────────
     def reserved(self, target_id: str) -> float:
