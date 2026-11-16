@@ -38,7 +38,7 @@ from core.units import (CommandNode, GroundVehicle, MissileVehicle,  # noqa: E40
                         ScoutDrone, StrikeDrone, Unit)
 
 OVERALLOCATION_RATIO = 1.5
-VARIANTS = ("baseline", "rdma_v2", "htcs")
+VARIANTS = ("baseline", "rdma_v2", "htcs", "htcs_adaptive")
 
 
 def _cooperative_config(variant: str) -> dict | None:
@@ -47,7 +47,12 @@ def _cooperative_config(variant: str) -> dict | None:
     if variant == "baseline":
         config["enabled"] = False
         return config
-    config["mode"] = "htcs" if variant == "htcs" else "rdma_v2"
+    if variant.startswith("htcs"):
+        config["mode"] = "htcs"
+        if variant == "htcs_adaptive":
+            config["htcs"]["late_fire_policy"] = "adaptive"
+        return config
+    config["mode"] = "rdma_v2"
     return config
 
 
@@ -266,7 +271,8 @@ def run_once(scenario: str, seed: int, variant: str,
             return result
         return wrapper
 
-    if variant == "htcs" and simulator.strike_planner is not None:
+    is_htcs = variant.startswith("htcs")
+    if is_htcs and simulator.strike_planner is not None:
         simulator.strike_planner.plan = timed(  # type: ignore[method-assign]
             simulator.strike_planner.plan)
     else:
@@ -338,7 +344,7 @@ def run_once(scenario: str, seed: int, variant: str,
                 if previous is not None and previous != target_id:
                     switch_count += 1
             previous_assignments = assignments
-            if variant == "htcs":
+            if is_htcs:
                 for team in ("red", "blue"):
                     result = simulator.assignments[team]
                     htcs_wave_max = max(htcs_wave_max, result.wave_id)
@@ -394,7 +400,8 @@ def run_once(scenario: str, seed: int, variant: str,
         event: sum(1 for row in simulator.records
                    if row.get("event") == event)
         for event in ("bda_completed", "reattack_required", "sead_suppressed",
-                      "fire_discipline_hold", "fire_window_missed")
+                      "fire_discipline_hold", "fire_window_missed",
+                      "fire_window_retimed", "fire_window_deferred")
     }
 
     return {
@@ -453,6 +460,8 @@ def run_once(scenario: str, seed: int, variant: str,
         "sead_suppressed": coordination_events["sead_suppressed"],
         "fire_discipline_holds": coordination_events["fire_discipline_hold"],
         "fire_window_missed": coordination_events["fire_window_missed"],
+        "fire_window_retimed": coordination_events["fire_window_retimed"],
+        "fire_window_deferred": coordination_events["fire_window_deferred"],
     }
 
 
@@ -520,6 +529,10 @@ def _aggregate(runs: list[dict]) -> dict:
             run["fire_discipline_holds"] for run in runs),
         "total_fire_window_missed": sum(
             run["fire_window_missed"] for run in runs),
+        "total_fire_window_retimed": sum(
+            run["fire_window_retimed"] for run in runs),
+        "total_fire_window_deferred": sum(
+            run["fire_window_deferred"] for run in runs),
         "doctrine_mix": _sum_counters(run["htcs_doctrines"] for run in runs),
     }
 
@@ -534,7 +547,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seeds", type=int, default=5)
     parser.add_argument("--steps", type=int, default=200)
     parser.add_argument("--variants", default=",".join(VARIANTS),
-                        help="逗号分隔的实验变体，缺省 baseline,rdma_v2,htcs")
+                        help="逗号分隔的实验变体，可选 "
+                             "baseline / rdma_v2 / htcs / htcs_adaptive")
     parser.add_argument("--json", type=Path, default=None,
                         help="把逐局与汇总结果写入 JSON 文件")
     args = parser.parse_args(argv)
@@ -593,6 +607,9 @@ def main(argv: list[str] | None = None) -> int:
             ("HTCS 再攻击次数", "total_reattack_required", "{:.0f}"),
             ("HTCS SEAD 压制次数", "total_sead_suppressed", "{:.0f}"),
             ("HTCS 火力纪律停火", "total_fire_discipline_holds", "{:.0f}"),
+            ("HTCS 迟到拦截", "total_fire_window_missed", "{:.0f}"),
+            ("HTCS 计划再定时", "total_fire_window_retimed", "{:.0f}"),
+            ("HTCS 任务挂起", "total_fire_window_deferred", "{:.0f}"),
             ("HTCS 平均在途计划", "avg_htcs_fire_plan", "{:.2f}"),
         ]
         for label, key, fmt in rows:
@@ -602,7 +619,7 @@ def main(argv: list[str] | None = None) -> int:
                 values.append("-" if value is None else fmt.format(value))
             print(f"{label:<24}{''.join(f'{value:>12}' for value in values)}")
         for aggregate, variant in zip(aggregates, variants):
-            if variant != "htcs":
+            if not variant.startswith("htcs"):
                 continue
             mix = aggregate["doctrine_mix"]
             if mix:

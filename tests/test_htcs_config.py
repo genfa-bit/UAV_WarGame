@@ -42,6 +42,9 @@ def test_htcs_defaults_cover_every_documented_knob():
         "distributed_fallback", "max_tasks_per_wave",
         "planning_horizon_waves", "tot_horizon_steps", "plan_persistence",
         "late_fire_policy", "late_fire_hold_steps", "overshoot_penalty",
+        "late_fire_retime_max", "late_fire_retime_horizon_steps",
+        "late_fire_late_max_steps", "eta_upper_slack_ratio",
+        "eta_detour_factor", "eta_terrain_sample_px",
     }
     assert set(HTCS_DEFAULTS) == expected
 
@@ -80,7 +83,8 @@ def test_partial_htcs_block_deep_merges_with_defaults(monkeypatch):
                                  "max_tasks_per_wave",
                                  "planning_horizon_waves",
                                  "tot_horizon_steps",
-                                 "late_fire_hold_steps"])
+                                 "late_fire_hold_steps",
+                                 "late_fire_retime_horizon_steps"])
 @pytest.mark.parametrize("bad", [0, -3, 2.5, True, "6"])
 def test_positive_int_knobs_fall_back(monkeypatch, key, bad):
     with pytest.warns(RuntimeWarning):
@@ -90,7 +94,9 @@ def test_positive_int_knobs_fall_back(monkeypatch, key, bad):
 
 @pytest.mark.parametrize("key", ["tot_tolerance_steps", "tot_late_steps",
                                  "reattack_delay_steps",
-                                 "sead_suppression_steps"])
+                                 "sead_suppression_steps",
+                                 "late_fire_retime_max",
+                                 "late_fire_late_max_steps"])
 def test_nonnegative_int_knobs_fall_back(monkeypatch, key):
     with pytest.warns(RuntimeWarning):
         config = _load(monkeypatch, {"htcs": {key: -1}})
@@ -104,6 +110,9 @@ def test_nonnegative_int_knobs_fall_back(monkeypatch, key):
     ("overkill_fire_ratio", 0.5),
     ("tot_tolerance_steps", 1.5),
     ("overshoot_penalty", -0.1),
+    ("eta_upper_slack_ratio", 0.5),
+    ("eta_detour_factor", -0.1),
+    ("eta_terrain_sample_px", 0.5),
 ])
 def test_bounded_numbers_fall_back(monkeypatch, key, value):
     with pytest.warns(RuntimeWarning):
@@ -129,6 +138,18 @@ def test_late_fire_policy_enum_rejects_unknown_value(monkeypatch):
 def test_late_fire_policy_accepts_lenient(monkeypatch):
     config = _load(monkeypatch, {"htcs": {"late_fire_policy": "lenient"}})
     assert config["htcs"]["late_fire_policy"] == "lenient"
+
+
+def test_late_fire_policy_accepts_adaptive(monkeypatch):
+    config = _load(monkeypatch, {"htcs": {"late_fire_policy": "adaptive"}})
+    assert config["htcs"]["late_fire_policy"] == "adaptive"
+
+
+def test_late_max_is_raised_to_base_late(monkeypatch):
+    with pytest.warns(RuntimeWarning, match="late_fire_late_max_steps"):
+        config = _load(monkeypatch, {
+            "htcs": {"tot_late_steps": 5, "late_fire_late_max_steps": 2}})
+    assert config["htcs"]["late_fire_late_max_steps"] == 5
 
 
 def test_doctrine_enum_rejects_unknown_value(monkeypatch):

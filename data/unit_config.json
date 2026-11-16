@@ -39,6 +39,12 @@
       "plan_persistence": true,
       "late_fire_policy": "strict",
       "late_fire_hold_steps": 6,
+      "late_fire_retime_max": 1,
+      "late_fire_retime_horizon_steps": 60,
+      "late_fire_late_max_steps": 12,
+      "eta_upper_slack_ratio": 1.10,
+      "eta_detour_factor": 0.5,
+      "eta_terrain_sample_px": 8.0,
       "overshoot_penalty": 0.15
     },
 

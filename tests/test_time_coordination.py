@@ -9,7 +9,8 @@ from __future__ import annotations
 import pytest
 
 from core.time_coordination import (FirePlan, FireWindow, estimate_eta,
-                                    plan_tot, staging_standoff)
+                                    estimate_eta_interval, plan_tot,
+                                    staging_standoff)
 from core.units import Unit
 
 
@@ -89,6 +90,68 @@ def test_eta_uses_terrain_adjusted_speed_when_battlefield_given():
     # 无地形时二者相同（战场无遮挡），只是验证参数路径可调用
     assert estimate_eta(unit, target, field) == \
         estimate_eta(unit, target, None)
+
+
+# ── estimate_eta_interval ───────────────────────────────────────
+def _ground_unit(uid="g1", x=100.0, y=300.0, *, terrain_effects=None):
+    return Unit(id=uid, name=uid, team="red", x=x, y=y, domain="ground",
+                unit_type="ground_vehicle", hp=100, max_hp=100, speed=5.0,
+                detect_range=200, attack_range=100.0, attack_power=10,
+                ammo=5, reaction_delay=0, attack_cooldown=0,
+                terrain_effects=terrain_effects or {})
+
+
+def _terrain_field(obstacle_type="mountain"):
+    from core.battlefield import Battlefield, Obstacle
+
+    return Battlefield(800, 600, obstacles=[
+        Obstacle(300, 250, 200, 100, name="ridge", type=obstacle_type)])
+
+
+def test_eta_interval_nominal_matches_estimate_eta():
+    unit = _unit(reaction_delay=5)
+    target = _target(600, 100)
+    estimate = estimate_eta_interval(unit, target)
+    assert estimate.nominal == estimate_eta(unit, target)
+    assert estimate.upper >= estimate.nominal
+
+
+def test_eta_interval_counts_terrain_slowdown_along_the_path():
+    # 出发点在平地（速度 5），路径中段穿过山地（速度 2.5）。旧的点估计
+    # 只用出发地速度，得到 103 步；上界按分段速度累加应显著更大。
+    unit = _ground_unit(terrain_effects={
+        "mountain": {"speed_factor": 0.5}})
+    target = _target(700, 300)
+    estimate = estimate_eta_interval(unit, target, _terrain_field())
+    assert estimate.nominal == 103
+    assert estimate.upper > estimate.nominal
+    assert estimate.upper >= 140
+
+
+def test_eta_interval_adds_detour_for_impassable_obstacle():
+    # 没有该地形通行能力：地面单位必须绕行，附加路程应抬高上界。
+    unit = _ground_unit()
+    target = _target(700, 300)
+    field = _terrain_field("building")
+    estimate = estimate_eta_interval(unit, target, field)
+    assert estimate.upper > estimate.nominal
+
+
+def test_eta_interval_accounts_for_target_motion():
+    unit = _ground_unit(terrain_effects={
+        "mountain": {"speed_factor": 0.5}})
+    target = _target(700, 300)
+    field = _terrain_field()
+    static = estimate_eta_interval(unit, target, field)
+    moving = estimate_eta_interval(unit, target, field, target_speed=3.0)
+    assert moving.upper > static.upper
+
+
+def test_eta_interval_inside_attack_range_is_zero():
+    unit = _unit(reaction_delay=0)
+    estimate = estimate_eta_interval(unit, _target(150, 100))
+    assert estimate.nominal == 0
+    assert estimate.upper == 0
 
 
 # ── plan_tot ────────────────────────────────────────────────────

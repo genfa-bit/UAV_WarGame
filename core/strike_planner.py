@@ -25,7 +25,7 @@ from config import COOPERATIVE_ASSIGNMENT_DEFAULTS, CRIT_CHANCE, CRIT_DAMAGE_MUL
 from core.cooperative_allocator import AssignmentResult, CooperativeAllocator
 from core.combat import calculate_hit_probability
 from core.target_pool import TargetSighting
-from core.time_coordination import estimate_eta, plan_tot
+from core.time_coordination import estimate_eta_interval, plan_tot
 from core.units import Unit
 
 _DOCTRINES = ("balanced", "attrition", "decapitation", "base_pressure")
@@ -104,6 +104,13 @@ class StrikeTask:
     effective_priority: float = 0.0
     eta_best: int = 0
     order: int = 0
+    # 各成员的标称 ETA 与保守上界（含反应/冷却等待）。安装火力计划时
+    # 用二者之差为每条计划设置自适应迟到宽限；上界不参与 TOT 计算。
+    eta_by_unit: dict[str, int] = field(default_factory=dict)
+    eta_upper_by_unit: dict[str, int] = field(default_factory=dict)
+    # 自适应迟到策略：任务已被推迟的次数与“不可行/挂起”标记。
+    retimes: int = 0
+    deferred: bool = False
     # 任务创建时目标已结算伤害的基线：BDA 用它求“本波次实际兑现”。
     applied_at_plan: float = 0.0
 
@@ -120,6 +127,10 @@ class StrikeTask:
             "priority": round(self.priority, 4),
             "effective_priority": round(self.effective_priority, 4),
             "eta_best": self.eta_best,
+            "eta_by_unit": dict(self.eta_by_unit),
+            "eta_upper_by_unit": dict(self.eta_upper_by_unit),
+            "retimes": self.retimes,
+            "deferred": self.deferred,
             "order": self.order,
             "role": self.role,
             "reason": self.reason,
@@ -180,6 +191,7 @@ class StrikePlanner:
         # discount = wave / (wave + ETA) 对“单位-目标”对的效用打折，并规定
         # ETA 超过 planning_horizon_waves 个波次的目标不进入本波次任务束。
         etas: dict[tuple[str, str], int] = {}
+        upper_etas: dict[tuple[str, str], int] = {}
         travel_etas: dict[tuple[str, str], int] = {}
         for pair in bids:
             unit = unit_by_id.get(pair[0])
@@ -188,10 +200,15 @@ class StrikePlanner:
                 # 时间维必须包含“单位何时能开火”，而不只是“何时进入
                 # 射程”：反应/冷却中的单位即使已经在射程内，也要等完
                 # 剩余的射击周期。否则任务会在单位实际无法开火时到点。
-                travel = estimate_eta(unit, target, battlefield)
+                estimate = estimate_eta_interval(
+                    unit, target, battlefield,
+                    slack_ratio=float(cfg.get("eta_upper_slack_ratio", 1.10)))
+                travel = estimate.nominal
                 ready_delay = max(0, self._ready_step(unit, step) - step)
                 travel_etas[pair] = travel
                 etas[pair] = max(travel, ready_delay)
+                # 上界只用于迟到宽限/可行性，不参与 TOT 与时间折扣。
+                upper_etas[pair] = max(estimate.upper, ready_delay)
         # 时间视野：任务束的可行性上界与 TOT 的上界统一使用
         # tot_horizon_steps（至少一个波次），避免“ETA 视野 18 步、TOT
         # 视野 6 步、就绪时刻不封顶”三套口径。planning_horizon_waves 仅
@@ -337,11 +354,25 @@ class StrikePlanner:
                 unit_tasks.setdefault(unit.id, []).append(task.task_id)
 
             task.planned_damage = planned
-            member_etas = [etas.get(
-                (uid, target.id),
-                max(estimate_eta(unit_by_id[uid], target, battlefield),
-                    max(0, self._ready_step(unit_by_id[uid], step) - step)))
-                for uid in task.members]
+            member_etas = []
+            for uid in task.members:
+                pair = (uid, target.id)
+                if pair in etas:
+                    task.eta_by_unit[uid] = etas[pair]
+                    task.eta_upper_by_unit[uid] = upper_etas.get(
+                        pair, etas[pair])
+                else:
+                    member_estimate = estimate_eta_interval(
+                        unit_by_id[uid], target, battlefield,
+                        slack_ratio=float(
+                            cfg.get("eta_upper_slack_ratio", 1.10)))
+                    ready_delay = max(
+                        0, self._ready_step(unit_by_id[uid], step) - step)
+                    task.eta_by_unit[uid] = max(
+                        member_estimate.nominal, ready_delay)
+                    task.eta_upper_by_unit[uid] = max(
+                        member_estimate.upper, ready_delay)
+                member_etas.append(task.eta_by_unit[uid])
             # 使用与任务可行性相同的时间视野，不再按波次长度封顶。
             tot = plan_tot(step, member_etas, horizon)
             if task.members:

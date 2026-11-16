@@ -197,11 +197,28 @@ HTCS_DEFAULTS = {
     # 重规划只追加新任务，不再把远超一个波次的 TOT 计划整体丢弃。
     "plan_persistence": True,
     # 迟到射击策略：strict = 超过 late_until 的计划被硬性拦截（消耗计划、
-    # 记录 fire_window_missed 并转入停火保持）；lenient = 保留旧行为。
+    # 记录 fire_window_missed 并转入停火保持）；lenient = 保留旧行为；
+    # adaptive = 先按可行性分类：还能赶到的计划有界再定时、因纪律/压制
+    # 暂时打不出的计划顺延、根本到不了的挂起（不触发再攻击），只有
+    # “已到位但没执行”的计划才按迟到拦截。
     "late_fire_policy": "strict",
     # 迟到计划被拦截后，同一单位在多少步内不得对同一目标机会射击，
     # 防止“计划被拦→下一步机会射击补枪”绕过火力门。
     "late_fire_hold_steps": 6,
+    # ── 自适应迟到策略（2026-11-16）─────────────────────────────
+    # 同一条计划最多被再定时几次；0 表示只分类、不推迟。
+    "late_fire_retime_max": 1,
+    # 再定时/可行性分类的时间视野：标称 ETA 超过该值的计划直接挂起。
+    "late_fire_retime_horizon_steps": 60,
+    # 自适应迟到宽限的上界：late = base_late + ETA 上界与标称值之差，
+    # 再截断到该值，避免地形/绕障 slack 把窗口无限拉长。
+    "late_fire_late_max_steps": 12,
+    # ETA 上界的安全系数（覆盖单位分离、卡死恢复等未建模损耗）。
+    "eta_upper_slack_ratio": 1.10,
+    # 绕障附加路程系数：不可通行采样段按该倍率补算绕行距离。
+    "eta_detour_factor": 0.5,
+    # 地形采样间距（像素）：沿机动直线按该间距取 effective_speed。
+    "eta_terrain_sample_px": 8.0,
     # 任务束超额伤害惩罚：候选得分减去 penalty × 超出需求 / 目标血量，
     # 让低血量目标优先由“刚好够用”的单位补刀，而不是高伤害单位过杀。
     "overshoot_penalty": 0.15,

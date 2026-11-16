@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from numbers import Real
 
 from config import (BASE_DEFENSE_RADIUS, BASE_REPAIR_PER_STEP, BASE_REPAIR_RADIUS,
@@ -34,7 +35,7 @@ from core.target_pool import TargetPool
 from core.threat import (priority_targets, situation_label, tactics_label,
                          team_strength, threat_score)
 from core.time_coordination import (FirePlan, FireWindow, estimate_eta,
-                                    staging_standoff)
+                                    estimate_eta_interval, staging_standoff)
 from core.unit_config_loader import (get_cooperative_assignment_config,
                                      get_unit_stats)
 from core.units import CommandNode, Unit, UnitDomain
@@ -133,6 +134,9 @@ class Simulator:
         # 射击，防止“计划超时→下一步补枪”绕过火力门。
         self._htcs_target_hold: dict[tuple[str, str], int] = {}
         self._htcs_miss_logged: set[str] = set()
+        # 自适应迟到策略的分类日志：挂起/再定时每任务只记一次。
+        self._htcs_defer_logged: set[str] = set()
+        self._htcs_retime_logged: set[str] = set()
         self.assignments: dict[str, AssignmentResult] = {
             TEAM_RED: AssignmentResult(), TEAM_BLUE: AssignmentResult()}
         # 只有本步真正执行过分配，才允许 RDMA 路由；直接调用旧阶段方法的
@@ -554,6 +558,10 @@ class Simulator:
         """
         tolerance = int(self.htcs_config.get("tot_tolerance_steps", 1))
         late = int(self.htcs_config.get("tot_late_steps", 3))
+        late_max = max(late, int(
+            self.htcs_config.get("late_fire_late_max_steps", late)))
+        adaptive = str(self.htcs_config.get(
+            "late_fire_policy", "strict")) == "adaptive"
         persist = bool(self.htcs_config.get("plan_persistence", True))
         previous_plans = self.fire_plans.get(team, {})
         plans: dict[str, list[FirePlan]] = {}
@@ -566,18 +574,31 @@ class Simulator:
                 shots = max(1, int(task.shots.get(unit.id, 1)))
                 cycle = max(1, int(unit.reaction_delay)
                             + int(unit.attack_cooldown) + 1)
+                eta_nominal = int(task.eta_by_unit.get(
+                    unit.id, task.eta_best))
+                eta_upper = int(task.eta_upper_by_unit.get(
+                    unit.id, eta_nominal))
+                plan_late = late
+                if adaptive:
+                    # 标称 ETA 只负责把 TOT 摆到位；地形/绕障/目标运动
+                    # 带来的额外不确定性进入宽限。这样 TOT 不被过度推后，
+                    # 合法但慢一点的射击又不会被误判迟到。
+                    plan_late = min(
+                        late_max, late + max(0, eta_upper - eta_nominal))
                 for index in range(shots):
                     # 同一任务的多发按冷却周期顺延 TOT，形成波次内的
                     # 连续射击，而不是所有发数挤在同一帧。
                     window = FireWindow(
                         tot=task.tot_step + index * cycle,
-                        tolerance=tolerance, late=late)
+                        tolerance=tolerance, late=plan_late)
                     unit_plans.append(FirePlan(
                         task_id=task.task_id,
                         target_id=task.target_id,
                         wave=task.wave,
                         role=task.role,
                         window=window,
+                        eta_nominal=eta_nominal,
+                        eta_upper=eta_upper,
                     ))
             if persist:
                 unit_plans = self._merge_fire_plans(
@@ -663,8 +684,7 @@ class Simulator:
         plans = self.fire_plans.get(unit.team, {}).get(unit.id)
         if not plans:
             return None
-        strict = str(self.htcs_config.get(
-            "late_fire_policy", "strict")) == "strict"
+        policy = str(self.htcs_config.get("late_fire_policy", "strict"))
         while plans:
             plan = plans[0]
             target = self._entity(plan.target_id)
@@ -672,15 +692,224 @@ class Simulator:
                     or plan.target_id not in visible_ids):
                 self._htcs_consume_plan(unit, plan)
                 continue
-            if strict and plan.window.expired(self.time_step):
-                # 硬性拦截：超过 late_until 的计划不再补射。消耗计划并
-                # 对同一目标设置停火保持，防止下一步从机会射击通道打出去。
-                self._htcs_miss_plan(unit, plan, target)
-                continue
+            # 记录“至少到达过一次可开火位置”：迟到分类用它区分“没赶到”
+            # 与“赶到了但被压制/纪律挡住/没执行”。
+            if unit.can_attack(target):
+                plan.reached = True
+            if plan.window.expired(self.time_step):
+                if policy == "strict":
+                    # 硬性拦截：超过 late_until 的计划不再补射。消耗计划并
+                    # 对同一目标设置停火保持，防止下一步从机会射击通道打出去。
+                    self._htcs_miss_plan(unit, plan, target)
+                    continue
+                if policy == "adaptive":
+                    self._htcs_adaptive_expired(unit, plan, target)
+                    continue
+                # lenient：保留旧行为，计划继续留在队首，下一步会补射。
             return plan
         return None
 
-    def _htcs_miss_plan(self, unit: Unit, plan: FirePlan, target: Unit) -> None:
+    def _htcs_adaptive_expired(self, unit: Unit, plan: FirePlan,
+                               target: Unit) -> None:
+        """自适应迟到处理：先分类，再决定再定时/挂起/拦截。
+
+        - ``covered``：账本已覆盖目标效果 → 不必再打，静默消耗；
+        - ``discipline``：己方在途火力已覆盖/会过杀 → 顺延一个保持周期，
+          等账本结算后重新开火；
+        - ``temporary``：单位规避/被 SEAD 压制 → 顺延，不判失败；
+        - ``deliverable``：标称 ETA 仍在再定时视野内 → 推迟到能赶到的
+          时刻，保持任务承诺；
+        - ``infeasible``：根本到不了/没弹药 → 任务挂起，不触发再攻击；
+        - ``late``：已经到位却没打出去 → 仍按迟到拦截，维持火力纪律。
+        """
+        reason = self._htcs_classify_expired(unit, plan, target)
+        if reason == "covered":
+            # 账本已经覆盖目标效果：同一任务后续的发数也没有意义，
+            # 全部取消但不设停火保持（否则会挡住下一波次的新任务）。
+            self._htcs_cancel_task_plans(unit, plan)
+            return
+        if reason in ("discipline", "temporary", "deliverable"):
+            if self._htcs_try_retime(unit, plan, target, reason):
+                return
+            if reason == "temporary":
+                self._htcs_defer_plan(unit, plan, target, reason)
+                return
+            self._htcs_miss_plan(unit, plan, target, reason=reason)
+            return
+        if reason == "infeasible":
+            self._htcs_defer_plan(unit, plan, target, reason)
+            return
+        self._htcs_miss_plan(unit, plan, target, reason=reason)
+
+    def _htcs_classify_expired(self, unit: Unit, plan: FirePlan,
+                               target: Unit) -> str:
+        """对一条过期计划做可行性分类，返回原因字符串。"""
+        desired = self._desired_effect(target)
+        if self.damage_ledger.remaining_need(
+                target.id, target.hp, desired) <= 0.5:
+            return "covered"
+        if self._htcs_discipline_blocks(
+                target, self._htcs_expected_damage(unit, target)):
+            return "discipline"
+        horizon = int(self.htcs_config.get(
+            "late_fire_retime_horizon_steps", 60))
+        if (unit.status == STATUS_EVADE
+                or unit.suppressed_until > self.time_step):
+            return "temporary"
+        # 已经到位但还在反应/冷却：计划到点时单位尚未获得开火权。这是
+        # 执行节奏问题，不是“没赶到”，顺延剩余射击周期即可。
+        ready_delay = self._htcs_ready_delay(unit)
+        if ready_delay > 0:
+            return "temporary" if ready_delay <= horizon else "infeasible"
+        if unit.ammo <= 0 or not unit.can_engage(target):
+            return "infeasible"
+        estimate = estimate_eta_interval(
+            unit, target, self.battlefield,
+            target_speed=max(0.0, float(getattr(target, "speed", 0.0))) * 0.5,
+            sample_px=float(self.htcs_config.get(
+                "eta_terrain_sample_px", 8.0)),
+            detour_factor=float(self.htcs_config.get(
+                "eta_detour_factor", 0.5)),
+            slack_ratio=float(self.htcs_config.get(
+                "eta_upper_slack_ratio", 1.10)))
+        if estimate.nominal <= horizon:
+            if estimate.nominal > 0:
+                return "deliverable"
+            # 当前已在射程内：到达过但没打出去，属于执行迟到。
+            return "late"
+        return "late" if plan.reached else "infeasible"
+
+    @staticmethod
+    def _htcs_ready_delay(unit: Unit) -> int:
+        """单位还要多久才能开火（剩余反应/冷却 + 1 步状态推进）。"""
+        eng = unit.engagement_state
+        if eng.phase.name == "COOLDOWN":
+            remaining = max(0, int(eng.attack_cooldown)
+                            - int(eng.cooldown_progress))
+            return remaining + max(0, int(eng.reaction_delay)) + 1
+        if eng.phase.name == "REACTING":
+            remaining = max(0, int(eng.reaction_delay)
+                            - int(eng.reaction_progress))
+            return remaining + 1
+        return 0
+
+    def _htcs_try_retime(self, unit: Unit, plan: FirePlan, target: Unit,
+                         reason: str) -> bool:
+        """有界推迟任务内的全部火力计划；返回是否成功推迟。"""
+        task = self.assignments.get(unit.team)
+        task = task.tasks.get(plan.task_id) if task is not None else None
+        used = int(task.retimes) if task is not None else int(plan.retimes)
+        max_retimes = int(self.htcs_config.get("late_fire_retime_max", 1))
+        if used >= max_retimes:
+            return False
+        hold = max(1, int(self.htcs_config.get("late_fire_hold_steps", 6)))
+        estimate = estimate_eta_interval(
+            unit, target, self.battlefield,
+            target_speed=max(0.0, float(getattr(target, "speed", 0.0))) * 0.5,
+            sample_px=float(self.htcs_config.get(
+                "eta_terrain_sample_px", 8.0)),
+            detour_factor=float(self.htcs_config.get(
+                "eta_detour_factor", 0.5)),
+            slack_ratio=float(self.htcs_config.get(
+                "eta_upper_slack_ratio", 1.10)))
+        horizon = int(self.htcs_config.get(
+            "late_fire_retime_horizon_steps", 60))
+        if reason == "discipline":
+            delay = hold
+        elif reason == "temporary":
+            delay = max(hold, int(estimate.nominal),
+                        self._htcs_ready_delay(unit))
+        else:
+            if estimate.nominal > horizon:
+                return False
+            delay = max(1, int(estimate.nominal))
+        delay = min(max(1, delay), max(1, horizon))
+        new_tot = max(int(plan.tot), self.time_step + delay)
+        delta = new_tot - int(plan.tot)
+        if delta <= 0:
+            return False
+        self._htcs_shift_task(
+            unit, plan, delta, reason=reason,
+            eta_nominal=int(estimate.nominal), eta_upper=int(estimate.upper))
+        return True
+
+    def _htcs_shift_task(self, unit: Unit, plan: FirePlan, delta: int,
+                         *, reason: str, eta_nominal: int,
+                         eta_upper: int) -> None:
+        """把同一任务的所有计划整体平移 ``delta`` 步并同步任务字段。"""
+        team = unit.team
+        old_tot = int(plan.tot)
+        for unit_id, plans in list(self.fire_plans.get(team, {}).items()):
+            for index, item in enumerate(plans):
+                if item.task_id != plan.task_id:
+                    continue
+                plans[index] = replace(
+                    item,
+                    window=FireWindow(
+                        tot=item.tot + delta,
+                        tolerance=item.window.tolerance,
+                        late=item.window.late),
+                    retimes=item.retimes + 1)
+        result = self.assignments.get(team)
+        task = result.tasks.get(plan.task_id) if result is not None else None
+        if task is not None:
+            task.tot_step += delta
+            task.window_start += delta
+            task.late_until += delta
+            task.retimes += 1
+        if result is not None:
+            for unit_id, plans in self.fire_plans.get(team, {}).items():
+                if plans and plans[0].task_id == plan.task_id:
+                    result.attack_steps[unit_id] = plans[0].tot
+        if plan.task_id not in self._htcs_retime_logged:
+            self._htcs_retime_logged.add(plan.task_id)
+            self.record_event(
+                "coordination",
+                f"{team.title()} {unit.name} 火力计划再定时："
+                f"{plan.task_id} 的 TOT 从第 {old_tot} 步推到 "
+                f"第 {old_tot + delta} 步（{reason}）",
+                event="fire_window_retimed", team=team,
+                unit_id=unit.id, target_id=plan.target_id,
+                task_id=plan.task_id, reason=reason,
+                old_tot=old_tot, new_tot=old_tot + delta,
+                eta_nominal=eta_nominal, eta_upper=eta_upper)
+
+    def _htcs_defer_plan(self, unit: Unit, plan: FirePlan,
+                         target: Unit, reason: str) -> None:
+        """挂起不可执行的任务：不设停火保持，也不触发再攻击。"""
+        team = unit.team
+        result = self.assignments.get(team)
+        task = result.tasks.get(plan.task_id) if result is not None else None
+        if task is not None:
+            task.state = "deferred"
+            task.deferred = True
+        if plan.task_id not in self._htcs_defer_logged:
+            self._htcs_defer_logged.add(plan.task_id)
+            self.record_event(
+                "coordination",
+                f"{team.title()} {unit.name} 任务挂起："
+                f"{target.name} 在本波次不可达/不可执行（{reason}）",
+                event="fire_window_deferred", team=team,
+                unit_id=unit.id, target_id=target.id,
+                task_id=plan.task_id, reason=reason,
+                eta_nominal=plan.eta_nominal, eta_upper=plan.eta_upper,
+                reached=bool(plan.reached))
+        self._htcs_cancel_task_plans(unit, plan)
+
+    def _htcs_cancel_task_plans(self, unit: Unit, plan: FirePlan) -> None:
+        """取消同一任务的全部剩余计划（不设置停火保持）。"""
+        team = unit.team
+        for unit_id, plans in list(self.fire_plans.get(team, {}).items()):
+            matching = [item for item in list(plans)
+                        if item.task_id == plan.task_id]
+            owner = self._entity(unit_id)
+            if owner is None:
+                continue
+            for item in matching:
+                self._htcs_consume_plan(owner, item)
+
+    def _htcs_miss_plan(self, unit: Unit, plan: FirePlan, target: Unit,
+                        *, reason: str = "late") -> None:
         """拦截一条迟到计划：记录事件、设置保持，然后消耗该计划。"""
         hold = max(1, int(self.htcs_config.get("late_fire_hold_steps", 6)))
         self._htcs_target_hold[(unit.id, plan.target_id)] = (
@@ -690,11 +919,14 @@ class Simulator:
             self.record_event(
                 "coordination",
                 f"{unit.team.title()} {unit.name} 迟到射击被拦截："
-                f"{target.name} 的火力窗口已于第 {plan.late_until} 步结束",
+                f"{target.name} 的火力窗口已于第 {plan.late_until} 步结束"
+                f"（{reason}）",
                 event="fire_window_missed", team=unit.team,
                 unit_id=unit.id, target_id=target.id,
                 task_id=plan.task_id, tot=plan.tot,
-                late_until=plan.late_until, hold_until=self.time_step + hold)
+                late_until=plan.late_until, hold_until=self.time_step + hold,
+                reason=reason, reached=bool(plan.reached),
+                eta_nominal=plan.eta_nominal, eta_upper=plan.eta_upper)
         self._htcs_consume_plan(unit, plan)
 
     def _desired_effect(self, target: Unit) -> float:
@@ -708,6 +940,20 @@ class Simulator:
             is_evading=(unit.status == STATUS_EVADE))
         crit_factor = 1.0 + CRIT_CHANCE * (CRIT_DAMAGE_MULTIPLIER - 1.0)
         return max(0.0, hit_prob * unit.attack_power * crit_factor)
+
+    def _htcs_discipline_blocks(self, target: Unit,
+                                incoming: float | None = None) -> bool:
+        """账本是否禁止本发（不记录事件，供迟到分类复用）。"""
+        if not bool(self.htcs_config.get("fire_discipline", True)):
+            return False
+        desired = self._desired_effect(target)
+        ratio = float(self.htcs_config.get("overkill_fire_ratio", 1.0))
+        saturated = self.damage_ledger.is_saturated(
+            target.id, target.hp, desired, ratio)
+        crossing = (not saturated and incoming is not None
+                    and self.damage_ledger.would_overkill(
+                        target.id, target.hp, incoming, desired, ratio))
+        return bool(saturated or crossing)
 
     def _htcs_fire_allowed(self, unit: Unit, target: Unit,
                            incoming: float | None = None) -> bool:
@@ -821,7 +1067,9 @@ class Simulator:
 
         返回 True 表示已经得出结论（完成/失败），False 表示仍需继续观察。
         """
-        if task.state in ("done", "failed"):
+        if task.state in ("done", "failed", "deferred"):
+            # 挂起是“本波次不可执行”，不是执行失败：不触发再攻击，
+            # 下一波次由规划器重新评估可达性。
             return True
         target = self._entity(task.target_id)
         if target is None or target.is_destroyed:

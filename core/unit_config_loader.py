@@ -280,7 +280,7 @@ def _role_fit(config: dict[str, Any],
 _COOPERATIVE_MODES = ("rdma_v2", "htcs")
 _HTCS_DOCTRINES = ("adaptive", "balanced", "attrition", "decapitation",
                    "base_pressure")
-_HTCS_LATE_FIRE_POLICIES = ("strict", "lenient")
+_HTCS_LATE_FIRE_POLICIES = ("strict", "lenient", "adaptive")
 
 
 def _cooperative_mode(config: dict[str, Any]) -> None:
@@ -320,11 +320,23 @@ def _htcs_config(config: dict[str, Any]) -> None:
 
     for key in ("wave_length_steps", "bundle_size", "max_tasks_per_wave",
                 "planning_horizon_waves", "tot_horizon_steps",
-                "late_fire_hold_steps"):
+                "late_fire_hold_steps", "late_fire_retime_horizon_steps"):
         _positive_int(merged, key, defaults[key])
     for key in ("tot_tolerance_steps", "tot_late_steps",
-                "reattack_delay_steps", "sead_suppression_steps"):
+                "reattack_delay_steps", "sead_suppression_steps",
+                "late_fire_retime_max", "late_fire_late_max_steps"):
         _nonnegative_int(merged, key, defaults[key])
+    if merged["late_fire_late_max_steps"] < merged["tot_late_steps"]:
+        _warn_once("htcs.late_fire_late_max_steps",
+                   "htcs.late_fire_late_max_steps 不能小于 "
+                   "htcs.tot_late_steps")
+        merged["late_fire_late_max_steps"] = merged["tot_late_steps"]
+    _htcs_number(merged, "eta_upper_slack_ratio",
+                 defaults["eta_upper_slack_ratio"], minimum=1.0)
+    _htcs_number(merged, "eta_detour_factor",
+                 defaults["eta_detour_factor"], minimum=0.0)
+    _htcs_number(merged, "eta_terrain_sample_px",
+                 defaults["eta_terrain_sample_px"], minimum=1.0)
     _htcs_number(merged, "staging_standoff_ratio",
                  defaults["staging_standoff_ratio"], minimum=0.0)
     _htcs_number(merged, "ammo_reserve_ratio",
