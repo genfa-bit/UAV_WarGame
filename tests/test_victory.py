@@ -1,6 +1,6 @@
 from core.battlefield import Battlefield
 from core.simulator import Simulator
-from core.units import GroundVehicle, ScoutDrone
+from core.units import CommandNode, GroundVehicle, ScoutDrone
 
 
 def test_red_destroyed_blue_wins():
@@ -41,3 +41,28 @@ def test_victory_result_is_in_status_snapshot():
     simulator.step()
 
     assert simulator.status_snapshot()["winner"] == "blue"
+
+
+def test_step_limit_verdict_prefers_stronger_remaining_force():
+    # 相距 400px，首步无法互相发现/开火；超时按剩余战力判定。
+    red = GroundVehicle(id="r1", name="红无人车", team="red", x=200, y=300)
+    blue = ScoutDrone(id="b1", name="蓝无人机", team="blue", x=600, y=300)
+    simulator = Simulator(Battlefield(800, 600), [red, blue], max_steps=1)
+
+    simulator.step()
+
+    assert simulator.winner == "red"
+    assert simulator.finish_reason == "step_limit"
+    assert any("按剩余战力判定红方获胜" in line for line in simulator.combat_logs)
+
+
+def test_step_limit_verdict_uses_base_hp_when_strength_ties():
+    red = CommandNode(id="r1", name="红指挥", team="red", x=100, y=100)
+    blue = CommandNode(id="b1", name="蓝指挥", team="blue", x=300, y=100)
+    simulator = Simulator(Battlefield(800, 600), [red, blue], max_steps=1)
+    simulator.battlefield.base_obj("blue").take_damage(100)
+
+    simulator.step()
+
+    assert simulator.winner == "red"
+    assert simulator.finish_reason == "step_limit"

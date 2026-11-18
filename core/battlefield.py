@@ -93,18 +93,40 @@ class Battlefield:
     def is_blocked(self, x: float, y: float) -> bool:
         return any(o.contains(x, y) for o in self.obstacles)
 
+    def obstacles_at(self, x: float, y: float) -> tuple[Obstacle, ...]:
+        """返回覆盖指定坐标的全部障碍物。"""
+        return tuple(o for o in self.obstacles if o.contains(x, y))
+
     def clamp_position(self, x: float, y: float) -> tuple[float, float]:
         return max(0, min(self.width, x)), max(0, min(self.height, y))
 
-    def is_position_valid(self, x: float, y: float, domain: str = "ground") -> bool:
+    def is_position_valid(self, x: float, y: float,
+                          unit_or_domain: object = "ground", *,
+                          terrain_effects: dict | None = None) -> bool:
+        """判断单位能否位于指定坐标。
+
+        - 空中平台只受地图边界限制。
+        - 地面平台可进入 unit_config.json 的 ``terrain_effects`` 中列出的地形
+          （山地/建筑），未列出的障碍物仍然阻挡。
+        - 只传平台名称（字符串）时沿用旧规则：任何障碍物都阻挡。
+        """
         if not self.in_bounds(x, y):
             return False
+        domain = getattr(unit_or_domain, "domain", unit_or_domain)
         if domain == "air":
             return True
-        return not self.is_blocked(x, y)
+        if terrain_effects is None:
+            terrain_effects = getattr(unit_or_domain, "terrain_effects", None)
+        overlapping = self.obstacles_at(x, y)
+        if not overlapping:
+            return True
+        if terrain_effects is None:
+            return False
+        return all(obstacle.type in terrain_effects for obstacle in overlapping)
 
-    def can_move_to(self, x: float, y: float, domain: str = "ground") -> bool:
-        return self.is_position_valid(x, y, domain)
+    def can_move_to(self, x: float, y: float,
+                    unit_or_domain: object = "ground") -> bool:
+        return self.is_position_valid(x, y, unit_or_domain)
 
     def base_for_team(self, team: str) -> tuple[float, float]:
         return self.red_base if team == "red" else self.blue_base

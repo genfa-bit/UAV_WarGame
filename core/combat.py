@@ -13,7 +13,7 @@ import itertools
 import random
 from dataclasses import dataclass, field
 
-from config import STATUS_ATTACK
+from config import CRIT_CHANCE, CRIT_DAMAGE_MULTIPLIER, STATUS_ATTACK
 from core.units import Unit
 
 
@@ -35,6 +35,14 @@ class AttackEvent:
     is_miss: bool = False
     life: int = 8
     event_id: int = field(default_factory=lambda: next(_attack_event_ids))
+    # HTCS 任务角色（sead/strike/base/opportunity）；旧路径留空。
+    role: str = ""
+    # 名义伤害与过杀：damage 是扣血后的**实际**伤害（受剩余血量截断），
+    # nominal_damage 是命中时应造成的伤害；overkill 是二者之差。旧路径
+    # 只统计实际伤害，因此基准中的 overkill 永远为 0，无法观察单发弹药
+    # 打在残血目标上的浪费。
+    nominal_damage: int = 0
+    overkill: int = 0
 
 
 @dataclass
@@ -51,6 +59,7 @@ class AttackIntent:
     is_critical: bool
     attacker: Unit = field(repr=False)
     target: Unit = field(repr=False)
+    role: str = ""
 
 
 def _segment_intersects_rect(
@@ -89,7 +98,11 @@ def calculate_hit_probability(
     - 距离因子：越近命中率越高，射程边缘衰减
     - 目标速度因子：目标越快越难命中
     - 自身状态因子：规避状态时命中率下降
-    - 掩体遮挡因子：视线穿过障碍物大幅降低命中率
+    - 障碍物遮挡因子：攻击直线每穿过一个障碍物，就乘以攻击方兵种在
+      data/unit_config.json 的 obstacle_hit_factors 中为该类型配置的倍率；
+      多个障碍物依次相乘。不同兵种对同一障碍物的衰减不同。
+    - 地形因子：攻击方在山地/建筑内时命中率下降；目标在山地/建筑内时
+      被命中率下降。倍率来自 data/unit_config.json 的 terrain_effects。
     """
     base = attacker.base_hit_prob
     if base <= 0:
@@ -109,18 +122,37 @@ def calculate_hit_probability(
     # ── 自身状态因子 ──
     status_factor = 0.7 if is_evading else 1.0
 
-    # ── 掩体遮挡因子 ──
+    # ── 障碍物遮挡因子 ──
+    # 攻击直线每穿过一个障碍物就乘一次攻击方兵种对该类型的倍率；多个
+    # 障碍物叠加。导弹发射车倍率接近 1.0，无人机次之，无人战车最低。
+    # 双方所处且可通行的山体/建筑由下面的地形因子单独计算，避免同一障碍
+    # 同时触发遮挡与地形惩罚。
     cover_factor = 1.0
     if battlefield is not None:
         for obs in battlefield.obstacles:
+            attacker_inside = (obs.contains(attacker.x, attacker.y)
+                               and attacker.can_traverse(obs.type))
+            target_inside = (obs.contains(target.x, target.y)
+                             and target.can_traverse(obs.type))
+            if attacker_inside or target_inside:
+                continue
             if _segment_intersects_rect(
                 attacker.x, attacker.y, target.x, target.y,
                 obs.x, obs.y, obs.width, obs.height,
             ):
-                cover_factor = 0.3
-                break
+                cover_factor *= attacker.obstacle_hit_factor(obs.type)
 
-    prob = base * dist_factor * speed_factor * status_factor * cover_factor
+    # ── 地形命中因子（攻守双方）──
+    attack_terrain_factor = 1.0
+    target_terrain_factor = 1.0
+    if battlefield is not None:
+        attack_terrain_factor = attacker.terrain_factor(
+            battlefield, "attack_hit_factor")
+        target_terrain_factor = target.terrain_factor(
+            battlefield, "cover_hit_factor")
+
+    prob = (base * dist_factor * speed_factor * status_factor
+            * cover_factor * attack_terrain_factor * target_terrain_factor)
     return max(0.05, min(0.95, prob))
 
 
@@ -156,6 +188,7 @@ class CombatSystem:
         target: Unit,
         battlefield=None,
         is_evading: bool = False,
+        role: str = "",
     ) -> AttackIntent | None:
         """将攻击加入意图队列，不立即结算伤害。"""
         if not self.can_attack(attacker, target):
@@ -164,8 +197,9 @@ class CombatSystem:
         attacker.status = STATUS_ATTACK
         hit_prob = calculate_hit_probability(
             attacker, target, battlefield, is_evading)
-        is_critical = random.random() < 0.1
-        damage = attacker.attack_power * 1.5 if is_critical else float(attacker.attack_power)
+        is_critical = random.random() < CRIT_CHANCE
+        damage = (attacker.attack_power * CRIT_DAMAGE_MULTIPLIER
+                  if is_critical else float(attacker.attack_power))
 
         intent = AttackIntent(
             attacker_id=attacker.id,
@@ -178,6 +212,7 @@ class CombatSystem:
             is_critical=is_critical,
             attacker=attacker,
             target=target,
+            role=role,
         )
         self._intents.append(intent)
         return intent
@@ -196,8 +231,9 @@ class CombatSystem:
                 continue
 
             if random.random() < intent.hit_probability:
+                nominal_damage = int(intent.damage)
                 if hasattr(target, 'take_damage'):
-                    actual_damage = target.take_damage(int(intent.damage))
+                    actual_damage = target.take_damage(nominal_damage)
                 else:
                     actual_damage = 0
                 event = AttackEvent(
@@ -210,6 +246,9 @@ class CombatSystem:
                     target_destroyed=getattr(target, 'is_destroyed', False),
                     is_critical=intent.is_critical,
                     is_miss=False,
+                    role=intent.role,
+                    nominal_damage=nominal_damage,
+                    overkill=max(0, nominal_damage - actual_damage),
                 )
             else:
                 event = AttackEvent(
@@ -222,6 +261,7 @@ class CombatSystem:
                     target_destroyed=False,
                     is_critical=False,
                     is_miss=True,
+                    role=intent.role,
                 )
             events.append(event)
         self._intents.clear()

@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import random
-from math import hypot
+from math import atan2, cos, hypot, sin
 from typing import Iterable
 
 from config import (
@@ -26,11 +26,58 @@ from config import (
 )
 from core.battlefield import Battlefield
 from core.behavior import Behavior, BehaviorManager
+from core.entity import stable_unit_angle
 from core.pathfinding import move_to
 from core.units import Unit, UnitDomain
 
 _DIRECTIONS = [(1, 0), (1, -1), (0, -1), (-1, -1),
                (-1, 0), (-1, 1), (0, 1), (1, 1)]
+
+# 接近目标时停在射程的 85% 处：既进入攻击范围，又不会走到目标坐标上。
+APPROACH_STANDOFF_RATIO = 0.85
+# 无分配目标时向敌方基地推进，停在射程 90% 的外围。
+BASE_PUSH_STANDOFF_RATIO = 0.90
+# 基地补给站位半径（小于 BASE_REPAIR_RADIUS=80，仍可被补给）。
+RESUPPLY_SLOT_RADIUS = 36.0
+_MIN_STANDOFF = 24.0
+
+
+def _ring_point(unit: Unit, center_x: float, center_y: float,
+                radius: float) -> tuple[float, float]:
+    """目标外围的环绕站位点：留在单位当前所在的方位上。
+
+    站位角取“目标指向单位”的当前方位，而不是单位 ID 的固定角。这样在
+    点对称的战场上双方走位完全镜像，不会因为单位编号不同而让某一方
+    总是占到位（这正是此前蓝方胜率偏高的根因）。只有单位与目标完全
+    重合、方位无法定义时，才用 ID 稳定角兜底并把两者分开。
+    """
+    dx, dy = unit.x - center_x, unit.y - center_y
+    if dx * dx + dy * dy < 1e-12:
+        angle = stable_unit_angle(unit.id)
+    else:
+        angle = atan2(dy, dx)
+    return center_x + cos(angle) * radius, center_y + sin(angle) * radius
+
+
+def _approach_point(unit: Unit, target_x: float, target_y: float,
+                    standoff: float) -> tuple[float, float] | None:
+    """返回目标外围的接近点；已在站位圈内时返回 None（保持站位）。
+
+    远距离沿当前方位直进，进入 2.5 倍站位半径内改走本单位方位的环绕
+    站位点，从而把多个单位分散在目标周围的射程外沿，而不是叠在目标
+    坐标上。同一方位上的多个单位由移动后的分离阶段兜底推开。
+    """
+    dx, dy = unit.x - target_x, unit.y - target_y
+    distance = hypot(dx, dy)
+    if distance <= standoff:
+        return None
+    if distance < 1e-6:
+        angle = stable_unit_angle(unit.id)
+    elif distance > standoff * 2.5:
+        angle = atan2(dy, dx)
+    else:
+        return _ring_point(unit, target_x, target_y, standoff)
+    return target_x + cos(angle) * standoff, target_y + sin(angle) * standoff
 
 
 class StrategyEngine:
@@ -141,7 +188,21 @@ class StrategyEngine:
         target: Unit | None,
         visible_enemies: Iterable[Unit],
         all_enemies: Iterable[Unit],
+        *,
+        target_mode: str | None = None,
+        emergency_target: Unit | None = None,
+        staging_standoff: float | None = None,
     ) -> bool:
+        """执行移动决策。
+
+        target_mode:
+        - None：旧行为，保持 focus/最近敌人回退；
+        - "assigned"：只围绕协同分配目标行动，不切换到其他敌人；
+        - "unassigned"：RDMA 下未分配单位，禁止普通攻击候选，仅允许
+          emergency_target 触发的基地防御/自卫移动；
+        - "staging"：HTCS 提前到达，围绕分配目标在 staging_standoff 距离
+          上待机，不主动进入射程，等待 TOT 火力门。
+        """
         if unit.is_destroyed:
             return False
 
@@ -159,23 +220,35 @@ class StrategyEngine:
 
         candidates: list[tuple[Behavior, callable]] = []
 
-        # 基地防御（敌方在250px内→全员防御，无论血量弹药）
+        # 基地防御（敌方在250px内→全员防御，无论血量弹药）。
+        # 协同分配单位不参与通用基地防御，避免把火力从分配目标引开。
         base_x, base_y = battlefield.base_for_team(unit.team)
         enemies_near_base = [e for e in enemies
                              if ((e.x - base_x) ** 2 + (e.y - base_y) ** 2) ** 0.5 < 250]
-        if enemies_near_base and (unit.can_attack(enemies_near_base[0]) or unit.ammo > 0):
-            defender = enemies_near_base[0] if unit.can_attack(enemies_near_base[0]) else \
-                       min(enemies_near_base, key=lambda e: unit.distance_to(e))
+        defender = emergency_target if emergency_target is not None else (
+            enemies_near_base[0] if enemies_near_base and unit.can_attack(enemies_near_base[0])
+            else (min(enemies_near_base, key=lambda e: unit.distance_to(e))
+                  if enemies_near_base else None))
+        controlled_mode = target_mode in ("assigned", "staging")
+        assigned_defender_ok = (controlled_mode and target is not None
+                                and defender is not None
+                                and defender.id == target.id)
+        if ((not controlled_mode or assigned_defender_ok)
+                and enemies_near_base and defender is not None
+                and (emergency_target is not None or unit.can_attack(defender)
+                     or unit.ammo > 0)):
             candidates.append((Behavior.ATTACK,
                                lambda: self._move_with_role(unit, defender, battlefield,
                                                             visible, enemies)))
 
-        # 增援：队友正在交火，我状态OK → 去帮忙
-        reinforce_pt = self._check_reinforce(unit, visible, enemies, battlefield)
-        if reinforce_pt and not enemies_near_base:
-            rx, ry = reinforce_pt
+        # 增援：队友正在交火，我状态OK → 去帮忙。
+        # RDMA 已分配单位只服从分配目标，避免被路过的敌人拉走。
+        reinforce_target = self._check_reinforce(unit, visible, enemies, battlefield)
+        if (reinforce_target is not None and not enemies_near_base
+                and target_mode is None):
+            rt = reinforce_target
             candidates.append((Behavior.ATTACK,
-                               lambda: self._do_move_to_point(unit, rx, ry, battlefield)))
+                               lambda: self._do_advance_to_enemy(unit, rt, battlefield)))
 
         # 弹药/血量不足 → 回基地补给
         need_resupply = (unit.ammo == 0 or unit.hp_ratio < 0.4)
@@ -183,14 +256,28 @@ class StrategyEngine:
             candidates.append((Behavior.SCOUT,
                                lambda: self._do_resupply(unit, battlefield)))
 
-        # 补给充足 → 向敌方/前线推进
+        # 补给充足 → 按分配目标或前线推进。
+        # 所有“向目标移动”都用外围站位点，绝不把目标的精确坐标当目的地：
+        # 否则多个单位会走到同一个像素上，随后距离为 0、永久重叠不动。
         if not need_resupply:
-            if enemies:
-                # 向已知最近敌人推进
+            if target_mode == "staging" and target is not None:
+                candidates.append((Behavior.SCOUT,
+                                   lambda: self._do_hold_for_tot(
+                                       unit, target, battlefield,
+                                       staging_standoff)))
+            elif target_mode == "assigned" and target is not None:
+                candidates.append((Behavior.SCOUT,
+                                   lambda: self._do_approach_target(
+                                       unit, target, battlefield)))
+            elif target_mode == "unassigned":
+                # 未分配单位不追逐可见敌人，只撤向外围待机/补给。
+                candidates.append((Behavior.PATROL,
+                                   lambda: self._do_push_enemy_base(unit, battlefield)))
+            elif enemies:
                 nearest = min(enemies, key=unit.distance_to)
                 candidates.append((Behavior.SCOUT,
-                                   lambda: self._do_move_to_point(
-                                       unit, nearest.x, nearest.y, battlefield)))
+                                   lambda: self._do_advance_to_enemy(
+                                       unit, nearest, battlefield)))
             elif not visible:
                 candidates.append((Behavior.PATROL,
                                    lambda: self._do_push_enemy_base(unit, battlefield)))
@@ -217,15 +304,26 @@ class StrategyEngine:
                 if nv:
                     self._move_away_smart(u, nv, bf)
                 else:
+                    # 无可见威胁时撤向己方基地外围站位点，不挤在基地坐标上。
                     bx, by = bf.base_for_team(u.team)
-                    move_to(u, bx, by, bf)
+                    point = _approach_point(u, bx, by, RESUPPLY_SLOT_RADIUS)
+                    if point is not None:
+                        move_to(u, point[0], point[1], bf)
             candidates.append((Behavior.EVADE,
                                lambda: ev(unit, nearest_vis, battlefield)))
 
         # Attack（集火目标 或 面前最近的可攻击敌人）
-        # 第十阶段：只有交战状态机允许攻击时才能加入 ATTACK 候选
+        # 第十阶段：只有交战状态机允许攻击时才能加入 ATTACK 候选。
+        # RDMA 下 assigned 只认分配目标，unassigned 不生成普通攻击候选。
         attack_target = None
-        if target and not target.is_destroyed and unit.can_attack(target):
+        if target_mode in ("unassigned", "staging"):
+            # 未分配/待机单位不生成普通的“接近并攻击”候选；真正开火
+            # 由 Simulator 的火力门与攻击阶段统一授权。
+            attack_target = None
+        elif target_mode == "assigned":
+            if target and not target.is_destroyed and unit.can_attack(target):
+                attack_target = target
+        elif target and not target.is_destroyed and unit.can_attack(target):
             attack_target = target
         else:
             for e in sorted(visible, key=unit.distance_to):
@@ -239,9 +337,11 @@ class StrategyEngine:
                                    lambda: self._move_with_role(unit, at, battlefield,
                                                                 visible, enemies)))
             else:
-                # 反应中/冷却中 → 向目标移动但不攻击
+                # 反应中/冷却中 → 已在射程内保持站位，否则接近到射程外沿。
+                # 不能把目标坐标当目的地，否则会走到目标身上并互相锁死。
                 candidates.append((Behavior.SCOUT,
-                                   lambda: self._do_move_to_point(unit, at.x, at.y, battlefield)))
+                                   lambda: self._do_hold_or_approach(
+                                       unit, at, battlefield)))
 
         executed = self.behavior_mgr.resolve(unit.id, candidates, force_exit)
 
@@ -262,27 +362,95 @@ class StrategyEngine:
         unit.patrol(battlefield, self._get_patrol_vector(unit, battlefield))
 
     def _do_resupply(self, unit: Unit, battlefield: Battlefield) -> None:
-        """弹药/血量不足 → 自动绕障返回己方基地。"""
+        """弹药/血量不足 → 自动绕障返回己方基地。
+
+        停在基地外围的固定环绕点上（每个单位角度不同），而不是基地坐标本身，
+        否则同阵营单位会在补给时全部叠进同一个像素。
+        """
         unit.status = STATUS_MOVE
         bx, by = battlefield.base_for_team(unit.team)
-        move_to(unit, bx, by, battlefield)
+        point = _approach_point(unit, bx, by, RESUPPLY_SLOT_RADIUS)
+        if point is not None:
+            move_to(unit, point[0], point[1], battlefield)
 
     def _do_push_enemy_base(self, unit: Unit, battlefield: Battlefield) -> None:
-        """无可见敌人 → 自动绕障向敌方基地推进。"""
+        """无可见敌人 → 自动绕障向敌方基地推进，停在射程外围。
+
+        停在射程的 90% 处：既在攻击范围内，又不会挤进基地坐标；
+        多支部队按各自固定角度分散在基地周围的环上。
+        """
         unit.status = STATUS_MOVE
         enemy_team = "blue" if unit.team == "red" else "red"
         bx, by = battlefield.base_for_team(enemy_team)
-        move_to(unit, bx, by, battlefield)
+        standoff = self._standoff_for(unit, BASE_PUSH_STANDOFF_RATIO)
+        point = _approach_point(unit, bx, by, standoff)
+        if point is not None:
+            move_to(unit, point[0], point[1], battlefield)
 
-    def _do_move_to_point(self, unit: Unit, tx: float, ty: float,
-                          battlefield: Battlefield) -> None:
-        """向指定坐标移动。"""
+    def _do_approach_target(self, unit: Unit, target: Unit,
+                            battlefield: Battlefield) -> None:
+        """接近分配目标，停在射程的 85% 处。
+
+        目标坐标只用于计算外围站位点，绝不作为目的地：多个单位若都以目标
+        坐标为终点会走到同一像素，距离归零后双方都不再移动。
+        """
+        standoff = self._standoff_for(unit, APPROACH_STANDOFF_RATIO)
+        point = _approach_point(unit, target.x, target.y, standoff)
+        if point is None:
+            unit.status = STATUS_ATTACK
+            return
         unit.status = STATUS_MOVE
-        move_to(unit, tx, ty, battlefield)
+        move_to(unit, point[0], point[1], battlefield)
+
+    def _do_hold_for_tot(self, unit: Unit, target: Unit,
+                         battlefield: Battlefield,
+                         standoff: float | None = None) -> None:
+        """HTCS 待机：在射程外沿等待 TOT，不提前进入交战。
+
+        ``standoff`` 缺省按射程 115% 计算；已在待机圈内则原地保持，
+        避免来回抖动并把火力提前带入敌方射程。
+        """
+        radius = (standoff if standoff is not None
+                  else self._standoff_for(unit, 1.15))
+        if unit.distance_to(target) <= radius:
+            unit.status = STATUS_ATTACK
+            return
+        point = _approach_point(unit, target.x, target.y, radius)
+        if point is None:
+            unit.status = STATUS_ATTACK
+            return
+        unit.status = STATUS_MOVE
+        move_to(unit, point[0], point[1], battlefield)
+
+    def _do_advance_to_enemy(self, unit: Unit, enemy: Unit,
+                             battlefield: Battlefield) -> None:
+        """向普通敌人推进，同样停在射程外围的固定站位点。"""
+        self._do_approach_target(unit, enemy, battlefield)
+
+    def _do_hold_or_approach(self, unit: Unit, target: Unit,
+                             battlefield: Battlefield) -> None:
+        """已在射程内则原地保持，否则接近到射程外沿（不等同于贴近目标）。"""
+        if unit.distance_to(target) <= unit.attack_range:
+            unit.status = STATUS_ATTACK
+            return
+        self._do_approach_target(unit, target, battlefield)
+
+    @staticmethod
+    def _standoff_for(unit: Unit, ratio: float) -> float:
+        """按单位射程计算站位距离，避免近距离兵种把站位点压到目标身上。"""
+        return max(_MIN_STANDOFF, unit.attack_range * ratio)
+
+    def _step_toward_standoff(self, unit: Unit, target: Unit,
+                              battlefield: Battlefield) -> None:
+        """兵种行为共用的接近步：只走到目标外围站位点。"""
+        standoff = self._standoff_for(unit, APPROACH_STANDOFF_RATIO)
+        point = _approach_point(unit, target.x, target.y, standoff)
+        if point is not None:
+            move_to(unit, point[0], point[1], battlefield)
 
     def _check_reinforce(self, unit: Unit, visible: list[Unit],
                          enemies: list[Unit],
-                         battlefield: Battlefield) -> tuple[float, float] | None:
+                         battlefield: Battlefield) -> Unit | None:
         """检查是否需要增援队友：我有战力且队友在附近交火。"""
         if unit.hp_ratio < 0.5 or unit.ammo < 3:
             return None
@@ -291,7 +459,7 @@ class StrategyEngine:
             dist_me = unit.distance_to(enemy)
             if dist_me < 350 and dist_me > 80:
                 # 去增援
-                return (enemy.x, enemy.y)
+                return enemy
         return None
 
     def _do_scout(self, unit: Unit, nearest_vis: Unit) -> None:
@@ -351,7 +519,7 @@ class StrategyEngine:
         else:
             unit.status = STATUS_SCOUT
             if dist > unit.detect_range * 0.7:
-                move_to(unit, target.x, target.y, battlefield)
+                self._step_toward_standoff(unit, target, battlefield)
 
     def _strike_behavior(self, unit: Unit, target: Unit, battlefield: Battlefield,
                          visible: list[Unit]) -> None:
@@ -367,7 +535,7 @@ class StrategyEngine:
             unit.status = STATUS_ATTACK
         else:
             unit.status = STATUS_MOVE
-            move_to(unit, target.x, target.y, battlefield)
+            self._step_toward_standoff(unit, target, battlefield)
 
     def _ground_behavior(self, unit: Unit, target: Unit, battlefield: Battlefield) -> None:
         dist = unit.distance_to(target)
@@ -375,7 +543,7 @@ class StrategyEngine:
             unit.status = STATUS_ATTACK
         else:
             unit.status = STATUS_MOVE
-            move_to(unit, target.x, target.y, battlefield)
+            self._step_toward_standoff(unit, target, battlefield)
 
     def _missile_behavior(self, unit: Unit, target: Unit, battlefield: Battlefield) -> None:
         dist = unit.distance_to(target)
@@ -387,7 +555,7 @@ class StrategyEngine:
             unit.status = STATUS_ATTACK
         else:
             unit.status = STATUS_MOVE
-            move_to(unit, target.x, target.y, battlefield)
+            self._step_toward_standoff(unit, target, battlefield)
 
     def _default_behavior(self, unit: Unit, target: Unit, battlefield: Battlefield) -> None:
         dist = unit.distance_to(target)
@@ -395,7 +563,7 @@ class StrategyEngine:
             unit.status = STATUS_ATTACK
         else:
             unit.status = STATUS_MOVE
-            move_to(unit, target.x, target.y, battlefield)
+            self._step_toward_standoff(unit, target, battlefield)
 
     # ═══════════════════════════════════════════════════════════
     #  卡死处理（采样敌方方向的有效位置）
@@ -417,7 +585,7 @@ class StrategyEngine:
             tx = unit.x + offset_x
             ty = unit.y + offset_y
             tx, ty = battlefield.clamp_position(tx, ty)
-            if battlefield.can_move_to(tx, ty, unit.domain):
+            if battlefield.can_move_to(tx, ty, unit):
                 move_to(unit, tx, ty, battlefield)
                 return
         # 全失败则原地等待
@@ -434,10 +602,11 @@ class StrategyEngine:
             vector = (forward, random.uniform(-0.4, 0.4))
             self._patrol_vectors[unit.id] = vector
 
-        nx = unit.x + vector[0] * unit.speed
-        ny = unit.y + vector[1] * unit.speed
+        speed = unit.effective_speed(battlefield)
+        nx = unit.x + vector[0] * speed
+        ny = unit.y + vector[1] * speed
         nx, ny = battlefield.clamp_position(nx, ny)
-        if battlefield.can_move_to(nx, ny, unit.domain):
+        if battlefield.can_move_to(nx, ny, unit):
             self._patrol_hits = getattr(self, '_patrol_hits', {})
             self._patrol_hits[unit.id] = 0
             return vector
@@ -450,10 +619,10 @@ class StrategyEngine:
             (-forward, 0),
         ]
         for dx, dy in prioritized:
-            tx = unit.x + dx * unit.speed * 2
-            ty = unit.y + dy * unit.speed * 2
+            tx = unit.x + dx * speed * 2
+            ty = unit.y + dy * speed * 2
             tx, ty = battlefield.clamp_position(tx, ty)
-            if battlefield.can_move_to(tx, ty, unit.domain):
+            if battlefield.can_move_to(tx, ty, unit):
                 self._patrol_vectors[unit.id] = (dx, dy)
                 return (dx, dy)
 

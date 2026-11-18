@@ -31,7 +31,7 @@ class InfoPanel:
         snapshot = simulator.status_snapshot()
         wreck_status = "开启" if simulator.show_wrecks else "关闭"
         lines = [
-            ("无人装备战争游戏", self.title_font),
+            ("无人装备战争", self.title_font),
             (f"时间步: {snapshot['time_step']}", self.font),
             (f"系统状态: {self._state_text(game_state)}", self.font),
             (f"残骸显示: {wreck_status}", self.small_font),

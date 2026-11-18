@@ -175,4 +175,4 @@ def test_rich_scene_registration_preserves_first_three_and_standard_baseline(tmp
     assert [scene["id"] for scene in controller.available_scenarios()] == [
         "standard", "obstacles", "custom", "valley", "river_city"]
     assert len(controller.snapshot()["units"]) == 10
-    assert len(controller.snapshot()["map"]["obstacles"]) == 3
+    assert len(controller.snapshot()["map"]["obstacles"]) == 5

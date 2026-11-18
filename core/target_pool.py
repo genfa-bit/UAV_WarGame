@@ -74,17 +74,40 @@ class TargetPool:
             target=target, last_seen_step=step, available_step=avail)
         return is_new
 
+    def refresh(self, target_id: str, step: int) -> bool:
+        """Update last-seen time without changing the delivery deadline.
+
+        Used by persistent strategic targets (a confirmed base) so stale
+        timeout does not remove them while teammates still see the earliest
+        communication delivery.
+        """
+        record = self._records.get(target_id)
+        if record is None:
+            return False
+        record.last_seen_step = step
+        return True
+
     def last_seen_step(self, target_id: str) -> int | None:
         record = self._records.get(target_id)
         return record.last_seen_step if record else None
 
-    def cleanup(self, current_step: int, timeout_steps: int) -> list[tuple[str, Unit, str]]:
+    def cleanup(self, current_step: int, timeout_steps: int,
+                keep_stale_types: Iterable[str] = ()) -> list[tuple[str, Unit, str]]:
+        """Remove destroyed/stale targets.
+
+        ``keep_stale_types`` lets a caller keep strategic static targets (for
+        example a base once confirmed) even when no observer refreshed them
+        recently. The default is empty, so ordinary target-pool behavior is
+        unchanged.
+        """
+        kept_types = set(keep_stale_types)
         removed: list[tuple[str, Unit, str]] = []
         for target_id, record in list(self._records.items()):
             if record.target.is_destroyed:
                 removed.append((target_id, record.target, "destroyed"))
                 del self._records[target_id]
-            elif current_step - record.last_seen_step > timeout_steps:
+            elif (record.target.unit_type not in kept_types
+                  and current_step - record.last_seen_step > timeout_steps):
                 removed.append((target_id, record.target, "stale"))
                 del self._records[target_id]
         return removed

@@ -12,7 +12,7 @@ def test_controller_initial_snapshot_is_serializable():
 
     assert snapshot["game_state"] == GAME_DEPLOYMENT
     assert len(snapshot["units"]) == 10
-    assert len(snapshot["map"]["obstacles"]) == 3
+    assert len(snapshot["map"]["obstacles"]) == 5
     json.dumps(snapshot, ensure_ascii=False)
 
 

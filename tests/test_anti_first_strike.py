@@ -8,7 +8,15 @@ import random
 
 from core.battlefield import Battlefield
 from core.simulator import Simulator
+from core.unit_config_loader import get_cooperative_assignment_config
 from core.units import CommandNode, ScoutDrone, StrikeDrone
+
+
+def _rdma_config():
+    """反应延迟用例验证的是单位独立交战状态，固定走 RDMA 授权路径。"""
+    config = get_cooperative_assignment_config()
+    config["mode"] = "rdma_v2"
+    return config
 
 
 def test_reaction_delay_prevents_instant_attack():
@@ -82,7 +90,8 @@ def test_two_units_with_different_delays_can_both_attack():
     r2 = StrikeDrone(id="r2", name="红慢", team="red", x=55, y=50,
                       reaction_delay=20, attack_cooldown=30)
     blue = CommandNode(id="b1", name="蓝指挥", team="blue", x=100, y=50)
-    sim = Simulator(Battlefield(200, 200), [r1, r2, blue])
+    sim = Simulator(Battlefield(200, 200), [r1, r2, blue],
+                    cooperative_config=_rdma_config())
 
     with patch("random.random", return_value=0.0):
         sim.step()

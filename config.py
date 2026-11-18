@@ -10,7 +10,7 @@ PANEL_WIDTH = SCREEN_WIDTH - MAP_WIDTH
 # ── 仿真参数 ──────────────────────────────────────────────────
 FPS = 60
 SIMULATION_INTERVAL_MS = 220
-MAX_SIMULATION_STEPS = 2000  # 教学演示上限，持续僵持时以平局结束
+MAX_SIMULATION_STEPS = 1200  # 教学演示上限；到上限仍未分胜负时按剩余战力裁定
 MIN_STEP_DURATION_SECONDS = 0.01
 MAX_STEP_DURATION_SECONDS = 60.0
 # Complete journals are retained in memory and atomically rewritten.  Keep the
@@ -33,6 +33,9 @@ TEXT_COLOR = (235, 238, 245)
 PANEL_BG = (32, 37, 45)
 HP_GREEN = (80, 210, 120)
 HP_RED = (230, 70, 70)
+# 血条底槽按阵营区分，与单位阵营色配套使用。
+HP_TRACK_RED = (74, 28, 34)
+HP_TRACK_BLUE = (22, 48, 79)
 DETECT_RED = (255, 100, 100, 42)
 DETECT_BLUE = (100, 150, 255, 42)
 ATTACK_EFFECT_COLOR = (255, 215, 95)
@@ -61,6 +64,9 @@ UNIT_TYPE_LABELS = {
 OBSTACLE_TYPE_LABELS = {
     "mountain": "山地", "building": "建筑", "restricted": "禁行区",
 }
+
+# 场景与兵种配置允许的障碍物类型；unit_config.json 的 terrain_effects 以此为准。
+OBSTACLE_TYPES = ("obstacle", "mountain", "building", "restricted")
 
 STATE_LABELS = {
     "deployment": "部署阶段", "running": "运行中",
@@ -100,7 +106,190 @@ TARGET_LOCK_TIME = 5          # 目标锁定帧数
 BASE_MAX_HP = 300             # 基地最大血量
 BASE_REPAIR_RADIUS = 80       # 基地补给半径
 BASE_REPAIR_PER_STEP = 4      # 每帧补给量（血量+弹药）
+UNIT_SEPARATION_DISTANCE = 12.0  # 单位间最小间距，低于此值逐步推开
+UNIT_SEPARATION_PUSH = 2.0    # 每帧最多推开的距离
 COMM_DELAY_FACTOR = 0.15      # 通信延迟系数（步/像素距离）
+
+# ── 协同动态边际拍卖（RDMA）────────────────────────────────────
+# 以下缺省值仅用于配置缺项/非法值兜底；实际运行参数以
+# data/unit_config.json 的 cooperative_assignment 段为准。
+CRIT_CHANCE = 0.1
+CRIT_DAMAGE_MULTIPLIER = 1.5
+BASE_DEFENSE_RADIUS = 250.0
+EVADE_ATTACK_RANGE_FACTOR = 0.55
+MIN_ASSIGNMENT_DEMAND = 1
+
+COOPERATIVE_ROLE_FIT_DEFAULTS = {
+    "scout_drone": {
+        "scout_drone": 0.70, "strike_drone": 0.55, "ground_vehicle": 0.45,
+        "missile_vehicle": 0.55, "command_node": 0.35, "base": 0.30,
+    },
+    "strike_drone": {
+        "scout_drone": 0.95, "strike_drone": 0.65, "ground_vehicle": 0.75,
+        "missile_vehicle": 0.70, "command_node": 0.80, "base": 0.95,
+    },
+    "ground_vehicle": {
+        "scout_drone": 0.55, "strike_drone": 0.65, "ground_vehicle": 0.85,
+        "missile_vehicle": 0.75, "command_node": 0.70, "base": 0.75,
+    },
+    "missile_vehicle": {
+        "scout_drone": 0.40, "strike_drone": 0.65, "ground_vehicle": 0.80,
+        "missile_vehicle": 0.70, "command_node": 0.95, "base": 1.00,
+    },
+    "command_node": {
+        "scout_drone": 0.40, "strike_drone": 0.40, "ground_vehicle": 0.40,
+        "missile_vehicle": 0.40, "command_node": 0.40, "base": 0.00,
+    },
+    "base": {
+        "scout_drone": 0.40, "strike_drone": 0.40, "ground_vehicle": 0.40,
+        "missile_vehicle": 0.40, "command_node": 0.40, "base": 0.00,
+    },
+}
+
+# 分层时相协同打击（HTCS）缺省配置。``mode`` 默认仍为 RDMA v2，只有显式
+# 选择 "htcs" 时才启用新算法，保证既有行为与回归测试不变。
+HTCS_DEFAULTS = {
+    # 滚动波次：每 wave_length_steps 步为一个打击波次；TOT 为目标打击时刻。
+    "wave_length_steps": 6,
+    # 每个单位在一个波次内最多承担的任务数（CBBA 风格任务包）。
+    "bundle_size": 2,
+    # TOT 允许窗口：提前 [-tolerance, +late] 步开火；提前过多则进入待机。
+    "tot_tolerance_steps": 1,
+    "tot_late_steps": 3,
+    # 提前到达时在射程外多远处集结（1.15 表示射程的 115%）。
+    "staging_standoff_ratio": 1.15,
+    # 火力纪律：低于该弹药比例的预留量不参与机会射击。
+    "ammo_reserve_ratio": 0.20,
+    "fire_discipline": True,
+    # 已覆盖期望伤害达到阈值的该倍数后禁止继续排队攻击。
+    "overkill_fire_ratio": 1.0,
+    "opportunity_fire": True,
+    # 战损评估与再攻击。
+    "bda_enabled": True,
+    # 本波次实际兑现伤害达到计划值的该比例即认为任务达成，否则转入再攻击。
+    "bda_delivery_ratio": 0.60,
+    "reattack_delay_steps": 2,
+    "reattack_bonus": 0.25,
+    # 压制敌防空（SEAD）先导任务。
+    "sead_enabled": True,
+    "sead_effect_ratio": 0.60,
+    "sead_suppression_steps": 3,
+    "sead_defense_radius": 220.0,
+    # 态势自适应战法：adaptive / balanced / attrition / decapitation / base_pressure
+    "doctrine": "adaptive",
+    "doctrine_advantage_ratio": 1.25,
+    "doctrine_disadvantage_ratio": 0.80,
+    # 分布式降级：失去指挥链的单位只使用自身观测。
+    "distributed_fallback": False,
+    "max_tasks_per_wave": 6,
+    # 时间折扣与可行性：ETA 超过 wave_length_steps * planning_horizon_waves
+    # 的“单位-目标”对不进入本波次任务束；任务价值按
+    # wave_length / (wave_length + ETA) 折扣，避免部队为遥远目标放弃
+    # 眼前目标（例如放着射程内的敌基地不打，横穿战场去追散兵）。
+    "planning_horizon_waves": 3,
+    # ── 时间维修正（2026-11-15）─────────────────────────────────
+    # TOT 时间视野：任务内 ETA 的最大可承诺步数。此前 TOT 被
+    # wave_length_steps（6 步）封顶，而导弹发射车一个“反应 + 冷却”周期
+    # 就有 39–61 步，计划在真正到点前就被下一波次整体替换。现在 TOT 以
+    # 该视野为上界，默认 60 步覆盖最慢单位的射击周期。
+    "tot_horizon_steps": 60,
+    # 火力计划跨波次保持：目标与角色未变、且尚未过期的计划继续沿用，
+    # 重规划只追加新任务，不再把远超一个波次的 TOT 计划整体丢弃。
+    "plan_persistence": True,
+    # 迟到射击策略：strict = 超过 late_until 的计划被硬性拦截（消耗计划、
+    # 记录 fire_window_missed 并转入停火保持）；lenient = 保留旧行为；
+    # adaptive = 先按可行性分类：还能赶到的计划有界再定时、因纪律/压制
+    # 暂时打不出的计划顺延、根本到不了的挂起（不触发再攻击），只有
+    # “已到位但没执行”的计划才按迟到拦截。
+    "late_fire_policy": "strict",
+    # 迟到计划被拦截后，同一单位在多少步内不得对同一目标机会射击，
+    # 防止“计划被拦→下一步机会射击补枪”绕过火力门。
+    "late_fire_hold_steps": 6,
+    # ── 自适应迟到策略（2026-11-16）─────────────────────────────
+    # 同一条计划最多被再定时几次；0 表示只分类、不推迟。
+    "late_fire_retime_max": 1,
+    # 任务累计延期时间预算（步）：从任务首次 TOT 起，所有 retime 与临时
+    # 顺延共用的上限。次数上限与时间上限是两个独立限制，先到者生效；
+    # 超出后任务转为 deferred 或结束，不能无限延期。默认与
+    # late_fire_retime_horizon_steps 一致，允许一个完整规划视野的推迟。
+    "late_fire_task_delay_max_steps": 60,
+    # 再定时/可行性分类的时间视野：标称 ETA 超过该值的计划直接挂起。
+    "late_fire_retime_horizon_steps": 60,
+    # 自适应迟到宽限的上界：late = base_late + ETA 上界与标称值之差，
+    # 再截断到该值，避免地形/绕障 slack 把窗口无限拉长。
+    "late_fire_late_max_steps": 12,
+    # ETA 上界的安全系数（覆盖单位分离、卡死恢复等未建模损耗）。
+    "eta_upper_slack_ratio": 1.10,
+    # 绕障附加路程系数：不可通行采样段按该倍率补算绕行距离。
+    "eta_detour_factor": 0.5,
+    # 地形采样间距（像素）：沿机动直线按该间距取 effective_speed。
+    "eta_terrain_sample_px": 8.0,
+    # 任务束超额伤害惩罚：候选得分减去 penalty × 超出需求 / 目标血量，
+    # 让低血量目标优先由“刚好够用”的单位补刀，而不是高伤害单位过杀。
+    "overshoot_penalty": 0.15,
+}
+
+# 协同算法版本切换：只需设置 cooperative_assignment.active_version（或环境
+# 变量 UAV_COOPERATIVE_VERSION），无需同时改 mode 与 late_fire_policy。
+# 2026-11-16 的 30 种子基准中，htcs_strict 的胜率、伤害交换比、弹药效率与
+# 过杀控制综合最优，因此设为默认版本。
+DEFAULT_COOPERATIVE_VERSION = "htcs_strict"
+COOPERATIVE_VERSION_PROFILES = {
+    "rdma_v2": {"mode": "rdma_v2"},
+    "htcs_strict": {"mode": "htcs", "late_fire_policy": "strict"},
+    "htcs_lenient": {"mode": "htcs", "late_fire_policy": "lenient"},
+    "htcs_adaptive": {"mode": "htcs", "late_fire_policy": "adaptive"},
+}
+COOPERATIVE_VERSION_ALIASES = {
+    "htcs": "htcs_strict",
+    "strict": "htcs_strict",
+    "lenient": "htcs_lenient",
+    "adaptive": "htcs_adaptive",
+}
+
+COOPERATIVE_ASSIGNMENT_DEFAULTS = {
+    "enabled": True,
+    # 版本开关：rdma_v2 / htcs_strict / htcs_lenient / htcs_adaptive。
+    # 显式设置时优先级最高，mode 与 htcs.late_fire_policy 由版本自动推导；
+    # 省略时才回退到下面的 mode/late_fire_policy 细粒度配置。
+    "active_version": DEFAULT_COOPERATIVE_VERSION,
+    # 算法模式：htcs（默认，分层时相协同打击）或 rdma_v2（角色约束动态边际拍卖）。
+    "mode": "htcs",
+    "htcs": HTCS_DEFAULTS,
+    "replan_interval_steps": 5,
+    "max_assignments_per_target": 3,
+    "min_assignment_bid": 0.05,
+    "switch_penalty": 0.10,
+    "reassign_margin": 0.12,
+    "overload_penalty": 0.12,
+    "demand_horizon_steps": 10,
+    # 效果型 WTA：F_j(D)=min(1, D/(q_j*H_j))。q_j 默认 1.0，
+    # 保持原有“覆盖当前血量”的行为；基地固定为 1.0，必须被摧毁。
+    "desired_effect_by_type": {
+        "scout_drone": 1.0, "strike_drone": 1.0, "ground_vehicle": 1.0,
+        "missile_vehicle": 1.0, "command_node": 1.0, "base": 1.0,
+    },
+    "marginal_utility_weight": 1.0,
+    "effect_overkill_penalty": 0.25,
+    "ammo_cost_weight": 0.02,
+    "overkill_release_ratio": 1.20,
+    # 基地作为战略目标：独立价值、打击包上限/下限与承诺窗口。
+    "base_target_value": 0.90,
+    "late_game_bonus": 0.50,
+    "late_game_unit_threshold": 2,
+    "base_max_assignments": 2,
+    "base_min_assignments": 1,
+    "base_commitment_steps": 8,
+    "target_priority_weights": {
+        "type_threat": 0.65, "low_hp": 0.35, "base_bonus": 0.15,
+    },
+    "unit_readiness_weights": {"health": 0.60, "ammo": 0.40},
+    "bid_weights": {
+        "target_priority": 0.40, "role_fit": 0.25, "readiness": 0.20,
+        "freshness": 0.15, "distance_cost": 0.20,
+    },
+    "role_fit": COOPERATIVE_ROLE_FIT_DEFAULTS,
+}
 
 
 class SimState:

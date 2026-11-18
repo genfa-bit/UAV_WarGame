@@ -1,5 +1,6 @@
-from config import STATUS_ATTACK
+from config import BASE_REPAIR_RADIUS, STATUS_ATTACK, UNIT_SEPARATION_DISTANCE
 from core.battlefield import Battlefield, Obstacle
+from core.simulator import Simulator
 from core.strategy import StrategyEngine
 from core.units import GroundVehicle, ScoutDrone
 
@@ -56,3 +57,52 @@ def test_move_away_from_zero_distance_does_not_divide_by_zero():
     red.move_away_from(blue, battlefield)
 
     assert red.x > 20
+
+
+def test_units_assigned_to_same_target_hold_distinct_standoff_points():
+    battlefield = Battlefield(800, 600)
+    target = ScoutDrone(id="b1", name="target", team="blue", x=400, y=300)
+    first = ScoutDrone(id="r1", name="first", team="red", x=100, y=300)
+    second = ScoutDrone(id="r2", name="second", team="red", x=700, y=300)
+    engine = StrategyEngine()
+
+    for _ in range(120):
+        engine._do_approach_target(first, target, battlefield)
+        engine._do_approach_target(second, target, battlefield)
+
+    assert (first.x, first.y) != (target.x, target.y)
+    assert (second.x, second.y) != (target.x, target.y)
+    assert (first.x, first.y) != (second.x, second.y)
+    assert first.distance_to(target) <= first.attack_range
+    assert second.distance_to(target) <= second.attack_range
+
+
+def test_resupply_units_wait_on_distinct_base_slots():
+    battlefield = Battlefield(800, 600)
+    first = ScoutDrone(id="r1", name="first", team="red", x=220, y=300)
+    second = ScoutDrone(id="r2", name="second", team="red", x=240, y=340)
+    engine = StrategyEngine()
+    base_x, base_y = battlefield.base_for_team("red")
+
+    for _ in range(120):
+        engine._do_resupply(first, battlefield)
+        engine._do_resupply(second, battlefield)
+
+    assert (first.x, first.y) != (second.x, second.y)
+    assert (first.x, first.y) != (base_x, base_y)
+    assert (second.x, second.y) != (base_x, base_y)
+    for unit in (first, second):
+        assert ((unit.x - base_x) ** 2 + (unit.y - base_y) ** 2) ** 0.5 \
+            <= BASE_REPAIR_RADIUS
+
+
+def test_overlapping_units_are_pushed_apart():
+    battlefield = Battlefield(400, 400)
+    first = ScoutDrone(id="r1", name="first", team="red", x=200, y=200)
+    second = ScoutDrone(id="r2", name="second", team="red", x=200, y=200)
+    simulator = Simulator(battlefield, [first, second])
+
+    for _ in range(10):
+        simulator._separate_overlapping_units()
+
+    assert first.distance_to(second) >= UNIT_SEPARATION_DISTANCE - 1e-6

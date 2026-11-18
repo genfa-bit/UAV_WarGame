@@ -1,4 +1,4 @@
-"""无人装备战争游戏仿真系统入口。"""
+"""无人装备战争仿真系统入口。"""
 
 import sys
 from copy import deepcopy
@@ -101,7 +101,7 @@ def main() -> None:
     from ui.renderer import Renderer
 
     pygame.init()
-    pygame.display.set_caption("无人装备战争游戏仿真系统")
+    pygame.display.set_caption("无人装备战争仿真系统")
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     clock = pygame.time.Clock()
 

@@ -58,11 +58,44 @@ class EngagementState:
             self.current_target_id = target_id
 
     def on_target_lost(self) -> None:
-        """目标丢失时调用。反应期丢失则重置，攻击/冷却期保持不变。"""
-        if self.phase == EngagementPhase.REACTING:
+        """目标丢失时调用。
+
+        反应期丢失立即回到搜索；攻击/冷却期保留原状态，由调用方决定是否
+        重置。目标失效（死亡/超时/不可见）时必须调用本方法。
+        """
+        if self.phase in (EngagementPhase.REACTING, EngagementPhase.ATTACK):
             self.phase = EngagementPhase.SEARCH
             self.reaction_progress = 0
             self.current_target_id = None
+
+    def on_assignment_changed(self, new_target_id: str) -> None:
+        """协同分配目标发生变化时，将双方状态机对齐。
+
+        - 旧目标失效时调用方应先调用 on_target_lost()；这里仍会兜底清理。
+        - 新目标必须重新进入 REACTING，不能继承旧目标的反应进度。
+        - COOLDOWN 期间切换目标时保留冷却计时，避免换目标立即开火。
+        """
+        if self.current_target_id is not None and self.current_target_id != new_target_id:
+            if self.phase in (EngagementPhase.REACTING, EngagementPhase.ATTACK):
+                self.phase = EngagementPhase.SEARCH
+                self.reaction_progress = 0
+            self.current_target_id = None
+        elif self.current_target_id == new_target_id:
+            return
+
+        if self.phase == EngagementPhase.COOLDOWN:
+            # 新目标尚未被“看见/批准”前不设置 current_target_id，冷却结束后
+            # 由正常搜索或下一次分配重新授权。
+            return
+
+        self.phase = EngagementPhase.SEARCH
+        self.reaction_progress = 0
+        self.current_target_id = new_target_id
+        if self.reaction_delay <= 0:
+            self.phase = EngagementPhase.ATTACK
+        else:
+            self.phase = EngagementPhase.REACTING
+            self.reaction_progress = 0
 
     def tick(self) -> None:
         """每帧推进状态机。"""

@@ -10,6 +10,7 @@ Rectangle {
     property var unit: ({})
     readonly property bool hasUnit: !!(unit && unit.id)
     readonly property color teamColor: unit && unit.team === "red" ? Theme.red : Theme.blue
+    readonly property color hpColor: unit && unit.team === "red" ? Theme.unitRed : Theme.unitBlue
     signal clearSelection()
     implicitHeight: hasUnit ? detailsContent.implicitHeight + 24 : 74
     radius: Theme.radiusSmall
@@ -86,7 +87,7 @@ Rectangle {
                 width: parent.width * Math.max(0, (detail.unit.hp || 0) / Math.max(1, detail.unit.max_hp || 1))
                 height: parent.height
                 radius: 2
-                color: detail.unit.destroyed ? Theme.red : Theme.accent
+                color: detail.unit.destroyed ? Theme.muted : detail.hpColor
             }
         }
         Text {
@@ -102,6 +103,40 @@ Rectangle {
             rowSpacing: 5
             Text { text: "移动速度"; color: Theme.muted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
             Text { text: Number(detail.unit.speed || 0).toFixed(1); color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
+            Text {
+                objectName: "unitTerrainLabel"
+                text: "地形"
+                visible: !!detail.unit.terrain_label
+                color: Theme.muted
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSize
+            }
+            Text {
+                objectName: "unitTerrainValue"
+                visible: !!detail.unit.terrain_label
+                text: (detail.unit.terrain_label || "") + " · 速度 ×"
+                    + Number(detail.unit.speed_factor || 1).toFixed(2)
+                color: Theme.text
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSize
+            }
+            Text {
+                objectName: "unitTerrainHitLabel"
+                text: "地形命中"
+                visible: !!detail.unit.terrain_label
+                color: Theme.muted
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSize
+            }
+            Text {
+                objectName: "unitTerrainHitValue"
+                visible: !!detail.unit.terrain_label
+                text: "攻击 ×" + Number(detail.unit.attack_hit_factor || 1).toFixed(2)
+                    + " · 受击 ×" + Number(detail.unit.cover_hit_factor || 1).toFixed(2)
+                color: Theme.text
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSize
+            }
             Text { text: "侦察 / 攻击范围"; color: Theme.muted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
             Text { text: (detail.unit.detect_range || 0) + " / " + (detail.unit.attack_range || 0); color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
             Text { text: "当前位置"; color: Theme.muted; font.family: Theme.fontFamily; font.pixelSize: Theme.fontSize }
@@ -115,6 +150,18 @@ Rectangle {
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSize
             wrapMode: Text.Wrap
+        }
+        Text {
+            objectName: "unitAssignedTarget"
+            Layout.fillWidth: true
+            visible: !!detail.unit.assigned_target_name
+            text: "分配目标  " + (detail.unit.assigned_target_name || "无")
+                + (detail.unit.assigned_target_id
+                   ? " (" + detail.unit.assigned_target_id + ")" : "")
+            color: Theme.muted
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSize
+            elide: Text.ElideRight
         }
         Text {
             objectName: "unitDestructionTime"

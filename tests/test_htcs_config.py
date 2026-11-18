@@ -1,0 +1,235 @@
+"""HTCS 配置开关与校验单元测试。
+
+配置读取路径：``data/unit_config.json`` 的 ``cooperative_assignment`` 段。
+这里通过 monkeypatch ``load_config`` 注入最小配置，只验证
+``get_cooperative_assignment_config()`` 的模式选择、深合并与容错回退。
+"""
+
+from __future__ import annotations
+
+from copy import deepcopy
+
+import pytest
+
+import core.unit_config_loader as loader
+from config import COOPERATIVE_ASSIGNMENT_DEFAULTS, HTCS_DEFAULTS
+
+
+@pytest.fixture(autouse=True)
+def _clear_version_env(monkeypatch):
+    """避免开发机上的环境变量影响配置断言；环境变量用例再单独设置。"""
+    monkeypatch.delenv("UAV_COOPERATIVE_VERSION", raising=False)
+
+
+def _load(monkeypatch, cooperative):
+    """注入 cooperative_assignment 配置并返回校验后的副本。"""
+    monkeypatch.setattr(
+        loader, "load_config",
+        lambda: {"cooperative_assignment": deepcopy(cooperative)})
+    loader._COOPERATIVE_WARNINGS.clear()
+    return loader.get_cooperative_assignment_config()
+
+
+def test_default_mode_is_htcs_strict():
+    config = deepcopy(COOPERATIVE_ASSIGNMENT_DEFAULTS)
+    assert config["active_version"] == "htcs_strict"
+    assert config["mode"] == "htcs"
+    assert config["htcs"]["late_fire_policy"] == "strict"
+    assert config["enabled"] is True
+
+
+def test_active_version_sets_mode_and_policy_in_one_knob(monkeypatch):
+    config = _load(monkeypatch, {"active_version": "htcs_adaptive"})
+    assert config["active_version"] == "htcs_adaptive"
+    assert config["mode"] == "htcs"
+    assert config["htcs"]["late_fire_policy"] == "adaptive"
+
+
+def test_active_version_rdma_v2_ignores_direct_htcs_settings(monkeypatch):
+    config = _load(monkeypatch, {
+        "active_version": "rdma_v2",
+        "mode": "htcs",
+        "htcs": {"late_fire_policy": "adaptive"},
+    })
+    assert config["mode"] == "rdma_v2"
+
+
+def test_active_version_accepts_short_aliases(monkeypatch):
+    assert _load(monkeypatch, {"active_version": "htcs"})["active_version"] == "htcs_strict"
+    config = _load(monkeypatch, {"active_version": "adaptive"})
+    assert config["active_version"] == "htcs_adaptive"
+    assert config["htcs"]["late_fire_policy"] == "adaptive"
+
+
+def test_unknown_active_version_falls_back_to_default(monkeypatch):
+    with pytest.warns(RuntimeWarning, match="active_version"):
+        config = _load(monkeypatch, {"active_version": "v9"})
+    assert config["active_version"] == "htcs_strict"
+    assert config["mode"] == "htcs"
+    assert config["htcs"]["late_fire_policy"] == "strict"
+
+
+def test_env_version_overrides_file_version(monkeypatch):
+    monkeypatch.setenv("UAV_COOPERATIVE_VERSION", "rdma_v2")
+    config = _load(monkeypatch, {"active_version": "htcs_strict"})
+    assert config["active_version"] == "rdma_v2"
+    assert config["mode"] == "rdma_v2"
+
+
+def test_env_version_accepts_alias(monkeypatch):
+    monkeypatch.setenv("UAV_COOPERATIVE_VERSION", "adaptive")
+    config = _load(monkeypatch, {"active_version": "rdma_v2"})
+    assert config["active_version"] == "htcs_adaptive"
+    assert config["mode"] == "htcs"
+    assert config["htcs"]["late_fire_policy"] == "adaptive"
+
+
+def test_omitted_active_version_keeps_direct_policy_config(monkeypatch):
+    config = _load(monkeypatch, {"htcs": {"late_fire_policy": "lenient"}})
+    assert config["active_version"] == "htcs_lenient"
+    assert config["mode"] == "htcs"
+    assert config["htcs"]["late_fire_policy"] == "lenient"
+
+
+def test_htcs_defaults_cover_every_documented_knob():
+    expected = {
+        "wave_length_steps", "bundle_size", "tot_tolerance_steps",
+        "tot_late_steps", "staging_standoff_ratio", "ammo_reserve_ratio",
+        "fire_discipline", "overkill_fire_ratio", "opportunity_fire",
+        "bda_enabled", "bda_delivery_ratio", "reattack_delay_steps",
+        "reattack_bonus", "sead_enabled", "sead_effect_ratio",
+        "sead_suppression_steps", "sead_defense_radius", "doctrine",
+        "doctrine_advantage_ratio", "doctrine_disadvantage_ratio",
+        "distributed_fallback", "max_tasks_per_wave",
+        "planning_horizon_waves", "tot_horizon_steps", "plan_persistence",
+        "late_fire_policy", "late_fire_hold_steps", "overshoot_penalty",
+        "late_fire_retime_max", "late_fire_task_delay_max_steps",
+        "late_fire_retime_horizon_steps",
+        "late_fire_late_max_steps", "eta_upper_slack_ratio",
+        "eta_detour_factor", "eta_terrain_sample_px",
+    }
+    assert set(HTCS_DEFAULTS) == expected
+
+
+def test_mode_htcs_is_accepted(monkeypatch):
+    config = _load(monkeypatch, {"mode": "htcs"})
+    assert config["mode"] == "htcs"
+
+
+def test_unknown_mode_falls_back_to_default_with_warning(monkeypatch):
+    with pytest.warns(RuntimeWarning, match="mode"):
+        config = _load(monkeypatch, {"mode": "swarm_v9"})
+    assert config["mode"] == COOPERATIVE_ASSIGNMENT_DEFAULTS["mode"] == "htcs"
+
+
+def test_missing_htcs_block_is_filled_with_defaults(monkeypatch):
+    config = _load(monkeypatch, {"mode": "htcs"})
+    assert config["htcs"] == HTCS_DEFAULTS
+    assert config["htcs"]["wave_length_steps"] == 6
+    assert config["htcs"]["doctrine"] == "adaptive"
+
+
+def test_partial_htcs_block_deep_merges_with_defaults(monkeypatch):
+    config = _load(monkeypatch, {
+        "mode": "htcs",
+        "htcs": {"wave_length_steps": 9, "doctrine": "attrition"},
+    })
+    assert config["htcs"]["wave_length_steps"] == 9
+    assert config["htcs"]["doctrine"] == "attrition"
+    # 未提供的键保持缺省值
+    assert config["htcs"]["bundle_size"] == HTCS_DEFAULTS["bundle_size"]
+    assert config["htcs"]["sead_enabled"] is True
+
+
+@pytest.mark.parametrize("key", ["wave_length_steps", "bundle_size",
+                                 "max_tasks_per_wave",
+                                 "planning_horizon_waves",
+                                 "tot_horizon_steps",
+                                 "late_fire_hold_steps",
+                                 "late_fire_retime_horizon_steps"])
+@pytest.mark.parametrize("bad", [0, -3, 2.5, True, "6"])
+def test_positive_int_knobs_fall_back(monkeypatch, key, bad):
+    with pytest.warns(RuntimeWarning):
+        config = _load(monkeypatch, {"htcs": {key: bad}})
+    assert config["htcs"][key] == HTCS_DEFAULTS[key]
+
+
+@pytest.mark.parametrize("key", ["tot_tolerance_steps", "tot_late_steps",
+                                 "reattack_delay_steps",
+                                 "sead_suppression_steps",
+                                 "late_fire_retime_max",
+                                 "late_fire_late_max_steps",
+                                 "late_fire_task_delay_max_steps"])
+def test_nonnegative_int_knobs_fall_back(monkeypatch, key):
+    with pytest.warns(RuntimeWarning):
+        config = _load(monkeypatch, {"htcs": {key: -1}})
+    assert config["htcs"][key] == HTCS_DEFAULTS[key]
+
+
+@pytest.mark.parametrize("key,value", [
+    ("ammo_reserve_ratio", 1.5),
+    ("sead_effect_ratio", -0.1),
+    ("bda_delivery_ratio", 2.0),
+    ("overkill_fire_ratio", 0.5),
+    ("tot_tolerance_steps", 1.5),
+    ("overshoot_penalty", -0.1),
+    ("eta_upper_slack_ratio", 0.5),
+    ("eta_detour_factor", -0.1),
+    ("eta_terrain_sample_px", 0.5),
+])
+def test_bounded_numbers_fall_back(monkeypatch, key, value):
+    with pytest.warns(RuntimeWarning):
+        config = _load(monkeypatch, {"htcs": {key: value}})
+    assert config["htcs"][key] == HTCS_DEFAULTS[key]
+
+
+@pytest.mark.parametrize("key", ["fire_discipline", "opportunity_fire",
+                                 "bda_enabled", "sead_enabled",
+                                 "distributed_fallback", "plan_persistence"])
+def test_boolean_knobs_reject_non_bool(monkeypatch, key):
+    with pytest.warns(RuntimeWarning):
+        config = _load(monkeypatch, {"htcs": {key: "yes"}})
+    assert config["htcs"][key] is HTCS_DEFAULTS[key]
+
+
+def test_task_delay_budget_accepts_zero(monkeypatch):
+    config = _load(monkeypatch,
+                   {"htcs": {"late_fire_task_delay_max_steps": 0}})
+    # 0 表示不允许任务延期，是有效配置而不是非法值回退。
+    assert config["htcs"]["late_fire_task_delay_max_steps"] == 0
+
+
+def test_late_fire_policy_enum_rejects_unknown_value(monkeypatch):
+    with pytest.warns(RuntimeWarning, match="late_fire_policy"):
+        config = _load(monkeypatch, {"htcs": {"late_fire_policy": "patient"}})
+    assert config["htcs"]["late_fire_policy"] == "strict"
+
+
+def test_late_fire_policy_accepts_lenient(monkeypatch):
+    config = _load(monkeypatch, {"htcs": {"late_fire_policy": "lenient"}})
+    assert config["htcs"]["late_fire_policy"] == "lenient"
+
+
+def test_late_fire_policy_accepts_adaptive(monkeypatch):
+    config = _load(monkeypatch, {"htcs": {"late_fire_policy": "adaptive"}})
+    assert config["htcs"]["late_fire_policy"] == "adaptive"
+
+
+def test_late_max_is_raised_to_base_late(monkeypatch):
+    with pytest.warns(RuntimeWarning, match="late_fire_late_max_steps"):
+        config = _load(monkeypatch, {
+            "htcs": {"tot_late_steps": 5, "late_fire_late_max_steps": 2}})
+    assert config["htcs"]["late_fire_late_max_steps"] == 5
+
+
+def test_doctrine_enum_rejects_unknown_value(monkeypatch):
+    with pytest.warns(RuntimeWarning, match="doctrine"):
+        config = _load(monkeypatch, {"htcs": {"doctrine": "berserk"}})
+    assert config["htcs"]["doctrine"] == "adaptive"
+
+
+def test_returned_config_is_a_safe_copy(monkeypatch):
+    first = _load(monkeypatch, {"mode": "htcs"})
+    first["htcs"]["wave_length_steps"] = 999
+    second = _load(monkeypatch, {"mode": "htcs"})
+    assert second["htcs"]["wave_length_steps"] == 6

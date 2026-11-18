@@ -29,7 +29,7 @@ def create_engine(
     *, show_first_help: bool = True,
 ) -> tuple[QGuiApplication, QQmlApplicationEngine, SimulationViewModel]:
     app = QGuiApplication.instance() or QGuiApplication(sys.argv)
-    app.setApplicationName("无人装备战争游戏仿真系统")
+    app.setApplicationName("无人装备战争仿真系统")
     app.setOrganizationName("UAV WarGame")
     if not app.property("uavFontsRegistered"):
         for bold in (False, True):

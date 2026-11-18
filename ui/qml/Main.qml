@@ -26,7 +26,7 @@ ApplicationWindow {
     palette.highlight: Theme.selection
     palette.highlightedText: Theme.text
     palette.mid: Theme.border
-    title: "无人装备战争游戏仿真系统"
+    title: "无人装备战争仿真系统"
 
     property var snap: viewModel.snapshot
     readonly property bool deploymentMode: snap.game_state === "deployment"
@@ -36,6 +36,8 @@ ApplicationWindow {
         elapsed_seconds: 0, records_up_to: 0, finished: false })
     readonly property color redColor: Theme.red
     readonly property color blueColor: Theme.blue
+    readonly property color unitRedColor: Theme.unitRed
+    readonly property color unitBlueColor: Theme.unitBlue
     readonly property color accentColor: Theme.accent
     readonly property color panelColor: Theme.surface
     readonly property color cardColor: Theme.surfaceRaised
@@ -300,7 +302,7 @@ ApplicationWindow {
             anchors.rightMargin: 16
             spacing: 12
             Text {
-                text: "无人装备战争游戏仿真系统"
+                text: "无人装备战争仿真系统"
                 color: Theme.text
                 font.family: Theme.fontFamily
                 font.pixelSize: root.width < 1100 ? 15 : 17
@@ -1193,6 +1195,10 @@ ApplicationWindow {
                             readonly property bool showDetails: root.mapStyle === "tactical"
                                 || battlefieldViewport.zoomLevel >= 1.7
                                 || root.selectedUnitId === unitId || unitHitTarget.containsMouse
+                            readonly property color teamColor: team === "red"
+                                ? root.unitRedColor : root.unitBlueColor
+                            readonly property color hpTrackColor: team === "red"
+                                ? Theme.hpTrackRed : Theme.hpTrackBlue
                             property real displayedWorldX: worldX
                             property real displayedWorldY: worldY
 
@@ -1220,10 +1226,13 @@ ApplicationWindow {
                                 radius: width / 2
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 color: root.alphaColor(
-                                    unitDelegate.team === "red" ? root.redColor : root.blueColor,
-                                    unitDelegate.destroyed ? 0.08 : 0.18)
-                                border.width: root.selectedUnitId === unitDelegate.unitId ? 2 : 0
-                                border.color: "#ffd166"
+                                    unitDelegate.teamColor,
+                                    unitDelegate.destroyed ? 0.08
+                                        : (root.selectedUnitId === unitDelegate.unitId ? 0.36 : 0.28))
+                                border.width: unitDelegate.destroyed ? 0
+                                    : (root.selectedUnitId === unitDelegate.unitId ? 3 : 2)
+                                border.color: root.selectedUnitId === unitDelegate.unitId
+                                    ? "#ffd166" : unitDelegate.teamColor
 
                                 Image {
                                     id: unitIcon
@@ -1246,14 +1255,14 @@ ApplicationWindow {
                                 width: unitDelegate.glyphSize + 4
                                 height: 4
                                 radius: 2
-                                color: "#3a1e29"
+                                color: unitDelegate.hpTrackColor
 
                                 Rectangle {
+                                    objectName: "unitHpFill-" + unitDelegate.unitId
                                     width: parent.width * Math.max(0, unitDelegate.hp / unitDelegate.maxHp)
                                     height: parent.height
                                     radius: 2
-                                    color: unitDelegate.hp / unitDelegate.maxHp < 0.3
-                                           ? root.redColor : root.accentColor
+                                    color: unitDelegate.teamColor
                                 }
                             }
 
@@ -1583,6 +1592,22 @@ ApplicationWindow {
                                 text: "集火  " + root.snap.statistics.red_focus
                                       + " / " + root.snap.statistics.blue_focus
                                 color: Theme.text
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 11
+                                elide: Text.ElideRight
+                                width: parent.width
+                            }
+                            Text {
+                                objectName: "cooperativeAssignmentSummary"
+                                visible: !root.replayMode
+                                         && !!root.snap.statistics.cooperative_enabled
+                                text: "协同  红 " + (root.snap.statistics.red_assigned || 0)
+                                      + " 已分配 / " + (root.snap.statistics.red_unassigned || 0)
+                                      + " 未分配 · 主 " + (root.snap.statistics.red_assignment_primary || "无")
+                                      + "    蓝 " + (root.snap.statistics.blue_assigned || 0)
+                                      + " 已分配 / " + (root.snap.statistics.blue_unassigned || 0)
+                                      + " 未分配 · 主 " + (root.snap.statistics.blue_assignment_primary || "无")
+                                color: Theme.muted
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 11
                                 elide: Text.ElideRight

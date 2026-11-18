@@ -1,4 +1,4 @@
-# 无人装备战争游戏仿真系统
+# 无人装备战争仿真系统
 
 Python + PySide6/QML 二维桌面仿真。保留五类单位、地图编辑、侦察与目标共享、交战状态机、同步伤害结算和统计，按课程验收优化操作流程。仿真参数为教学抽象值。
 
@@ -18,7 +18,7 @@ Python + PySide6/QML 二维桌面仿真。保留五类单位、地图编辑、�
 - “回放”把任意一局已保存的对战按帧重放：结算对话框的“回放本局”、“运行记录”历史行末尾的“回放”，或底部工具栏的“载入回放…”（部署、运行、暂停与已结束状态都可用，刚启动即可看旧记录）。进入回放默认停在第一帧（部署帧），进度条、累计时间与运行记录都从开头起算；回放中可播放/暂停、单步前后、拖动进度滑块定位与变速，运行记录面板和战场统计同步到那一刻；回放只读记录文件，不会新建或覆盖 `runs` 下的任何文件，从部署阶段进入时退出后仍回到正在编辑的布局。详见 [时间设置与运行记录](docs/时间设置与运行记录说明.md#回放)。
 - “再来一局”恢复本次开跑前的部署并清理旧局选择；运行后的“返回部署/重置”也恢复该部署供修改。
 - 内置预设只读，自定义场景默认保存到用户目录。
-- “时间设置”可在部署或暂停时修改单步时长（0.01–60 秒）与最大运行步数（1–10,000）；默认 0.22 秒、2000 步。暂停后的上限须大于已运行步数，到上限仍未分胜负则结算平局。当前完整运行记录采用内存保留与原子保存，因此设置了有界上限。
+- “时间设置”可在部署或暂停时修改单步时长（0.01–60 秒）与最大运行步数（1–10,000）；默认 0.22 秒、1200 步。暂停后的上限须大于已运行步数。到上限仍未分胜负时按剩余战力、敌方基地剩余血量、存活数的顺序裁定胜方，三项完全持平才结算平局，避免长期僵持的每一局都判平。当前完整运行记录采用内存保留与原子保存，因此设置了有界上限。
 
 ## 安装与启动
 
@@ -33,6 +33,48 @@ python -m venv .venv
 已安装依赖时可直接运行 `python main.py`。主入口是 QML 前端；`python pygame_main.py` 保留兼容前端。
 
 Windows 单文件程序由构建脚本生成至 `dist/UAV_WarGame.exe`，双击启动，无需另装 Python。源码仓库不提交生成的 EXE；也可手动触发 GitHub Actions，在成功运行的产物中下载程序。本轮已完成 Windows 11 本机 EXE 工作流自检；独立电脑及显示缩放检查见测试报告。
+
+## 协同算法版本切换
+
+**默认版本：`htcs_strict`**（HTCS + strict 迟到策略）。这是 2026-11-16 用 5 场景 × 30 种子 × 200 步对比后选出的版本，依据见 [默认版本对比数据](docs/verification/cooperative-benchmark-default-selection-2026-11-16-30seeds.json)。
+
+| `active_version` | `mode` | `late_fire_policy` | 说明 |
+| --- | --- | --- | --- |
+| `rdma_v2` | `rdma_v2` | 不使用 | RDMA v2 旧路径 |
+| `htcs_strict`（默认） | `htcs` | `strict` | 迟到即拦截；胜率、伤害交换比、弹药效率与过杀控制综合最优 |
+| `htcs_lenient` | `htcs` | `lenient` | 保留旧迟到行为 |
+| `htcs_adaptive` | `htcs` | `adaptive` | 有界再定时/顺延；迟到拦截更少，但标称过杀更高 |
+
+支持简写：`htcs` / `strict` → `htcs_strict`，`lenient` → `htcs_lenient`，`adaptive` → `htcs_adaptive`。
+
+任选一种方式切换（优先级从高到低）：
+
+1. **环境变量（临时，不改文件）**：启动前设置 `UAV_COOPERATIVE_VERSION`，例如 PowerShell：
+
+   ```powershell
+   $env:UAV_COOPERATIVE_VERSION = "rdma_v2"
+   python main.py
+   ```
+
+   cmd 使用 `set UAV_COOPERATIVE_VERSION=rdma_v2` 后再运行。关闭终端后失效。
+
+2. **项目配置（长期）**：修改 `data/unit_config.json` 中
+   `cooperative_assignment.active_version` 的值，保存后重启程序。例如切到 adaptive：
+
+   ```json
+   "cooperative_assignment": {
+     "active_version": "htcs_adaptive"
+   }
+   ```
+
+3. **基准脚本**：`python tools/cooperative_benchmark.py --variants rdma_v2,htcs,htcs_adaptive ...`。
+   其中 `htcs` 固定使用 strict、`htcs_adaptive` 固定使用 adaptive，不受默认版本或环境变量影响。
+
+说明：
+
+- `active_version` 是唯一推荐开关；设置后会自动推导 `mode` 与 `htcs.late_fire_policy`，无需同时改两处。
+- 只有省略 `active_version` 时，才使用 `mode` 和 `htcs.late_fire_policy` 的细粒度配置，以兼容旧配置文件。
+- 环境变量优先于 `data/unit_config.json`；配置文件在进程内缓存，修改后需重启程序。
 
 ## 场景与结果文件
 
@@ -85,6 +127,24 @@ Windows 推荐用 `powershell -ExecutionPolicy Bypass -File .\build_windows.ps1`
 
 2026-10-16 验证：新增左键拖动平移，放大后按下即拖动即可平移（无需先长按），平移增量取场景坐标以保证逐步跟随光标不抖动，本机 420 项测试通过（新增 13 项 QML 鼠标事件与取消回归，含逐步跟随的抖动回归）；平移不放置、移动或选中对象，适应地图（1×）时该手势不生效。该次未重新生成打包产物与 XML 证据，真实桌面鼠标验收仍待人工。
 
+2026-11-15 验证：新增角色约束动态边际拍卖（RDMA）协同分配，`RoleFit` 按 `unit_type × target_type` 配置驱动，`can_engage()` 作为硬约束；未分配单位不再回退 `focus_target` 或最近敌人进行普通攻击，仅侦察/巡逻并保留紧急自卫；分配目标与交战目标同步，换目标重新进入反应期、冷却计时保留。全量 `python -m pytest -q` 为 **481 passed**（新增 16 项 RDMA 专项用例，0 失败、0 跳过）。固定种子 Baseline/RDMA 对比见 [cooperative-benchmark.json](docs/verification/cooperative-benchmark.json)：RDMA 的目标覆盖数与分配稳定性提高、单次分配约 0.08 ms，但本组场景更保守、单位任务利用率下降，且未提高胜率；因此该结果用于机制验证和调参，不作为胜率结论。详见 [测试报告](docs/测试报告.md#协同动态边际拍卖rdma2026-11-15) 与 [详细设计](docs/详细设计.md#协同动态边际拍卖rdma2026-11-15)。
+
+2026-11-15 验证（RDMA v2 基地战略目标）：基地通过独立战略目标池进入 RDMA，按基地 `role_fit` 列、打击包上限/下限（默认 2/1）和承诺窗口（默认 8 步）分配；Demand 改为效果型 `F_j(D)=min(1, D/(q_j·H_j))`，出价加入边际效果、过杀惩罚与弹药成本；RDMA 启用时基地攻击统一走“分配目标 = 交战目标 = 可见且可攻击”的授权，关闭时仍保留旧基地攻击通道。新增基地侦察/分配/攻击/失效与旧路径回归 8 项，全量 `python -m pytest -q` 为 **489 passed**（0 失败、0 跳过）。5 种子 × 5 场景 × ≤200 步对比见 [cooperative-benchmark-base-2026-11-15.json](docs/verification/cooperative-benchmark-base-2026-11-15.json)：`base_rush` 的基地分配单位步占比 53.3%（Baseline 5.9%），首次基地分配第 5 步；RDMA 单位任务利用率仍低于 Baseline，基地总伤害 153 也低于旧旁路的 243，说明本轮完成的是机制接入与可观察性，尚未形成战斗收益。详见 [测试报告](docs/测试报告.md#基地战略目标与效应型wta2026-11-15) 与 [详细设计](docs/详细设计.md#基地战略目标与效应型wta2026-11-15)。
+
+2026-11-15 验证（山地/建筑通行与地形修正）：`ground_vehicle`、`missile_vehicle` 可按 `data/unit_config.json` 的 `terrain_effects` 进入山地/建筑，`restricted` 与默认 `obstacle` 仍阻挡；进入后移动速度按 `speed_factor`、攻击命中按 `attack_hit_factor`、被命中按 `cover_hit_factor` 修正，双方倍率可叠加且不与视线遮挡重复惩罚。配置删除某项地形即恢复不可进入，非法倍率回退 1.0 并只警告一次。新增 `tests/test_terrain_effects.py` 31 项，全量 `python -m pytest -q` 为 **531 passed**（0 失败、0 跳过）。详见 [测试报告](docs/测试报告.md#2026-11-15-验证山地建筑通行与地形修正) 与 [详细设计](docs/详细设计.md#山地建筑通行与地形修正2026-11-15)。
+
+2026-11-15 验证（补充：空中单位地形命中修正）：`scout_drone`、`strike_drone` 也配置山地/建筑 `terrain_effects`，`speed_factor=1.0`、`attack_hit_factor=0.85`、`cover_hit_factor=0.80`；空中单位位于山地/建筑内时命中与被命中各按 ×0.85 / ×0.80 修正，速度保持不变；位于禁行区或默认障碍物内时仍沿用原有 0.3 视线遮挡。新增 5 项测试（`tests/test_terrain_effects.py` 共 36 项），全量 `python -m pytest -q` 为 **536 passed**（0 失败、0 跳过）。详见 [测试报告](docs/测试报告.md#五补充验证空中单位的地形命中修正2026-11-15) 与 [详细设计](docs/详细设计.md#山地建筑通行与地形修正2026-11-15)。
+
+2026-11-15 验证（障碍物直线遮挡与叠加）：攻击者到目标的攻击直线每穿过一个障碍物，就按 `data/obstacle_config.json` 的类型倍率衰减命中率，多个障碍物连续相乘；当前缺省为山地 ×0.45、建筑 ×0.35、禁行区/默认障碍 ×0.30，未配置类型使用 `default_hit_factor`。攻击方或目标自身所在且可通行的地形不重复计入直线遮挡。新增 `tests/test_obstacle_hit_factor.py` 10 项，全量 `python -m pytest -q` 为 **546 passed**（0 失败、0 跳过）。详见 [测试报告](docs/测试报告.md#2026-11-15-验证障碍物直线遮挡与叠加) 与 [详细设计](docs/详细设计.md#障碍物直线遮挡与按兵种命中衰减2026-11-15)。
+
+2026-11-15 验证（按兵种配置障碍物命中衰减）：遮挡倍率移入 `data/unit_config.json` 的 `obstacle_hit_factors`，攻击直线每穿过一个障碍物就乘一次**攻击方兵种**对该类型的倍率。导弹发射车 0.92~0.95（基本无影响）、侦察/打击无人机 0.52~0.65（次之）、无人战车 0.25~0.30（最严重）；未配置类型按 1.0，非法值回退 1.0 并只警告一次。旧 `data/obstacle_config.json` 与 `core/obstacle_config_loader.py` 已移除。`tests/test_obstacle_hit_factor.py` 改写为 15 项，全量 `python -m pytest -q` 为 **551 passed**（0 失败、0 跳过）。详见 [测试报告](docs/测试报告.md#2026-11-15-验证按兵种配置障碍物命中衰减) 与 [详细设计](docs/详细设计.md#障碍物直线遮挡与按兵种命中衰减2026-11-15)。
+
+2026-11-15 验证（分层时相协同打击 HTCS / RDMA v3）：`cooperative_assignment.mode` 新增可选值 `htcs`，缺省仍为 `rdma_v2`，既有对局行为不变。HTCS 在 RDMA v2 的出价之上增加三层结构：滚动波次（每 6 步重规划，任务只承诺本波次可投入的伤害）、任务束（CBBA 风格，每单位 ≤2 个任务、按 ETA 做时间折扣、按最晚到达者定共同 TOT）、火力门（提前待机、窗口内齐射）。配套机制包括伤害账本（排队时刻登记期望伤害、饱和即停火）、BDA 与再攻击加权、SEAD 先导与命中压制、四战法态势自适应（斩首/压基地/消耗/平衡）以及可选的断链降级。新增 `core/time_coordination.py`、`core/damage_ledger.py`、`core/strike_planner.py` 与 23 项 `htcs` 配置（非法值按键回退并只警告一次）。新增 5 个测试文件共 168 项，全量 `python -m pytest -q` 为 **719 passed**（0 失败、0 跳过）。3 种子 × 150 步 × 5 场景 × 3 变体对比见 [cooperative-benchmark-htcs-2026-11-15.json](docs/verification/cooperative-benchmark-htcs-2026-11-15.json)：`mirrored` 红方胜率 66.7%（Baseline 与 RDMA v2 均 33.3%）、弹药 19.3 发（40.7 / 29.3）；`base_rush` 红方对蓝基地伤害 396（270 / 72）；HTCS 单次规划 0.16–0.72 ms；SEAD 与火力纪律在基准场景中未触发，由构造场景的集成测试覆盖。详见 [测试报告](docs/测试报告.md#2026-11-15-验证分层时相协同打击htcs) 与 [详细设计](docs/详细设计.md#分层时相协同打击htcs2026-11-15)。
+
+2026-11-16 验证（HTCS 任务级延期预算与时间一致性）：自适应迟到策略新增 `late_fire_task_delay_max_steps`（缺省 60，0 表示禁止延期），与 `late_fire_retime_max` 分别限制“累计推迟时间”和“再定时次数”，两者先到者生效；重规划、跨波次保留计划与退役任务共用同一份预算，不再重新获得额度。`_htcs_shift_task()` 同步 `FirePlan` 窗口、`StrikeTask.tot_step/window_start/late_until` 与 `assignments.attack_steps`，并受同单位后续任务窗口约束；`reached` 只保留历史语义，实际排队射击前改为按当前射程/可见性/交战目标/压制状态复检；任务取消或挂起时按 `task_id` 释放未结算预约。全量 `python -m pytest -q` 为 **788 passed**（上一版自适应记录 775，新增 13 项，0 失败、0 跳过）。5 场景 × 3 种子 × 200 步固定种子对比见 [cooperative-benchmark-task-budget-2026-11-16.json](docs/verification/cooperative-benchmark-task-budget-2026-11-16.json)：`strict` 各机制指标与修改前逐项一致；`adaptive` 迟到拦截 40 → 33、再定时 37 → 33、挂起 3 → 9、再攻击标记 1694 → 1603、标称过杀 9 → 0。样本较小，胜负数据不作为结论。详见 [测试报告](docs/测试报告.md#htcs-任务级延期预算与时间一致性2026-11-16)；本次实现与测试对比记录在项目上级目录的 `Aiagent.md`。
+
+2026-11-16 默认版本选定（RDMA v2 / HTCS strict / HTCS adaptive）：固定种子 30 × 5 场景 × 200 步 × 3 变体 = 450 局，数据见 [cooperative-benchmark-default-selection-2026-11-16-30seeds.json](docs/verification/cooperative-benchmark-default-selection-2026-11-16-30seeds.json)。红方胜率 `rdma_v2` 45/150（30.0%）、`htcs` strict 46/150（30.7%）、`htcs_adaptive` 45/150（30.0%），差异在抽样误差内；`htcs` strict 的伤害交换比最高（1.319，另两者 1.227 / 1.171）、承受伤害最低（12531，另两者 13712 / 17746）、弹药最少（2704，另两者 2788 / 3663）、标称过杀最低（15，另两者 52 / 60），镜像场景胜率 50.0%（另两者 43.3% / 36.7%）。`htcs_adaptive` 把迟到拦截从 836 降到 336，并产生 402 次再定时、93 次顺延，但未转化为胜率提升且标称过杀更高，保留为可选策略。因此 `cooperative_assignment.mode` 默认改为 `htcs`，`htcs.late_fire_policy` 保持 `strict`；`rdma_v2` 与 `lenient` 仍可显式配置。全量 `python -m pytest -q` 为 **788 passed**（93.43 秒）；RDMA 专属回归测试改为显式固定 `mode="rdma_v2"`。已知权衡：`defended_base` 场景 strict 胜率 3.3%，低于 `rdma_v2` 的 13.3%。默认选择过程记录在项目上级目录的 `Aiagent.md`。
+
 `.github/workflows/verify.yml` 提供 Windows 自动测试；手动触发还会构建并保存 EXE。源码压缩包需要提交到自己的 GitHub 仓库后，工作流才会执行。
 
 ## 代码结构
@@ -93,7 +153,11 @@ Windows 推荐用 `powershell -ExecutionPolicy Bypass -File .\build_windows.ps1`
 | --- | --- |
 | main.py / ui/qt_app.py | QML 主程序入口与初始化 |
 | core/controller.py | 部署、加载、保存、运行、重跑和结果导出 |
-| core/simulator.py | 侦察、共享、移动、攻击、补给与胜负 |
+| core/simulator.py | 侦察、共享、RDMA/HTCS 分配同步、波次重规划、火力门、BDA、移动、攻击、补给与胜负 |
+| core/cooperative_allocator.py | 角色约束动态边际拍卖：RoleFit、效果型 Demand、边际出价、基地打击包与承诺窗口 |
+| core/strike_planner.py | HTCS 任务规划：战法选择、任务候选、任务束、ETA 时间折扣、TOT 与本波次容量估计 |
+| core/time_coordination.py | ETA 估计、共同打击时刻与火力门（`FireWindow`/`FirePlan`） |
+| core/damage_ledger.py | 伤害账本：排队时刻登记期望伤害、结算替换为实际伤害、饱和判定 |
 | core/target_pool.py | 目标延迟交付与超时清理 |
 | core/map_persistence.py / scenario_loader.py | 持久化、场景读写与验证 |
 | core/terrain_catalog.py | 地图背景、中文标题与按世界尺寸缩放的地标数据 |
@@ -101,7 +165,8 @@ Windows 推荐用 `powershell -ExecutionPolicy Bypass -File .\build_windows.ps1`
 | ui/qml/ / ui/assets/ | 主界面、工作流组件和图标 |
 | ui/qml/TerrainLayer.qml / MapOverview.qml | 底图、地标及小地图，复用主界面相机坐标 |
 | ui/assets/maps/ | 两张参考地图原图及素材来源、哈希记录 |
-| data/unit_config.json | 五类单位的教学参数 |
+| data/unit_config.json | 五类单位的教学参数、地形通行/命中修正、按兵种配置的障碍物遮挡倍率与 `cooperative_assignment`（含 `htcs` 23 项） |
+| tools/cooperative_benchmark.py | 固定种子 Baseline/RDMA v2/HTCS 对比，含基地、HTCS 火力计划、BDA、SEAD 与战法指标 |
 | tests/ | 核心与界面回归测试 |
 | docs/ | 需求、设计、操作、工作流和测试记录 |
 

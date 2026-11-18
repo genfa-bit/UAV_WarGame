@@ -12,8 +12,8 @@ from config import (
     DETECT_BLUE,
     DETECT_RED,
     GRID_COLOR,
-    HP_GREEN,
-    HP_RED,
+    HP_TRACK_BLUE,
+    HP_TRACK_RED,
     MAP_HEIGHT,
     MAP_WIDTH,
     OBSTACLE_COLOR,
@@ -91,9 +91,9 @@ class Renderer:
             self.screen.blit(label, (rect.x + 4, rect.y + 2))
 
     def _draw_bases(self, battlefield) -> None:
-        for label, base_obj, color in (
-            ("红基地", battlefield.red_base_obj, RED_COLOR),
-            ("蓝基地", battlefield.blue_base_obj, BLUE_COLOR),
+        for label, base_obj, color, track in (
+            ("红基地", battlefield.red_base_obj, RED_COLOR, HP_TRACK_RED),
+            ("蓝基地", battlefield.blue_base_obj, BLUE_COLOR, HP_TRACK_BLUE),
         ):
             x, y = int(base_obj.x), int(base_obj.y)
             pygame.draw.circle(self.screen, color, (x, y), 18, 2)
@@ -105,9 +105,9 @@ class Renderer:
             bw, bh = 40, 5
             bar_x = x - bw // 2
             bar_y = y - 30
-            pygame.draw.rect(self.screen, HP_RED, (bar_x, bar_y, bw, bh))
+            pygame.draw.rect(self.screen, track, (bar_x, bar_y, bw, bh))
             hp_w = int(bw * max(0, base_obj.hp_ratio))
-            pygame.draw.rect(self.screen, HP_GREEN, (bar_x, bar_y, hp_w, bh))
+            pygame.draw.rect(self.screen, color, (bar_x, bar_y, hp_w, bh))
             pygame.draw.rect(self.screen, (18, 18, 18), (bar_x, bar_y, bw, bh), 1)
 
     @staticmethod
@@ -183,9 +183,12 @@ class Renderer:
         w, h = 34, 5
         x = sx - w // 2
         y = sy - 24
-        pygame.draw.rect(self.screen, HP_RED, (x, y, w, h))
+        is_red = unit.team == "red"
+        fill = RED_COLOR if is_red else BLUE_COLOR
+        track = HP_TRACK_RED if is_red else HP_TRACK_BLUE
+        pygame.draw.rect(self.screen, track, (x, y, w, h))
         hp_w = int(w * max(0, unit.hp_ratio))
-        pygame.draw.rect(self.screen, HP_GREEN, (x, y, hp_w, h))
+        pygame.draw.rect(self.screen, fill, (x, y, hp_w, h))
         pygame.draw.rect(self.screen, (18, 18, 18), (x, y, w, h), 1)
 
     def _draw_unit_label(self, unit: Unit, sx: int, sy: int) -> None:
